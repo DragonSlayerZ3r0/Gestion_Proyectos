@@ -1,61 +1,61 @@
-# Fases de implementacion
+# Fases de implementación
 
-## Fase 1: Base tecnica
+## Fase 1: Base técnica
 
 - Objetivo: crear estructura inicial de frontend, backend e infraestructura.
-- Funcionalidad incluida: layout base, Lambda base, configuracion de ambientes.
-- Criterios de aceptacion: proyecto ejecuta localmente y tiene estructura documentada.
+- Funcionalidad incluida: layout base, Lambda base, configuración de ambientes.
+- Criterios de aceptación: proyecto ejecuta localmente y tiene estructura documentada.
 
 ## Fase 2: Login y /api/me
 
 - Objetivo: autenticar usuario y obtener perfil funcional.
 - Funcionalidad incluida: Cognito, JWT, endpoint `/api/me`.
-- Criterios de aceptacion: usuario autenticado recibe modulos y permisos.
+- Criterios de aceptación: usuario autenticado recibe módulos y permisos.
 
 ## Fase 3: Usuarios y accesos
 
-- Objetivo: administrar usuarios funcionales y modulos.
-- Funcionalidad incluida: tabla DynamoDB, permisos por modulo, vista admin inicial.
-- Criterios de aceptacion: admin habilita o deshabilita modulos por usuario.
+- Objetivo: administrar usuarios funcionales y módulos.
+- Funcionalidad incluida: tabla DynamoDB, permisos por módulo, vista admin inicial.
+- Criterios de aceptación: admin habilita o deshabilita módulos por usuario.
 
 ## Fase 4: Proyectos
 
 - Objetivo: crear y consultar proyectos.
-- Funcionalidad incluida: CRUD basico, miembros, owner.
-- Criterios de aceptacion: usuarios autorizados gestionan proyectos.
+- Funcionalidad incluida: CRUD básico, miembros, responsable.
+- Criterios de aceptación: usuarios autorizados gestionan proyectos.
 
 ## Fase 5: Tareas
 
 - Objetivo: gestionar tareas por proyecto.
 - Funcionalidad incluida: estados, prioridades, responsables, comentarios.
-- Criterios de aceptacion: prioridad cambia en cualquier estado y queda auditada.
+- Criterios de aceptación: prioridad cambia en cualquier estado y queda auditada.
 
-## Fase 6: Catalogo Glue
+## Fase 6: Catálogo Glue
 
-- Objetivo: listar metadata tecnica permitida.
+- Objetivo: listar metadata técnica permitida.
 - Funcionalidad incluida: bases, tablas y columnas desde Glue Catalog.
-- Criterios de aceptacion: usuario solo ve recursos autorizados.
+- Criterios de aceptación: usuario solo ve recursos autorizados.
 
 ## Fase 7: Contexto funcional
 
 - Objetivo: documentar tablas y columnas.
 - Funcionalidad incluida: contexto funcional en DynamoDB.
-- Criterios de aceptacion: metadata tecnica y contexto funcional se muestran juntos.
+- Criterios de aceptación: metadata técnica y contexto funcional se muestran juntos.
 
 ## Fase 8: Athena preview
 
 - Objetivo: previsualizar datos de forma controlada.
 - Funcionalidad incluida: consultas limitadas y seguras.
-- Criterios de aceptacion: no existe SQL libre desde frontend.
+- Criterios de aceptación: no existe SQL libre desde frontend.
 
 ## Fase 9: Tableros
 
-- Objetivo: mostrar indicadores y resumenes.
+- Objetivo: mostrar indicadores y resúmenes.
 - Funcionalidad incluida: paneles internos iniciales.
-- Criterios de aceptacion: tableros respetan permisos.
+- Criterios de aceptación: tableros respetan permisos.
 
-## Fase 10: Auditoria y mejoras
+## Fase 10: Auditoría y mejoras
 
 - Objetivo: robustecer trazabilidad y experiencia.
-- Funcionalidad incluida: filtros de auditoria, mejoras de UX, manejo de errores.
-- Criterios de aceptacion: acciones sensibles pueden revisarse por auditoria.
+- Funcionalidad incluida: filtros de auditoría, mejoras de UX, manejo de errores.
+- Criterios de aceptación: acciones sensibles pueden revisarse por auditoría.

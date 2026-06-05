@@ -8,13 +8,13 @@ MODULES = [
     ("home", "Inicio"),
     ("projects", "Proyectos"),
     ("tasks", "Tareas"),
-    ("catalog", "Catalogo"),
-    ("admin", "Administracion")
+    ("catalog", "Catálogo"),
+    ("admin", "Administración")
 ]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Seed inicial para Gestion de Proyectos.")
+    parser = argparse.ArgumentParser(description="Seed inicial para Gestión de Proyectos.")
     parser.add_argument("--table-name", required=True)
     parser.add_argument("--email", default="usr041100@banrural.com.gt")
     parser.add_argument("--profile", default="186281981036_aws-ps-admin-analitica-bdr")
@@ -65,4 +65,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

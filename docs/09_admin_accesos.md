@@ -1,33 +1,33 @@
-# Administracion y accesos
+# Administración y accesos
 
 ## Objetivo
 
-Permitir que usuarios administradores gestionen accesos funcionales globales, usuarios y auditoria inicial.
+Permitir que usuarios administradores gestionen accesos funcionales globales, usuarios y auditoría inicial.
 
 ## Alcance inicial del administrador
 
 El admin inicialmente solo gestiona accesos globales.
 
-La asignacion a proyectos puede hacerla el project owner o el usuario mediante autoasignacion, segun configuracion del proyecto.
+La asignación a proyectos puede hacerla el responsable de proyecto o el usuario mediante autoasignación, según configuración del proyecto.
 
 ## Que puede ver el admin
 
 - Usuarios funcionales.
-- Estado de activacion.
-- Modulos habilitados por usuario.
+- Estado de activación.
+- Módulos habilitados por usuario.
 - Roles globales.
-- Eventos de auditoria.
+- Eventos de auditoría.
 
 ## Que puede modificar el admin
 
 - Activar o desactivar usuarios funcionales.
-- Habilitar o deshabilitar modulos por usuario.
+- Habilitar o deshabilitar módulos por usuario.
 - Asignar roles globales.
 - Revisar actividad administrativa.
 
-## Gestion de modulos por usuario
+## Gestión de módulos por usuario
 
-Cada modulo debe tener una clave estable, por ejemplo:
+Cada módulo debe tener una clave estable, por ejemplo:
 
 ```text
 home
@@ -39,6 +39,6 @@ requests
 admin
 ```
 
-## Auditoria
+## Auditoría
 
-La vista de auditoria debe permitir revisar acciones sensibles. Al inicio puede filtrar por fecha, usuario, tipo de entidad y accion.
+La vista de auditoría debe permitir revisar acciones sensibles. Al inicio puede filtrar por fecha, usuario, tipo de entidad y acción.

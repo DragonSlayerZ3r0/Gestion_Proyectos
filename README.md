@@ -1,16 +1,16 @@
-# Gestion de Proyectos
+# Gestión de Proyectos
 
-Base de trabajo para una plataforma interna de gestion de proyectos, tareas, accesos funcionales y catalogo de Data Lake sobre AWS.
+Base de trabajo para una plataforma interna de gestión de proyectos, tareas, accesos funcionales y catálogo de Data Lake sobre AWS.
 
-La aplicacion debe mantenerse simple, clara y rapida. No busca replicar Jira ni convertirse en una herramienta pesada de seguimiento. Debe servir como base modular para equipos internos que necesitan coordinar proyectos, tareas, datos disponibles y permisos de acceso.
+La aplicación debe mantenerse simple, clara y rápida. No busca replicar Jira ni convertirse en una herramienta pesada de seguimiento. Debe servir como base modular para equipos internos que necesitan coordinar proyectos, tareas, datos disponibles y permisos de acceso.
 
 ## Proposito
 
 - Gestionar proyectos internos y sus tareas.
 - Controlar accesos por usuario, modulo y proyecto.
-- Mostrar solo los modulos habilitados para cada usuario.
-- Integrar un catalogo funcional sobre Glue Catalog, DynamoDB y Athena.
-- Mantener auditoria de cambios relevantes.
+- Mostrar solo los módulos habilitados para cada usuario.
+- Integrar un catálogo funcional sobre Glue Catalog, DynamoDB y Athena.
+- Mantener auditoría de cambios relevantes.
 
 ## Arquitectura esperada
 
@@ -19,7 +19,7 @@ La aplicacion debe mantenerse simple, clara y rapida. No busca replicar Jira ni 
 - Autenticacion: Amazon Cognito.
 - API: API Gateway con Lambda Python.
 - Datos operativos: DynamoDB.
-- Catalogo tecnico: Glue Catalog.
+- Catálogo técnico: Glue Catalog.
 - Consultas controladas: Athena.
 - Data Lake: S3.
 
@@ -29,7 +29,7 @@ El contexto detallado vive en `docs/`:
 
 - `docs/00_contexto_general.md`: objetivo, alcance y principios.
 - `docs/01_arquitectura_aws.md`: infraestructura y flujos tecnicos.
-- `docs/02_modulos_funcionales.md`: modulos esperados.
+- `docs/02_modulos_funcionales.md`: módulos esperados.
 - `docs/03_seguridad_accesos.md`: autenticacion, autorizacion y permisos.
 - `docs/04_modelo_dynamodb.md`: modelo operacional.
 - `docs/05_api_backend.md`: estructura y contratos de API.
@@ -46,7 +46,7 @@ El contexto detallado vive en `docs/`:
 
 ## Estado actual
 
-Este directorio contiene el primer corte tecnico desplegado en `dev`: monorepo con frontend Astro, backend Lambda Python e infraestructura CDK TypeScript sobre la cuenta `186281981036`.
+Este directorio contiene el primer corte técnico desplegado en `dev`: monorepo con frontend Astro, backend Lambda Python e infraestructura CDK TypeScript sobre la cuenta `186281981036`.
 
 - Frontend: `https://d269paz1z7q1g0.cloudfront.net/`
 - API: `https://63ibnl13da.execute-api.us-east-1.amazonaws.com/`
@@ -61,13 +61,13 @@ npm run dev
 npm run infra:deploy
 ```
 
-Antes de cualquier accion AWS:
+Antes de cualquier acción AWS:
 
 ```bash
 aws sts get-caller-identity --profile 186281981036_aws-ps-admin-analitica-bdr
 ```
 
-Despues de desplegar infraestructura, publicar el frontend estatico:
+Después de desplegar infraestructura, publicar el frontend estático:
 
 ```bash
 npm run build -w frontend

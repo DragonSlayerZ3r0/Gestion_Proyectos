@@ -9,7 +9,7 @@ Cognito dice quien es el usuario. DynamoDB dice que puede hacer. Lambda aplica l
 - Usar Amazon Cognito.
 - Validar JWT con API Gateway JWT Authorizer.
 - No aceptar llamadas anonimas a endpoints privados.
-- No manejar contrasenas en la aplicacion.
+- No manejar contraseñas en la aplicación.
 
 ## Autorizacion funcional
 
@@ -27,7 +27,7 @@ Cada Lambda debe validar permisos antes de ejecutar acciones. No basta con que e
 
 ## Roles globales iniciales
 
-- `admin`: administra accesos globales y auditoria.
+- `admin`: administra accesos globales y auditoría.
 - `user`: usuario funcional base.
 - `project_owner`: administra proyectos donde tenga ese rol.
 

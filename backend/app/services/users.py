@@ -8,8 +8,8 @@ DEFAULT_MODULES = [
     {"key": "home", "label": "Inicio", "enabled": True},
     {"key": "projects", "label": "Proyectos", "enabled": True},
     {"key": "tasks", "label": "Tareas", "enabled": True},
-    {"key": "catalog", "label": "Catalogo", "enabled": True},
-    {"key": "admin", "label": "Administracion", "enabled": True}
+    {"key": "catalog", "label": "Catálogo", "enabled": True},
+    {"key": "admin", "label": "Administración", "enabled": True}
 ]
 
 
@@ -24,7 +24,7 @@ class UserService:
     def get_me(self, identity: dict[str, str]) -> dict[str, Any]:
         profile = self._repository.get_user_profile(identity["userId"])
         if profile is None:
-            raise UserNotConfiguredError("El usuario autenticado no esta configurado funcionalmente.")
+            raise UserNotConfiguredError("El usuario autenticado no está configurado funcionalmente.")
 
         module_items = self._repository.list_user_modules(identity["userId"])
         modules = self._normalize_modules(module_items)
@@ -54,4 +54,3 @@ class UserService:
                     "enabled": True
                 })
         return modules
-

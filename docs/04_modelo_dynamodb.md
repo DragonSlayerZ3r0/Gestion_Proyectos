@@ -2,7 +2,7 @@
 
 ## Tabla principal recomendada
 
-Usar una tabla operacional unica inicialmente, con claves genericas:
+Usar una tabla operacional única inicialmente, con claves genéricas:
 
 ```text
 PK
@@ -75,18 +75,18 @@ SK = <timestamp>#<eventId>
 ## Patrones de consulta
 
 - Obtener perfil de usuario por `USER#<userId>`.
-- Obtener modulos habilitados por usuario.
-- Listar proyectos donde participa un usuario mediante indice si es necesario.
+- Obtener módulos habilitados por usuario.
+- Listar proyectos donde participa un usuario mediante índice si es necesario.
 - Listar tareas por proyecto.
 - Obtener contexto funcional de una tabla.
 - Obtener contexto de columnas de una tabla.
-- Consultar auditoria por fecha.
+- Consultar auditoría por fecha.
 
-## Indices potenciales
+## Índices potenciales
 
-Agregar indices solo cuando el patron de consulta lo requiera:
+Agregar índices solo cuando el patrón de consulta lo requiera:
 
 - GSI para proyectos por usuario.
 - GSI para tareas por responsable.
 - GSI para tareas por estado.
-- GSI para auditoria por entidad afectada.
+- GSI para auditoría por entidad afectada.

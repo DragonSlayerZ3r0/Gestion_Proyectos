@@ -277,8 +277,8 @@ function moduleLabel(moduleKey: string): string {
     home: "Inicio",
     projects: "Proyectos",
     tasks: "Tareas",
-    catalog: "Catalogo",
-    admin: "Administracion"
+    catalog: "Catálogo",
+    admin: "Administración"
   };
   return labels[moduleKey] ?? moduleKey;
 }

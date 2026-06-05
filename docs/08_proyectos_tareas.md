@@ -71,7 +71,7 @@ La prioridad de una tarea puede cambiarse en cualquier momento si el usuario tie
 
 La prioridad no debe bloquear el cambio de estado. Una tarea puede cambiar de prioridad aunque este pendiente, en progreso, en revision o completada.
 
-Todo cambio de prioridad debe registrarse en auditoria.
+Todo cambio de prioridad debe registrarse en auditoría.
 
 ## Comentarios
 

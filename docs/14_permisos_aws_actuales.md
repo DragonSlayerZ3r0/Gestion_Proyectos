@@ -6,15 +6,15 @@
 - Cuenta: `186281981036`
 - Region principal: `us-east-1`
 - Rol asumido: `AWSReservedSSO_aws-ps-admin-analitica-bdr_f6f115306273af6d`
-- ARN de sesion validado: `arn:aws:sts::186281981036:assumed-role/AWSReservedSSO_aws-ps-admin-analitica-bdr_f6f115306273af6d/usr041100@banrural.com.gt`
+- ARN de sesión validado: `arn:aws:sts::186281981036:assumed-role/AWSReservedSSO_aws-ps-admin-analitica-bdr_f6f115306273af6d/usr041100@banrural.com.gt`
 
-No guardar llaves, secretos ni tokens de sesion en este repositorio.
+No guardar llaves, secretos ni tokens de sesión en este repositorio.
 
-## Regla operativa de sesion
+## Regla operativa de sesión
 
 Para este proyecto, usar el perfil `186281981036_aws-ps-admin-analitica-bdr` salvo instruccion contraria.
 
-Antes de ejecutar acciones AWS relevantes, validar la sesion con:
+Antes de ejecutar acciones AWS relevantes, validar la sesión con:
 
 ```bash
 aws sts get-caller-identity --profile 186281981036_aws-ps-admin-analitica-bdr
@@ -95,8 +95,8 @@ La fase inicial ya fue desplegada con estos servicios:
 - Cognito para autenticacion.
 - API Gateway para API.
 - Lambda Python para backend.
-- DynamoDB para datos operativos, permisos y auditoria.
-- Glue Catalog y Athena para catalogo Data Lake y preview controlado.
+- DynamoDB para datos operativos, permisos y auditoría.
+- Glue Catalog y Athena para catálogo Data Lake y preview controlado.
 - CloudWatch Logs para observabilidad.
 - IAM roles y politicas via CloudFormation/CDK.
 

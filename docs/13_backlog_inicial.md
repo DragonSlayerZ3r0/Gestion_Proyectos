@@ -4,28 +4,28 @@
 
 - Crear estructura frontend Astro.
 - Crear estructura backend Lambda Python.
-- Definir configuracion por ambiente.
+- Definir configuración por ambiente.
 - Crear layout principal.
-- Crear componentes base de navegacion.
+- Crear componentes base de navegación.
 
-## Autenticacion y perfil
+## Autenticación y perfil
 
 - Implementar login Cognito.
 - Implementar logout.
 - Configurar API Gateway JWT Authorizer.
 - Crear endpoint `GET /api/me`.
-- Devolver perfil, modulos y permisos.
+- Devolver perfil, módulos y permisos.
 
 ## Datos y permisos
 
 - Crear tabla DynamoDB principal.
 - Crear entidades `USER` y `USER_MODULE`.
-- Implementar validacion de permisos en Lambda.
-- Crear auditoria base.
+- Implementar validación de permisos en Lambda.
+- Crear auditoría base.
 
 ## Proyectos
 
-- Crear modulo Proyectos.
+- Crear módulo Proyectos.
 - Crear endpoint para listar proyectos.
 - Crear endpoint para crear proyecto.
 - Crear detalle de proyecto.
@@ -42,9 +42,9 @@
 - Agregar comentarios.
 - Crear Kanban simple.
 
-## Catalogo Data Lake
+## Catálogo Data Lake
 
-- Crear modulo Catalogo.
+- Crear módulo Catálogo.
 - Integrar Glue Catalog.
 - Listar bases de datos permitidas.
 - Listar tablas permitidas.
@@ -61,10 +61,10 @@
 - Bloquear SQL libre desde frontend.
 - Auditar consultas cuando aplique.
 
-## Administracion
+## Administración
 
-- Crear modulo Admin.
+- Crear módulo Administración.
 - Listar usuarios funcionales.
 - Activar y desactivar usuarios.
-- Habilitar modulos por usuario.
-- Mostrar vista inicial de auditoria.
+- Habilitar módulos por usuario.
+- Mostrar vista inicial de auditoría.

@@ -1,24 +1,24 @@
 # Integraciones AWS
 
-El perfil operativo validado para iniciar construccion esta documentado en `docs/14_permisos_aws_actuales.md`. Ese archivo resume cuenta, rol, servicios probados, permisos inferidos y limitantes actuales.
+El perfil operativo validado para iniciar construcción está documentado en `docs/14_permisos_aws_actuales.md`. Ese archivo resume cuenta, rol, servicios probados, permisos inferidos y limitantes actuales.
 
 ## Cognito
 
-- Uso: autenticacion de usuarios.
-- Permisos IAM: configuracion administrada fuera de Lambda salvo necesidades especificas.
+- Uso: autenticación de usuarios.
+- Permisos IAM: configuración administrada fuera de Lambda salvo necesidades específicas.
 - Variables: `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_DOMAIN`.
-- Consideraciones: no mezclar autenticacion con autorizacion funcional.
+- Consideraciones: no mezclar autenticación con autorización funcional.
 
 ## DynamoDB
 
-- Uso: datos operativos, permisos, contexto funcional y auditoria.
+- Uso: datos operativos, permisos, contexto funcional y auditoría.
 - Permisos IAM: `GetItem`, `PutItem`, `UpdateItem`, `Query`, `DeleteItem` cuando aplique.
 - Variables: `MAIN_TABLE_NAME`.
-- Consideraciones: disenar claves segun patrones de consulta.
+- Consideraciones: diseñar claves según patrones de consulta.
 
 ## Glue Catalog
 
-- Uso: metadata tecnica de Data Lake.
+- Uso: metadata técnica de Data Lake.
 - Permisos IAM: `glue:GetDatabases`, `glue:GetTables`, `glue:GetTable`, `glue:GetPartitions` si aplica.
 - Variables: `GLUE_CATALOG_ID` opcional.
 - Consideraciones: Glue no guarda contexto funcional de negocio.
@@ -32,24 +32,24 @@ El perfil operativo validado para iniciar construccion esta documentado en `docs
 
 ## S3
 
-- Uso: frontend estatico privado, Data Lake y resultados Athena.
-- Permisos IAM: segun bucket y funcion.
+- Uso: frontend estático privado, Data Lake y resultados Athena.
+- Permisos IAM: según bucket y función.
 - Variables: `DATA_LAKE_BUCKET`, `ATHENA_OUTPUT_BUCKET`.
-- Consideraciones: no usar buckets publicos para el frontend; servir por CloudFront.
+- Consideraciones: no usar buckets públicos para el frontend; servir por CloudFront.
 
 ## CloudWatch
 
-- Uso: logs y metricas.
-- Permisos IAM: permisos basicos de Lambda para logs.
+- Uso: logs y métricas.
+- Permisos IAM: permisos básicos de Lambda para logs.
 - Variables: nivel de logging si aplica.
 - Consideraciones: no registrar secretos ni datos sensibles innecesarios.
 
 ## IAM
 
 - Uso: permisos entre servicios.
-- Consideraciones: usar minimo privilegio y separar permisos por ambiente.
+- Consideraciones: usar mínimo privilegio y separar permisos por ambiente.
 
 ## Lake Formation opcional
 
 - Uso: control avanzado de acceso a datos.
-- Consideraciones: evaluarlo cuando el catalogo y preview requieran controles mas finos.
+- Consideraciones: evaluarlo cuando el catálogo y preview requieran controles más finos.

@@ -1,22 +1,26 @@
 # Frontend y UX
 
+Nota de idioma: aunque se mantenga el término técnico `frontend`, toda la experiencia visible debe estar en español. Títulos, botones, mensajes, labels, estados vacíos y errores deben usar español claro y consistente.
+
 ## Principio de experiencia
 
 Interfaz simple, pocos botones, pantallas limpias y sin sobrecargar al usuario.
 
-La aplicacion no debe parecer Jira. Debe sentirse como una herramienta interna clara, directa y liviana.
+La aplicación no debe parecer Jira. Debe sentirse como una herramienta interna clara, directa y liviana.
+
+La primera pantalla debe orientar sin convertirse en landing page: mostrar estado de sesión, módulos disponibles, estado del ambiente y próximos pasos operativos. Los módulos iniciales pueden usar paneles informativos mientras no exista CRUD completo, pero deben verse como una aplicación funcional y no como placeholders descuidados.
 
 ## Layout general
 
-- Menu lateral con modulos habilitados.
-- Header con nombre de usuario, ambiente y accion de salida.
-- Area principal enfocada en la tarea actual.
-- Estados vacios claros y accionables.
+- Menú lateral con módulos habilitados.
+- Header con nombre de usuario, ambiente y acción de salida.
+- Área principal enfocada en la tarea actual.
+- Estados vacíos claros y accionables.
 - Tablas densas pero legibles.
 
-## Menu lateral
+## Menú lateral
 
-El menu se construye desde la respuesta de `GET /api/me`. Solo debe mostrar modulos habilitados para el usuario.
+El menú se construye desde la respuesta de `GET /api/me`. Solo debe mostrar módulos habilitados para el usuario.
 
 Ocultar opciones no reemplaza seguridad backend.
 
@@ -64,6 +68,6 @@ Estados sugeridos:
 
 El Kanban no debe incorporar configuraciones complejas al inicio.
 
-## Menu dinamico por permisos
+## Menú dinámico por permisos
 
 El frontend debe consumir permisos calculados desde backend. No debe codificar permisos sensibles solo en cliente.

@@ -1,5 +1,5 @@
 ---
-const title = "Gestion de Proyectos";
+const title = "Gestión de Proyectos";
 ---
 
 <!doctype html>
@@ -12,11 +12,11 @@ const title = "Gestion de Proyectos";
   </head>
   <body>
     <div id="app" class="shell">
-      <aside class="sidebar" aria-label="Modulos">
+      <aside class="sidebar" aria-label="Módulos">
         <div class="brand">
           <span class="brandMark">GP</span>
           <div>
-            <strong>Gestion</strong>
+            <strong>Gestión</strong>
             <small>Proyectos</small>
           </div>
         </div>
@@ -30,15 +30,15 @@ const title = "Gestion de Proyectos";
             <h1 id="viewTitle">Inicio</h1>
           </div>
           <div class="session">
-            <span id="userLabel">Sin sesion</span>
+            <span id="userLabel">Sin sesión</span>
             <button id="loginButton" type="button">Ingresar</button>
             <button id="logoutButton" type="button" hidden>Salir</button>
           </div>
         </header>
 
         <section id="statusPanel" class="statusPanel">
-          <h2>Base tecnica</h2>
-          <p>Inicia sesion para cargar tu perfil funcional y modulos habilitados.</p>
+          <h2>Base técnica</h2>
+          <p>Inicia sesión para cargar tu perfil funcional y módulos habilitados.</p>
         </section>
 
         <section id="contentPanel" class="contentGrid" hidden></section>
@@ -49,26 +49,54 @@ const title = "Gestion de Proyectos";
       // @ts-nocheck
       import { UserManager, WebStorageStateStore } from "oidc-client-ts";
 
+      const defaultModules = [
+        { key: "home", label: "Inicio" },
+        { key: "projects", label: "Proyectos" },
+        { key: "tasks", label: "Tareas" },
+        { key: "catalog", label: "Catálogo" },
+        { key: "admin", label: "Administración" }
+      ];
+
       const viewCopy = {
         home: {
           title: "Inicio",
-          body: "Resumen operativo de proyectos, tareas y accesos habilitados."
+          eyebrow: "Vista general",
+          body: "Resumen operativo de proyectos, tareas y accesos habilitados.",
+          metricLabel: "Elementos activos",
+          metricValue: "5",
+          items: ["Proyectos recientes", "Tareas asignadas", "Accesos disponibles"]
         },
         projects: {
           title: "Proyectos",
-          body: "Espacio reservado para crear, consultar y administrar proyectos."
+          eyebrow: "Gestión",
+          body: "Espacio reservado para crear, consultar y administrar proyectos.",
+          metricLabel: "Vista preparada",
+          metricValue: "Base",
+          items: ["Listado de proyectos", "Detalle operativo", "Miembros y responsables"]
         },
         tasks: {
           title: "Tareas",
-          body: "Seguimiento simple de tareas por estado, prioridad y responsable."
+          eyebrow: "Seguimiento",
+          body: "Seguimiento simple de tareas por estado, prioridad y responsable.",
+          metricLabel: "Estados base",
+          metricValue: "4",
+          items: ["Pendiente", "En progreso", "En revisión", "Completada"]
         },
         catalog: {
-          title: "Catalogo",
-          body: "Exploracion controlada de Glue Catalog con contexto funcional."
+          title: "Catálogo",
+          eyebrow: "Data Lake",
+          body: "Exploración controlada de Glue Catalog con contexto funcional.",
+          metricLabel: "Acceso",
+          metricValue: "Controlado",
+          items: ["Bases permitidas", "Tablas documentadas", "Preview limitado"]
         },
         admin: {
-          title: "Administracion",
-          body: "Gestion inicial de usuarios, modulos habilitados y auditoria."
+          title: "Administración",
+          eyebrow: "Gobierno funcional",
+          body: "Gestión inicial de usuarios, módulos habilitados y auditoría.",
+          metricLabel: "Controles",
+          metricValue: "3",
+          items: ["Usuarios funcionales", "Módulos habilitados", "Auditoría"]
         }
       };
 
@@ -94,11 +122,12 @@ const title = "Gestion de Proyectos";
       boot();
 
       async function boot() {
+        renderDefaultNav();
         state.config = await loadConfig();
         elements.environmentLabel.textContent = state.config.environment || "dev";
 
         if (!hasAuthConfig(state.config)) {
-          renderStatus("Configuracion pendiente", "Falta completar config.json con Cognito y API Gateway.");
+          renderStatus("Configuración pendiente", "Falta completar config.json con Cognito y API Gateway.");
           return;
         }
 
@@ -160,8 +189,11 @@ const title = "Gestion de Proyectos";
       function renderLoggedOut() {
         elements.loginButton.hidden = false;
         elements.logoutButton.hidden = true;
-        elements.userLabel.textContent = "Sin sesion";
-        renderStatus("Acceso requerido", "Inicia sesion para cargar tus modulos habilitados.");
+        elements.userLabel.textContent = "Sin sesión";
+        renderStatus(
+          "Acceso requerido",
+          "Inicia sesión para cargar tu perfil funcional, validar permisos y mostrar solo los módulos que tienes habilitados."
+        );
       }
 
       function renderApp() {
@@ -188,22 +220,54 @@ const title = "Gestion de Proyectos";
         }
       }
 
+      function renderDefaultNav() {
+        elements.moduleNav.innerHTML = "";
+        for (const module of defaultModules) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = module.label;
+          button.className = module.key === "home" ? "navItem active" : "navItem muted";
+          button.setAttribute("aria-disabled", "true");
+          elements.moduleNav.append(button);
+        }
+      }
+
       function renderModule(moduleKey) {
         const copy = viewCopy[moduleKey] || viewCopy.home;
+        const items = copy.items.map((item) => `<li>${item}</li>`).join("");
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
         elements.viewTitle.textContent = copy.title;
         elements.contentPanel.innerHTML = `
-          <article class="panel">
-            <h2>${copy.title}</h2>
-            <p>${copy.body}</p>
+          <article class="panel modulePanel">
+            <p class="eyebrow">${copy.eyebrow}</p>
+            <div class="panelHeader">
+              <div>
+                <h2>${copy.title}</h2>
+                <p>${copy.body}</p>
+              </div>
+              <div class="metric">
+                <strong>${copy.metricValue}</strong>
+                <span>${copy.metricLabel}</span>
+              </div>
+            </div>
+            <ul class="workList">${items}</ul>
           </article>
-          <article class="panel compact">
+          <article class="panel profilePanel">
             <h2>Perfil</h2>
             <dl>
               <div><dt>Usuario</dt><dd>${state.profile.user.email}</dd></div>
-              <div><dt>Roles</dt><dd>${state.profile.user.roles.join(", ")}</dd></div>
+              <div><dt>Perfiles</dt><dd>${state.profile.user.roles.join(", ")}</dd></div>
+              <div><dt>Ambiente</dt><dd>${state.profile.environment}</dd></div>
             </dl>
+          </article>
+          <article class="panel actionPanel">
+            <h2>Siguientes acciones</h2>
+            <ul class="workList">
+              <li>Validar el primer inicio de sesión con Cognito.</li>
+              <li>Confirmar módulos visibles según permisos.</li>
+              <li>Priorizar el primer flujo operativo.</li>
+            </ul>
           </article>
         `;
       }
@@ -212,23 +276,38 @@ const title = "Gestion de Proyectos";
         elements.statusPanel.hidden = false;
         elements.contentPanel.hidden = true;
         elements.viewTitle.textContent = title;
-        elements.statusPanel.innerHTML = `<h2>${title}</h2><p>${message}</p>`;
+        elements.statusPanel.innerHTML = `
+          <div>
+            <p class="eyebrow">Plataforma interna</p>
+            <h2>${title}</h2>
+            <p>${message}</p>
+          </div>
+          <ul class="statusList">
+            <li>Autenticación centralizada con Cognito.</li>
+            <li>Permisos funcionales desde DynamoDB.</li>
+            <li>Frontend privado servido por CloudFront.</li>
+          </ul>
+        `;
       }
     </script>
   </body>
 </html>
 
-<style>
+<style is:global>
   :root {
     color-scheme: light;
-    --bg: #f5f7f8;
+    --bg: #eef3f4;
     --panel: #ffffff;
-    --line: #d9e0e4;
-    --text: #1f2a2e;
-    --muted: #66757c;
+    --panel-soft: #f8fbfb;
+    --line: #d8e1e4;
+    --line-strong: #c0ced2;
+    --text: #1b272b;
+    --muted: #62737a;
     --accent: #0f766e;
     --accent-strong: #115e59;
-    --warning: #9a5b13;
+    --accent-soft: #e3f3f0;
+    --focus: #2563eb;
+    --shadow: 0 18px 50px rgba(31, 42, 46, 0.08);
   }
 
   * {
@@ -249,25 +328,43 @@ const title = "Gestion de Proyectos";
     color: var(--text);
     cursor: pointer;
     font: inherit;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+  }
+
+  button:hover:not(:disabled) {
+    border-color: var(--line-strong);
+    transform: translateY(-1px);
+  }
+
+  button:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.25);
+    outline-offset: 2px;
+  }
+
+  button:disabled {
+    cursor: default;
   }
 
   .shell {
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 276px minmax(0, 1fr);
     min-height: 100vh;
   }
 
   .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
     border-right: 1px solid var(--line);
-    background: #ffffff;
-    padding: 20px 14px;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 22px 16px;
   }
 
   .brand {
     display: flex;
     gap: 12px;
     align-items: center;
-    padding: 4px 6px 22px;
+    padding: 2px 6px 24px;
   }
 
   .brandMark {
@@ -281,34 +378,49 @@ const title = "Gestion de Proyectos";
     font-weight: 700;
   }
 
+  .brand strong {
+    display: block;
+    line-height: 1.1;
+  }
+
   .brand small,
   .eyebrow {
     display: block;
     color: var(--muted);
     font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0;
+    text-transform: uppercase;
   }
 
   .nav {
     display: grid;
-    gap: 6px;
+    gap: 8px;
   }
 
   .navItem {
     width: 100%;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 11px 12px;
     text-align: left;
+    color: #34454b;
   }
 
   .navItem.active {
-    border-color: #99c8c2;
-    background: #e6f3f1;
+    border-color: #9bcac4;
+    background: var(--accent-soft);
     color: var(--accent-strong);
     font-weight: 650;
   }
 
+  .navItem.muted {
+    color: #829097;
+    background: #f9fbfb;
+  }
+
   .main {
-    padding: 24px;
+    width: min(1180px, 100%);
+    padding: 28px;
   }
 
   .topbar {
@@ -320,8 +432,9 @@ const title = "Gestion de Proyectos";
   }
 
   .topbar h1 {
-    margin: 2px 0 0;
-    font-size: 1.7rem;
+    margin: 4px 0 0;
+    font-size: 2rem;
+    line-height: 1.15;
   }
 
   .session {
@@ -329,11 +442,21 @@ const title = "Gestion de Proyectos";
     align-items: center;
     gap: 10px;
     color: var(--muted);
+    min-width: 0;
   }
 
   .session button {
     border-radius: 8px;
-    padding: 9px 12px;
+    min-height: 40px;
+    padding: 9px 14px;
+    font-weight: 650;
+  }
+
+  #userLabel {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   #loginButton {
@@ -344,17 +467,29 @@ const title = "Gestion de Proyectos";
 
   .statusPanel,
   .panel {
-    max-width: 780px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel);
-    padding: 22px;
+    box-shadow: var(--shadow);
+  }
+
+  .statusPanel {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr);
+    gap: 24px;
+    max-width: 980px;
+    padding: 28px;
+  }
+
+  .panel {
+    padding: 24px;
   }
 
   .statusPanel h2,
   .panel h2 {
-    margin: 0 0 10px;
-    font-size: 1.1rem;
+    margin: 0 0 8px;
+    font-size: 1.15rem;
+    line-height: 1.25;
   }
 
   .statusPanel p,
@@ -366,13 +501,70 @@ const title = "Gestion de Proyectos";
 
   .contentGrid {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+    grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
     gap: 16px;
     align-items: start;
   }
 
-  .compact {
-    max-width: none;
+  .modulePanel {
+    min-height: 300px;
+  }
+
+  .actionPanel {
+    grid-column: 1 / -1;
+  }
+
+  .panelHeader {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: flex-start;
+    margin-top: 6px;
+  }
+
+  .metric {
+    min-width: 138px;
+    border: 1px solid #b8dad5;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    padding: 14px;
+    color: var(--accent-strong);
+  }
+
+  .metric strong {
+    display: block;
+    font-size: 1.45rem;
+    line-height: 1.1;
+  }
+
+  .metric span {
+    display: block;
+    margin-top: 5px;
+    color: #3f6965;
+    font-size: 0.8rem;
+  }
+
+  .workList,
+  .statusList {
+    margin: 22px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 10px;
+  }
+
+  .workList li,
+  .statusList li {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    padding: 11px 12px;
+    color: #34454b;
+    line-height: 1.4;
+  }
+
+  .statusList {
+    margin-top: 0;
   }
 
   dl {
@@ -388,6 +580,8 @@ const title = "Gestion de Proyectos";
 
   dd {
     margin: 2px 0 0;
+    overflow-wrap: anywhere;
+    color: #27363b;
   }
 
   @media (max-width: 780px) {
@@ -396,8 +590,23 @@ const title = "Gestion de Proyectos";
     }
 
     .sidebar {
+      position: static;
+      height: auto;
       border-right: 0;
       border-bottom: 1px solid var(--line);
+      padding: 16px;
+    }
+
+    .brand {
+      padding-bottom: 14px;
+    }
+
+    .nav {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .main {
+      padding: 18px;
     }
 
     .topbar,
@@ -406,8 +615,22 @@ const title = "Gestion de Proyectos";
       flex-direction: column;
     }
 
+    #userLabel {
+      max-width: 100%;
+      white-space: normal;
+    }
+
+    .statusPanel,
     .contentGrid {
       grid-template-columns: 1fr;
+    }
+
+    .panelHeader {
+      flex-direction: column;
+    }
+
+    .metric {
+      width: 100%;
     }
   }
 </style>

@@ -18,36 +18,36 @@ Usuario
 ## Servicios utilizados
 
 - Astro: frontend web.
-- S3 privado: almacenamiento del build estatico.
-- CloudFront: distribucion del frontend.
-- Cognito: autenticacion.
+- S3 privado: almacenamiento del build estático.
+- CloudFront: distribución del frontend.
+- Cognito: autenticación.
 - API Gateway: entrada HTTP segura para backend.
-- Lambda Python: logica de negocio.
-- DynamoDB: datos operativos, autorizacion funcional y contexto.
-- Glue Catalog: metadata tecnica de bases, tablas y columnas.
+- Lambda Python: lógica de negocio.
+- DynamoDB: datos operativos, autorización funcional y contexto.
+- Glue Catalog: metadata técnica de bases, tablas y columnas.
 - Athena: preview y consultas controladas.
 - S3 Data Lake: datos fuente.
-- CloudWatch: logs y metricas.
+- CloudWatch: logs y métricas.
 - IAM: permisos entre servicios.
 - Lake Formation: control adicional opcional sobre datos.
 
 ## Flujo frontend a backend
 
-1. El usuario abre la aplicacion desde CloudFront.
-2. El frontend valida sesion con Cognito.
-3. El frontend envia el JWT en cada llamada a API Gateway.
+1. El usuario abre la aplicación desde CloudFront.
+2. El frontend valida sesión con Cognito.
+3. El frontend envía el JWT en cada llamada a API Gateway.
 4. API Gateway valida el token con JWT Authorizer.
 5. Lambda recibe identidad validada.
 6. Lambda consulta DynamoDB para permisos funcionales.
-7. Lambda ejecuta la accion permitida y devuelve respuesta estandar.
+7. Lambda ejecuta la acción permitida y devuelve respuesta estándar.
 
-## Flujo login
+## Flujo de inicio de sesión
 
-1. El usuario inicia sesion con Cognito.
+1. El usuario inicia sesión con Cognito.
 2. Cognito emite tokens.
-3. El frontend conserva la sesion segun la estrategia definida.
+3. El frontend conserva la sesión según la estrategia definida.
 4. El frontend llama `GET /api/me`.
-5. Backend devuelve perfil funcional, modulos habilitados y permisos.
+5. Backend devuelve perfil funcional, módulos habilitados y permisos.
 
 ## Flujo API
 
@@ -55,17 +55,17 @@ Todas las operaciones deben pasar por API Gateway y Lambda. El frontend no debe 
 
 ## Flujo consulta Data Lake
 
-1. Frontend solicita catalogo o preview.
+1. Frontend solicita catálogo o preview.
 2. Lambda valida permisos funcionales en DynamoDB.
-3. Lambda obtiene metadata tecnica desde Glue Catalog.
-4. Lambda combina metadata tecnica con contexto funcional guardado en DynamoDB.
+3. Lambda obtiene metadata técnica desde Glue Catalog.
+4. Lambda combina metadata técnica con contexto funcional guardado en DynamoDB.
 5. Para preview, Lambda ejecuta consulta Athena controlada.
 6. Lambda devuelve datos limitados y seguros.
 
 ## Ambientes
 
 - `dev`: desarrollo y pruebas locales.
-- `test`: validacion integrada.
+- `test`: validación integrada.
 - `prod`: uso real.
 
 Cada ambiente debe tener recursos, variables y permisos separados.
