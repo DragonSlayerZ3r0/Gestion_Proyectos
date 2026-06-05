@@ -9,7 +9,7 @@ Este proyecto debe construirse con contexto documental separado. No concentres t
 3. `docs/12_guardrails.md`
 4. El documento especifico del modulo que se va a modificar.
 
-Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_permisos_aws_actuales.md`.
+Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_permisos_aws_actuales.md` y `docs/16_credenciales_aws_sso.md`.
 
 ## Reglas generales
 
@@ -23,8 +23,9 @@ Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_per
 - Usar DynamoDB para autorizacion funcional y datos operativos.
 - Usar Glue Catalog como metadata técnica, no como fuente de contexto funcional.
 - Usar Athena solo para consultas controladas o preview, no para CRUD.
-- Para AWS, trabajar con el perfil `186281981036_aws-ps-admin-analitica-bdr` salvo instruccion contraria.
-- Antes de ejecutar acciones AWS relevantes, validar que la sesión siga vigente; si han pasado cerca de 8 horas o STS falla por expiración, solicitar nuevas credenciales temporales al usuario.
+- Para AWS, trabajar con el perfil SSO `gestion-proyectos-dev` salvo instrucción contraria.
+- Antes de ejecutar acciones AWS relevantes, validar que la sesión siga vigente con STS; si SSO falla por expiración, solicitar al usuario ejecutar `aws sso login --sso-session bdr-fed`.
+- No pedir ni pegar `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` ni `AWS_SESSION_TOKEN` para el flujo normal del proyecto.
 
 ## Documentos por tema
 
@@ -42,3 +43,4 @@ Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_per
 - Backlog: `docs/13_backlog_inicial.md`
 - Permisos AWS actuales: `docs/14_permisos_aws_actuales.md`
 - Estado de implementación: `docs/15_estado_implementacion.md`
+- Credenciales AWS SSO: `docs/16_credenciales_aws_sso.md`

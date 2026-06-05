@@ -2,7 +2,8 @@
 
 ## Perfil validado
 
-- Perfil AWS CLI: `186281981036_aws-ps-admin-analitica-bdr`
+- Perfil AWS CLI recomendado: `gestion-proyectos-dev`
+- Perfil legacy usado inicialmente: `186281981036_aws-ps-admin-analitica-bdr`
 - Cuenta: `186281981036`
 - Region principal: `us-east-1`
 - Rol asumido: `AWSReservedSSO_aws-ps-admin-analitica-bdr_f6f115306273af6d`
@@ -12,15 +13,21 @@ No guardar llaves, secretos ni tokens de sesión en este repositorio.
 
 ## Regla operativa de sesión
 
-Para este proyecto, usar el perfil `186281981036_aws-ps-admin-analitica-bdr` salvo instruccion contraria.
+Para este proyecto, usar el perfil SSO `gestion-proyectos-dev` salvo instrucción contraria.
 
 Antes de ejecutar acciones AWS relevantes, validar la sesión con:
 
 ```bash
-aws sts get-caller-identity --profile 186281981036_aws-ps-admin-analitica-bdr
+aws sts get-caller-identity --profile gestion-proyectos-dev --region us-east-1 --no-cli-pager
 ```
 
-Las credenciales son temporales. Si han pasado cerca de 8 horas desde la ultima renovacion, o si la validacion falla por expiracion del token, detener acciones AWS y solicitar al usuario un nuevo bloque de credenciales temporales con `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` y `AWS_SESSION_TOKEN`.
+Las credenciales son temporales y se renuevan mediante AWS IAM Identity Center. Si la validación falla por expiración del token, detener acciones AWS y solicitar al usuario ejecutar:
+
+```bash
+aws sso login --sso-session bdr-fed
+```
+
+No solicitar bloques de `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` ni `AWS_SESSION_TOKEN` salvo contingencia explícita.
 
 ## Estado general
 
@@ -82,7 +89,8 @@ Tambien tiene politicas administradas relacionadas con analitica y datos:
 
 - No permite `iam:SimulatePrincipalPolicy`; por eso no se pudo generar una matriz exacta de allow/deny mediante simulador IAM.
 - No permite `sts:GetAccessKeyInfo`; esto no bloquea el despliegue, solo limita esa verificacion puntual.
-- Las credenciales del perfil son temporales porque usan access key `ASIA...`; validar vigencia al iniciar trabajo AWS y solicitar renovacion si han pasado cerca de 8 horas o el token ya expiro.
+- El perfil legacy `186281981036_aws-ps-admin-analitica-bdr` usa credenciales STS pegadas en `~/.aws/credentials`; se conserva solo como fallback temporal.
+- El perfil recomendado `gestion-proyectos-dev` usa SSO y evita exponer llaves temporales en chat o archivos del repositorio.
 - La primera verificacion sin permisos escalados fallo al conectar con endpoints regionales por restriccion del entorno local/sandbox. Con ejecucion escalada, las llamadas AWS funcionaron.
 - El custom resource `BucketDeployment` de CDK fallo al copiar assets desde el bucket bootstrap cifrado con SSE-KMS. La alternativa operativa vigente es desplegar infraestructura con CDK y publicar `frontend/dist` con `aws s3 sync`.
 

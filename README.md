@@ -64,14 +64,14 @@ npm run infra:deploy
 Antes de cualquier acción AWS:
 
 ```bash
-aws sts get-caller-identity --profile 186281981036_aws-ps-admin-analitica-bdr
+aws sts get-caller-identity --profile gestion-proyectos-dev --region us-east-1 --no-cli-pager
 ```
 
 Después de desplegar infraestructura, publicar el frontend estático:
 
 ```bash
 npm run build -w frontend
-aws s3 sync frontend/dist/ s3://gestion-proyectos-dev-frontend-186281981036/ --delete --profile 186281981036_aws-ps-admin-analitica-bdr --region us-east-1
-aws s3 sync /private/tmp/gestion-proyectos-public-config/ s3://gestion-proyectos-dev-frontend-186281981036/ --cache-control no-store --profile 186281981036_aws-ps-admin-analitica-bdr --region us-east-1
-aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*" --profile 186281981036_aws-ps-admin-analitica-bdr
+aws s3 sync frontend/dist/ s3://gestion-proyectos-dev-frontend-186281981036/ --delete --profile gestion-proyectos-dev --region us-east-1
+aws s3 sync /private/tmp/gestion-proyectos-public-config/ s3://gestion-proyectos-dev-frontend-186281981036/ --cache-control no-store --profile gestion-proyectos-dev --region us-east-1
+aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*" --profile gestion-proyectos-dev
 ```

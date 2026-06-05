@@ -43,10 +43,10 @@ Primer entregable implementado y desplegado en `dev`:
 Usar siempre:
 
 ```bash
-aws sts get-caller-identity --profile 186281981036_aws-ps-admin-analitica-bdr
+aws sts get-caller-identity --profile gestion-proyectos-dev --region us-east-1 --no-cli-pager
 ```
 
-Las credenciales del perfil son temporales. Antes de acciones AWS relevantes, validar sesión con STS y solicitar nuevas credenciales si el token expiró o han pasado cerca de 8 horas.
+Las credenciales del perfil son temporales y se renuevan con AWS SSO. Antes de acciones AWS relevantes, validar sesión con STS. Si SSO expiró, solicitar al usuario ejecutar `aws sso login --sso-session bdr-fed`.
 
 ## Comandos validados
 
@@ -70,9 +70,9 @@ El frontend se publica fuera de CDK para evitar depender de `BucketDeployment`:
 
 ```bash
 npm run build -w frontend
-aws s3 sync frontend/dist/ s3://gestion-proyectos-dev-frontend-186281981036/ --delete --profile 186281981036_aws-ps-admin-analitica-bdr --region us-east-1
-aws s3 sync /private/tmp/gestion-proyectos-public-config/ s3://gestion-proyectos-dev-frontend-186281981036/ --cache-control no-store --profile 186281981036_aws-ps-admin-analitica-bdr --region us-east-1
-aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*" --profile 186281981036_aws-ps-admin-analitica-bdr
+aws s3 sync frontend/dist/ s3://gestion-proyectos-dev-frontend-186281981036/ --delete --profile gestion-proyectos-dev --region us-east-1
+aws s3 sync /private/tmp/gestion-proyectos-public-config/ s3://gestion-proyectos-dev-frontend-186281981036/ --cache-control no-store --profile gestion-proyectos-dev --region us-east-1
+aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*" --profile gestion-proyectos-dev
 ```
 
 El archivo runtime `/config.json` debe contener solamente valores públicos del ambiente:

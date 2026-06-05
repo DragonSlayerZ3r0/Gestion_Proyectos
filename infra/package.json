@@ -8,8 +8,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "synth": "cdk synth",
-    "deploy": "cdk deploy --profile 186281981036_aws-ps-admin-analitica-bdr --require-approval never",
-    "diff": "cdk diff --profile 186281981036_aws-ps-admin-analitica-bdr"
+    "deploy": "cdk deploy --profile gestion-proyectos-dev --require-approval never",
+    "diff": "cdk diff --profile gestion-proyectos-dev"
   },
   "dependencies": {
     "@aws-cdk/aws-apigatewayv2-alpha": "2.114.1-alpha.0",
