@@ -1,0 +1,43 @@
+# Instrucciones para agentes
+
+Este proyecto debe construirse con contexto documental separado. No concentres todas las reglas en este archivo: usa `docs/` como fuente principal.
+
+## Orden recomendado de lectura
+
+1. `README.md`
+2. `docs/00_contexto_general.md`
+3. `docs/12_guardrails.md`
+4. El documento especifico del modulo que se va a modificar.
+
+Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_permisos_aws_actuales.md`.
+
+## Reglas generales
+
+- Mantener la plataforma simple, clara y rapida.
+- No construir una experiencia tipo Jira.
+- Mantener la documentacion sincronizada con cambios reales.
+- Separar autenticacion de autorizacion.
+- Validar permisos en backend, no solo ocultar elementos en frontend.
+- No exponer credenciales AWS ni buckets S3 publicos.
+- Usar DynamoDB para autorizacion funcional y datos operativos.
+- Usar Glue Catalog como metadata tecnica, no como fuente de contexto funcional.
+- Usar Athena solo para consultas controladas o preview, no para CRUD.
+- Para AWS, trabajar con el perfil `186281981036_aws-ps-admin-analitica-bdr` salvo instruccion contraria.
+- Antes de ejecutar acciones AWS relevantes, validar que la sesion siga vigente; si han pasado cerca de 8 horas o STS falla por expiracion, solicitar nuevas credenciales temporales al usuario.
+
+## Documentos por tema
+
+- Arquitectura: `docs/01_arquitectura_aws.md`
+- Modulos: `docs/02_modulos_funcionales.md`
+- Seguridad: `docs/03_seguridad_accesos.md`
+- DynamoDB: `docs/04_modelo_dynamodb.md`
+- Backend/API: `docs/05_api_backend.md`
+- Frontend/UX: `docs/06_frontend_ux.md`
+- Catalogo Data Lake: `docs/07_catalogo_datalake.md`
+- Proyectos y tareas: `docs/08_proyectos_tareas.md`
+- Administracion: `docs/09_admin_accesos.md`
+- Integraciones AWS: `docs/10_integraciones_aws.md`
+- Fases: `docs/11_fases_implementacion.md`
+- Backlog: `docs/13_backlog_inicial.md`
+- Permisos AWS actuales: `docs/14_permisos_aws_actuales.md`
+- Estado de implementacion: `docs/15_estado_implementacion.md`

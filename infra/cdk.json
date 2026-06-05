@@ -1,0 +1,8 @@
+{
+  "app": "npx ts-node bin/gestion-proyectos.ts",
+  "context": {
+    "appName": "gestion-proyectos",
+    "envName": "dev",
+    "initialUserEmail": "usr041100@banrural.com.gt"
+  }
+}

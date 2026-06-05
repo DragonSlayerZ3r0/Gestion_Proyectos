@@ -1,0 +1,17 @@
+{
+  "name": "gestion-proyectos",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npm run build -w frontend",
+    "dev": "npm run dev -w frontend",
+    "infra:synth": "npm run synth -w infra",
+    "infra:deploy": "npm run deploy -w infra",
+    "check:python": "PYTHONPYCACHEPREFIX=/private/tmp/gestion-proyectos-pycache python3 -m py_compile backend/app/*.py backend/app/repositories/*.py backend/app/services/*.py backend/scripts/*.py",
+    "check": "npm run build && npm run check:python && npm run infra:synth"
+  },
+  "workspaces": [
+    "frontend",
+    "infra"
+  ]
+}

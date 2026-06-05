@@ -1,0 +1,413 @@
+---
+const title = "Gestion de Proyectos";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <div id="app" class="shell">
+      <aside class="sidebar" aria-label="Modulos">
+        <div class="brand">
+          <span class="brandMark">GP</span>
+          <div>
+            <strong>Gestion</strong>
+            <small>Proyectos</small>
+          </div>
+        </div>
+        <nav id="moduleNav" class="nav"></nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p id="environmentLabel" class="eyebrow">dev</p>
+            <h1 id="viewTitle">Inicio</h1>
+          </div>
+          <div class="session">
+            <span id="userLabel">Sin sesion</span>
+            <button id="loginButton" type="button">Ingresar</button>
+            <button id="logoutButton" type="button" hidden>Salir</button>
+          </div>
+        </header>
+
+        <section id="statusPanel" class="statusPanel">
+          <h2>Base tecnica</h2>
+          <p>Inicia sesion para cargar tu perfil funcional y modulos habilitados.</p>
+        </section>
+
+        <section id="contentPanel" class="contentGrid" hidden></section>
+      </main>
+    </div>
+
+    <script>
+      // @ts-nocheck
+      import { UserManager, WebStorageStateStore } from "oidc-client-ts";
+
+      const viewCopy = {
+        home: {
+          title: "Inicio",
+          body: "Resumen operativo de proyectos, tareas y accesos habilitados."
+        },
+        projects: {
+          title: "Proyectos",
+          body: "Espacio reservado para crear, consultar y administrar proyectos."
+        },
+        tasks: {
+          title: "Tareas",
+          body: "Seguimiento simple de tareas por estado, prioridad y responsable."
+        },
+        catalog: {
+          title: "Catalogo",
+          body: "Exploracion controlada de Glue Catalog con contexto funcional."
+        },
+        admin: {
+          title: "Administracion",
+          body: "Gestion inicial de usuarios, modulos habilitados y auditoria."
+        }
+      };
+
+      const state = {
+        config: null,
+        manager: null,
+        user: null,
+        profile: null,
+        activeModule: "home"
+      };
+
+      const elements = {
+        moduleNav: document.querySelector("#moduleNav"),
+        loginButton: document.querySelector("#loginButton"),
+        logoutButton: document.querySelector("#logoutButton"),
+        userLabel: document.querySelector("#userLabel"),
+        environmentLabel: document.querySelector("#environmentLabel"),
+        statusPanel: document.querySelector("#statusPanel"),
+        contentPanel: document.querySelector("#contentPanel"),
+        viewTitle: document.querySelector("#viewTitle")
+      };
+
+      boot();
+
+      async function boot() {
+        state.config = await loadConfig();
+        elements.environmentLabel.textContent = state.config.environment || "dev";
+
+        if (!hasAuthConfig(state.config)) {
+          renderStatus("Configuracion pendiente", "Falta completar config.json con Cognito y API Gateway.");
+          return;
+        }
+
+        state.manager = new UserManager({
+          authority: `https://cognito-idp.${state.config.region}.amazonaws.com/${state.config.cognitoUserPoolId}`,
+          client_id: state.config.cognitoClientId,
+          redirect_uri: `${window.location.origin}/`,
+          post_logout_redirect_uri: `${window.location.origin}/`,
+          response_type: "code",
+          scope: "openid email profile",
+          userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+          automaticSilentRenew: false
+        });
+
+        elements.loginButton.addEventListener("click", () => state.manager.signinRedirect());
+        elements.logoutButton.addEventListener("click", () => state.manager.signoutRedirect());
+
+        if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
+          await state.manager.signinCallback();
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        state.user = await state.manager.getUser();
+        if (!state.user || state.user.expired) {
+          renderLoggedOut();
+          return;
+        }
+
+        await loadMe();
+      }
+
+      async function loadConfig() {
+        const response = await fetch("/config.json", { cache: "no-store" });
+        return response.json();
+      }
+
+      function hasAuthConfig(config) {
+        return Boolean(config.apiBaseUrl && config.region && config.cognitoUserPoolId && config.cognitoClientId);
+      }
+
+      async function loadMe() {
+        const response = await fetch(`${state.config.apiBaseUrl}api/me`, {
+          headers: {
+            authorization: `Bearer ${state.user.access_token}`
+          }
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+          renderStatus("Acceso pendiente", payload.error?.message || "No fue posible cargar tu perfil.");
+          return;
+        }
+
+        state.profile = payload.data;
+        state.activeModule = payload.data.modules?.[0]?.key || "home";
+        renderApp();
+      }
+
+      function renderLoggedOut() {
+        elements.loginButton.hidden = false;
+        elements.logoutButton.hidden = true;
+        elements.userLabel.textContent = "Sin sesion";
+        renderStatus("Acceso requerido", "Inicia sesion para cargar tus modulos habilitados.");
+      }
+
+      function renderApp() {
+        elements.loginButton.hidden = true;
+        elements.logoutButton.hidden = false;
+        elements.userLabel.textContent = state.profile.user.email;
+        elements.environmentLabel.textContent = state.profile.environment;
+        renderNav();
+        renderModule(state.activeModule);
+      }
+
+      function renderNav() {
+        elements.moduleNav.innerHTML = "";
+        for (const module of state.profile.modules) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = module.label;
+          button.className = module.key === state.activeModule ? "navItem active" : "navItem";
+          button.addEventListener("click", () => {
+            state.activeModule = module.key;
+            renderApp();
+          });
+          elements.moduleNav.append(button);
+        }
+      }
+
+      function renderModule(moduleKey) {
+        const copy = viewCopy[moduleKey] || viewCopy.home;
+        elements.statusPanel.hidden = true;
+        elements.contentPanel.hidden = false;
+        elements.viewTitle.textContent = copy.title;
+        elements.contentPanel.innerHTML = `
+          <article class="panel">
+            <h2>${copy.title}</h2>
+            <p>${copy.body}</p>
+          </article>
+          <article class="panel compact">
+            <h2>Perfil</h2>
+            <dl>
+              <div><dt>Usuario</dt><dd>${state.profile.user.email}</dd></div>
+              <div><dt>Roles</dt><dd>${state.profile.user.roles.join(", ")}</dd></div>
+            </dl>
+          </article>
+        `;
+      }
+
+      function renderStatus(title, message) {
+        elements.statusPanel.hidden = false;
+        elements.contentPanel.hidden = true;
+        elements.viewTitle.textContent = title;
+        elements.statusPanel.innerHTML = `<h2>${title}</h2><p>${message}</p>`;
+      }
+    </script>
+  </body>
+</html>
+
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f5f7f8;
+    --panel: #ffffff;
+    --line: #d9e0e4;
+    --text: #1f2a2e;
+    --muted: #66757c;
+    --accent: #0f766e;
+    --accent-strong: #115e59;
+    --warning: #9a5b13;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  button {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    border-right: 1px solid var(--line);
+    background: #ffffff;
+    padding: 20px 14px;
+  }
+
+  .brand {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 4px 6px 22px;
+  }
+
+  .brandMark {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #ffffff;
+    font-weight: 700;
+  }
+
+  .brand small,
+  .eyebrow {
+    display: block;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  .nav {
+    display: grid;
+    gap: 6px;
+  }
+
+  .navItem {
+    width: 100%;
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: left;
+  }
+
+  .navItem.active {
+    border-color: #99c8c2;
+    background: #e6f3f1;
+    color: var(--accent-strong);
+    font-weight: 650;
+  }
+
+  .main {
+    padding: 24px;
+  }
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: center;
+    margin-bottom: 22px;
+  }
+
+  .topbar h1 {
+    margin: 2px 0 0;
+    font-size: 1.7rem;
+  }
+
+  .session {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+  }
+
+  .session button {
+    border-radius: 8px;
+    padding: 9px 12px;
+  }
+
+  #loginButton {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .statusPanel,
+  .panel {
+    max-width: 780px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 22px;
+  }
+
+  .statusPanel h2,
+  .panel h2 {
+    margin: 0 0 10px;
+    font-size: 1.1rem;
+  }
+
+  .statusPanel p,
+  .panel p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .contentGrid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .compact {
+    max-width: none;
+  }
+
+  dl {
+    margin: 0;
+    display: grid;
+    gap: 12px;
+  }
+
+  dt {
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  dd {
+    margin: 2px 0 0;
+  }
+
+  @media (max-width: 780px) {
+    .shell {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .topbar,
+    .session {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .contentGrid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
