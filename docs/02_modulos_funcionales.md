@@ -8,13 +8,13 @@ Cada usuario solo ve los módulos que tiene habilitados. Ocultar un módulo en f
 
 Pantalla principal con resumen de proyectos, tareas asignadas, accesos disponibles y actividad relevante.
 
-## Proyectos
+## Proyectos y tareas
 
-Módulo para crear, editar, consultar y administrar proyectos. Debe permitir responsables, estado, descripción, usuarios asociados y relación con tablas del Data Lake cuando aplique.
+Módulo operativo principal para crear, editar, consultar y administrar proyectos, tareas y personas asignadas desde una sola pantalla.
 
-## Tareas
+Aunque los permisos técnicos puedan existir como `projects` y `tasks`, el frontend debe presentarlos como una sola entrada: `Proyectos y tareas`. No se debe obligar al usuario a cambiar de ventana para crear o revisar tareas del proyecto activo.
 
-Módulo para seguimiento simple de tareas por proyecto. Debe permitir estados, prioridades, responsables, fechas, comentarios y movimiento tipo Kanban simple.
+Debe permitir responsables, estado, descripción, usuarios asociados, tareas por proyecto, prioridades, fechas, comentarios, movimiento Kanban simple y relación con tablas del Data Lake cuando aplique.
 
 ## Catálogo Data Lake
 

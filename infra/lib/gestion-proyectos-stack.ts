@@ -88,7 +88,7 @@ export class GestionProyectosStack extends Stack {
     const userPoolClient = userPool.addClient("WebClient", {
       userPoolClientName: `${resourcePrefix}-web`,
       generateSecret: false,
-      authFlows: { userSrp: true },
+      authFlows: { userPassword: true, userSrp: true },
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [
@@ -213,6 +213,7 @@ export class GestionProyectosStack extends Stack {
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.PATCH,
           apigwv2.CorsHttpMethod.PUT,
           apigwv2.CorsHttpMethod.DELETE,
           apigwv2.CorsHttpMethod.OPTIONS
@@ -238,6 +239,60 @@ export class GestionProyectosStack extends Stack {
     httpApi.addRoutes({
       path: "/api/me",
       methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/workspace",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/people",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/people/{personId}",
+      methods: [apigwv2.HttpMethod.PATCH],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/projects",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/projects/{projectId}",
+      methods: [apigwv2.HttpMethod.PATCH],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/projects/{projectId}/members",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/projects/{projectId}/members/{personId}",
+      methods: [apigwv2.HttpMethod.PATCH],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/projects/{projectId}/tasks",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/projects/{projectId}/tasks/{taskId}",
+      methods: [apigwv2.HttpMethod.PATCH],
       integration,
       authorizer: jwtAuthorizer
     });

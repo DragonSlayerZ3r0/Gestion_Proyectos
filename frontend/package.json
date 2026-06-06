@@ -10,10 +10,8 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
+    "@aws-sdk/client-cognito-identity-provider": "^3.1062.0",
     "astro": "^5.0.0",
-    "oidc-client-ts": "^3.0.1",
     "typescript": "^5.6.3"
-  },
-  "devDependencies": {}
+  }
 }
-

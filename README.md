@@ -50,7 +50,7 @@ Este directorio contiene el primer corte técnico desplegado en `dev`: monorepo 
 
 - Frontend: `https://d269paz1z7q1g0.cloudfront.net/`
 - API: `https://63ibnl13da.execute-api.us-east-1.amazonaws.com/`
-- Usuario inicial Cognito: `usr041100@banrural.com.gt`
+- Usuario inicial Cognito: `usr041100@banrural.com.gt` con cambio de contraseña inicial requerido.
 
 ## Comandos principales
 

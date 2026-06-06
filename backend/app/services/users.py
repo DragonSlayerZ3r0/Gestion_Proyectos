@@ -12,6 +12,8 @@ DEFAULT_MODULES = [
     {"key": "admin", "label": "Administración", "enabled": True}
 ]
 
+MODULE_ORDER = {module["key"]: index for index, module in enumerate(DEFAULT_MODULES)}
+
 
 class UserNotConfiguredError(Exception):
     pass
@@ -53,4 +55,4 @@ class UserService:
                     "label": item.get("label", item["moduleKey"]),
                     "enabled": True
                 })
-        return modules
+        return sorted(modules, key=lambda module: MODULE_ORDER.get(module["key"], 99))

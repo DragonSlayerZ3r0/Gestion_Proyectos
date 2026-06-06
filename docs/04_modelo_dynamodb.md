@@ -24,6 +24,7 @@ gestion-proyectos-main-{env}
 
 - `USER`
 - `USER_MODULE`
+- `PERSON`
 - `PROJECT`
 - `PROJECT_USER`
 - `PROJECT_TABLE`
@@ -47,6 +48,10 @@ USER_MODULE
 PK = USER#<userId>
 SK = MODULE#<moduleKey>
 
+PERSON
+PK = PERSON#<personId>
+SK = PROFILE
+
 PROJECT
 PK = PROJECT#<projectId>
 SK = META
@@ -54,6 +59,10 @@ SK = META
 PROJECT_USER
 PK = PROJECT#<projectId>
 SK = USER#<userId>
+
+PROJECT_MEMBER
+PK = PROJECT#<projectId>
+SK = PERSON#<personId>
 
 TASK
 PK = PROJECT#<projectId>
@@ -81,6 +90,17 @@ SK = <timestamp>#<eventId>
 - Obtener contexto funcional de una tabla.
 - Obtener contexto de columnas de una tabla.
 - Consultar auditoría por fecha.
+
+## Edición operativa
+
+El panel de detalle actualiza los mismos registros operativos:
+
+- `PERSON`: nombre, apellido, nombre completo, área, notas, disponibilidad y estado.
+- `PROJECT`: nombre, descripción, estado y responsable.
+- `PROJECT_MEMBER`: rol funcional dentro del proyecto.
+- `TASK`: título, estado, prioridad, responsable y notas.
+
+Los cambios de tarea en estado, prioridad o responsable generan `AUDIT_EVENT` con `changedFields`.
 
 ## Índices potenciales
 

@@ -43,19 +43,62 @@ const title = "Gestión de Proyectos";
 
         <section id="contentPanel" class="contentGrid" hidden></section>
       </main>
+
+      <div id="loginDialog" class="dialogBackdrop" hidden>
+        <section class="loginDialog" role="dialog" aria-modal="true" aria-labelledby="loginDialogTitle">
+          <div class="dialogHeader">
+            <div>
+              <p class="eyebrow">Acceso seguro</p>
+              <h2 id="loginDialogTitle">Iniciar sesión</h2>
+            </div>
+            <button id="cancelLoginIconButton" class="iconButton" type="button" aria-label="Cancelar inicio de sesión">×</button>
+          </div>
+
+          <form id="loginForm" class="loginForm">
+            <label>
+              Correo electrónico
+              <input id="emailInput" name="email" type="email" autocomplete="username" placeholder="nombre@banrural.com.gt" required />
+            </label>
+            <label>
+              Contraseña
+              <input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="Contraseña" required />
+            </label>
+
+            <div id="newPasswordFields" class="newPasswordFields" hidden>
+              <p>Define una contraseña nueva para completar el primer ingreso.</p>
+              <label>
+                Nueva contraseña
+                <input id="newPasswordInput" name="newPassword" type="password" autocomplete="new-password" placeholder="Nueva contraseña" />
+              </label>
+            </div>
+
+            <p id="loginMessage" class="loginMessage" aria-live="polite"></p>
+
+            <div class="dialogActions">
+              <button id="cancelLoginButton" class="secondaryButton" type="button">Cancelar</button>
+              <button id="submitLoginButton" class="primaryButton" type="submit">Ingresar</button>
+            </div>
+          </form>
+        </section>
+      </div>
     </div>
 
     <script>
       // @ts-nocheck
-      import { UserManager, WebStorageStateStore } from "oidc-client-ts";
+      import {
+        CognitoIdentityProviderClient,
+        InitiateAuthCommand,
+        RespondToAuthChallengeCommand
+      } from "@aws-sdk/client-cognito-identity-provider";
 
       const defaultModules = [
+        { key: "projects", label: "Proyectos y tareas" },
         { key: "home", label: "Inicio" },
-        { key: "projects", label: "Proyectos" },
-        { key: "tasks", label: "Tareas" },
         { key: "catalog", label: "Catálogo" },
         { key: "admin", label: "Administración" }
       ];
+
+      const moduleOrder = ["projects", "home", "catalog", "admin"];
 
       const viewCopy = {
         home: {
@@ -67,12 +110,12 @@ const title = "Gestión de Proyectos";
           items: ["Proyectos recientes", "Tareas asignadas", "Accesos disponibles"]
         },
         projects: {
-          title: "Proyectos",
-          eyebrow: "Gestión",
-          body: "Espacio reservado para crear, consultar y administrar proyectos.",
-          metricLabel: "Vista preparada",
-          metricValue: "Base",
-          items: ["Listado de proyectos", "Detalle operativo", "Miembros y responsables"]
+          title: "Proyectos y tareas",
+          eyebrow: "Gestión operativa",
+          body: "Mesa de trabajo para crear usuarios, proyectos y tareas sin cambiar de pantalla.",
+          metricLabel: "Vista única",
+          metricValue: "1",
+          items: ["Usuarios disponibles", "Proyectos activos", "Tareas por estado"]
         },
         tasks: {
           title: "Tareas",
@@ -102,10 +145,19 @@ const title = "Gestión de Proyectos";
 
       const state = {
         config: null,
-        manager: null,
+        authClient: null,
+        authSession: null,
+        authUsername: null,
         user: null,
         profile: null,
-        activeModule: "home"
+        workspace: null,
+        activeProjectId: null,
+        selectedDetail: null,
+        showPersonForm: false,
+        showTaskForm: false,
+        activeModule: "projects",
+        needsNewPassword: false,
+        loginBusy: false
       };
 
       const elements = {
@@ -116,7 +168,17 @@ const title = "Gestión de Proyectos";
         environmentLabel: document.querySelector("#environmentLabel"),
         statusPanel: document.querySelector("#statusPanel"),
         contentPanel: document.querySelector("#contentPanel"),
-        viewTitle: document.querySelector("#viewTitle")
+        viewTitle: document.querySelector("#viewTitle"),
+        loginDialog: document.querySelector("#loginDialog"),
+        loginForm: document.querySelector("#loginForm"),
+        emailInput: document.querySelector("#emailInput"),
+        passwordInput: document.querySelector("#passwordInput"),
+        newPasswordFields: document.querySelector("#newPasswordFields"),
+        newPasswordInput: document.querySelector("#newPasswordInput"),
+        loginMessage: document.querySelector("#loginMessage"),
+        submitLoginButton: document.querySelector("#submitLoginButton"),
+        cancelLoginButton: document.querySelector("#cancelLoginButton"),
+        cancelLoginIconButton: document.querySelector("#cancelLoginIconButton")
       };
 
       boot();
@@ -131,27 +193,23 @@ const title = "Gestión de Proyectos";
           return;
         }
 
-        state.manager = new UserManager({
-          authority: `https://cognito-idp.${state.config.region}.amazonaws.com/${state.config.cognitoUserPoolId}`,
-          client_id: state.config.cognitoClientId,
-          redirect_uri: `${window.location.origin}/`,
-          post_logout_redirect_uri: `${window.location.origin}/`,
-          response_type: "code",
-          scope: "openid email profile",
-          userStore: new WebStorageStateStore({ store: window.sessionStorage }),
-          automaticSilentRenew: false
+        state.authClient = new CognitoIdentityProviderClient({
+          region: state.config.region
         });
 
-        elements.loginButton.addEventListener("click", () => state.manager.signinRedirect());
-        elements.logoutButton.addEventListener("click", () => state.manager.signoutRedirect());
+        elements.loginButton.addEventListener("click", openLoginDialog);
+        elements.logoutButton.addEventListener("click", logout);
+        elements.loginForm.addEventListener("submit", submitLogin);
+        elements.cancelLoginButton.addEventListener("click", closeLoginDialog);
+        elements.cancelLoginIconButton.addEventListener("click", closeLoginDialog);
+        elements.loginDialog.addEventListener("click", (event) => {
+          if (event.target === elements.loginDialog) {
+            closeLoginDialog();
+          }
+        });
 
-        if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
-          await state.manager.signinCallback();
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-
-        state.user = await state.manager.getUser();
-        if (!state.user || state.user.expired) {
+        state.user = await getCurrentSession();
+        if (!state.user) {
           renderLoggedOut();
           return;
         }
@@ -168,10 +226,47 @@ const title = "Gestión de Proyectos";
         return Boolean(config.apiBaseUrl && config.region && config.cognitoUserPoolId && config.cognitoClientId);
       }
 
+      function normalizeModuleKey(key) {
+        return key === "tasks" ? "projects" : key;
+      }
+
+      function getVisibleModules(modules = defaultModules) {
+        const enabledModules = modules.filter((module) => module.enabled !== false);
+        const hasProjectWorkspace = enabledModules.some((module) => module.key === "projects" || module.key === "tasks");
+        const visibleByKey = new Map();
+
+        if (hasProjectWorkspace) {
+          visibleByKey.set("projects", {
+            key: "projects",
+            label: "Proyectos y tareas",
+            enabled: true
+          });
+        }
+
+        for (const module of enabledModules) {
+          const key = normalizeModuleKey(module.key);
+          if (key === "projects" || visibleByKey.has(key)) {
+            continue;
+          }
+          visibleByKey.set(key, { ...module, key });
+        }
+
+        return Array.from(visibleByKey.values()).sort((left, right) => {
+          const leftIndex = moduleOrder.indexOf(left.key);
+          const rightIndex = moduleOrder.indexOf(right.key);
+          return (leftIndex === -1 ? 99 : leftIndex) - (rightIndex === -1 ? 99 : rightIndex);
+        });
+      }
+
+      function getDefaultModule(modules) {
+        const visibleModules = getVisibleModules(modules);
+        return visibleModules.some((module) => module.key === "projects") ? "projects" : visibleModules[0]?.key || "home";
+      }
+
       async function loadMe() {
         const response = await fetch(`${state.config.apiBaseUrl}api/me`, {
           headers: {
-            authorization: `Bearer ${state.user.access_token}`
+            authorization: `Bearer ${state.user.idToken}`
           }
         });
         const payload = await response.json();
@@ -182,11 +277,207 @@ const title = "Gestión de Proyectos";
         }
 
         state.profile = payload.data;
-        state.activeModule = payload.data.modules?.[0]?.key || "home";
+        state.activeModule = getDefaultModule(payload.data.modules);
         renderApp();
       }
 
+      function getCurrentSession() {
+        const rawSession = window.sessionStorage.getItem("gestionProyectosAuth");
+        if (!rawSession) {
+          return null;
+        }
+
+        try {
+          const session = JSON.parse(rawSession);
+          if (!session.idToken || !session.expiresAt || session.expiresAt <= Date.now()) {
+            window.sessionStorage.removeItem("gestionProyectosAuth");
+            return null;
+          }
+          return session;
+        } catch {
+          window.sessionStorage.removeItem("gestionProyectosAuth");
+          return null;
+        }
+      }
+
+      function openLoginDialog() {
+        resetLoginForm();
+        elements.loginDialog.hidden = false;
+        elements.emailInput.focus();
+      }
+
+      function closeLoginDialog() {
+        if (state.loginBusy) {
+          return;
+        }
+        elements.loginDialog.hidden = true;
+        resetLoginForm();
+      }
+
+      function resetLoginForm() {
+        state.needsNewPassword = false;
+        state.authSession = null;
+        state.authUsername = null;
+        state.loginBusy = false;
+        elements.loginForm.reset();
+        elements.newPasswordFields.hidden = true;
+        elements.newPasswordInput.required = false;
+        elements.passwordInput.disabled = false;
+        elements.loginMessage.textContent = "";
+        elements.loginMessage.className = "loginMessage";
+        elements.submitLoginButton.textContent = "Ingresar";
+        elements.submitLoginButton.disabled = false;
+        elements.cancelLoginButton.disabled = false;
+        elements.cancelLoginIconButton.disabled = false;
+      }
+
+      async function submitLogin(event) {
+        event.preventDefault();
+        if (state.loginBusy) {
+          return;
+        }
+
+        if (state.needsNewPassword) {
+          await completeNewPassword();
+          return;
+        }
+
+        const email = elements.emailInput.value.trim().toLowerCase();
+        const password = elements.passwordInput.value;
+        if (!email || !password) {
+          showLoginMessage("Ingresa tu correo y contraseña.", "error");
+          return;
+        }
+
+        setLoginBusy(true, "Validando...");
+        try {
+          const response = await state.authClient.send(new InitiateAuthCommand({
+            AuthFlow: "USER_PASSWORD_AUTH",
+            ClientId: state.config.cognitoClientId,
+            AuthParameters: {
+              USERNAME: email,
+              PASSWORD: password
+            }
+          }));
+
+          if (response.ChallengeName === "NEW_PASSWORD_REQUIRED") {
+            state.authSession = response.Session;
+            state.authUsername = email;
+            state.needsNewPassword = true;
+            elements.newPasswordFields.hidden = false;
+            elements.newPasswordInput.required = true;
+            elements.passwordInput.disabled = true;
+            elements.submitLoginButton.textContent = "Guardar contraseña";
+            setLoginBusy(false);
+            showLoginMessage("Cognito requiere definir una contraseña nueva para este usuario.", "info");
+            elements.newPasswordInput.focus();
+            return;
+          }
+
+          await finishLogin(response.AuthenticationResult);
+        } catch (error) {
+          setLoginBusy(false);
+          showLoginMessage(formatAuthError(error), "error");
+        }
+      }
+
+      async function completeNewPassword() {
+        const newPassword = elements.newPasswordInput.value;
+        if (!newPassword) {
+          showLoginMessage("Ingresa una contraseña nueva.", "error");
+          return;
+        }
+
+        setLoginBusy(true, "Guardando...");
+        try {
+          const response = await state.authClient.send(new RespondToAuthChallengeCommand({
+            ChallengeName: "NEW_PASSWORD_REQUIRED",
+            ClientId: state.config.cognitoClientId,
+            Session: state.authSession,
+            ChallengeResponses: {
+              USERNAME: state.authUsername,
+              NEW_PASSWORD: newPassword
+            }
+          }));
+          await finishLogin(response.AuthenticationResult);
+        } catch (error) {
+          setLoginBusy(false);
+          showLoginMessage(formatAuthError(error), "error");
+        }
+      }
+
+      async function finishLogin(authenticationResult) {
+        if (!authenticationResult?.IdToken) {
+          setLoginBusy(false);
+          showLoginMessage("Cognito no devolvió una sesión válida.", "error");
+          return;
+        }
+
+        const expiresIn = authenticationResult.ExpiresIn || 3600;
+        state.user = {
+          accessToken: authenticationResult.AccessToken,
+          idToken: authenticationResult.IdToken,
+          refreshToken: authenticationResult.RefreshToken,
+          expiresAt: Date.now() + expiresIn * 1000
+        };
+        window.sessionStorage.setItem("gestionProyectosAuth", JSON.stringify(state.user));
+        elements.loginDialog.hidden = true;
+        resetLoginForm();
+        await loadMe();
+      }
+
+      function logout() {
+        window.sessionStorage.removeItem("gestionProyectosAuth");
+        state.user = null;
+        state.profile = null;
+        state.workspace = null;
+        state.activeProjectId = null;
+        state.selectedDetail = null;
+        state.showPersonForm = false;
+        state.showTaskForm = false;
+        state.activeModule = getDefaultModule(defaultModules);
+        renderDefaultNav();
+        renderLoggedOut();
+      }
+
+      function setLoginBusy(isBusy, label) {
+        state.loginBusy = isBusy;
+        elements.submitLoginButton.disabled = isBusy;
+        elements.cancelLoginButton.disabled = isBusy;
+        elements.cancelLoginIconButton.disabled = isBusy;
+        if (label) {
+          elements.submitLoginButton.textContent = label;
+        } else if (state.needsNewPassword) {
+          elements.submitLoginButton.textContent = "Guardar contraseña";
+        } else {
+          elements.submitLoginButton.textContent = "Ingresar";
+        }
+      }
+
+      function showLoginMessage(message, type) {
+        elements.loginMessage.textContent = message;
+        elements.loginMessage.className = `loginMessage ${type || ""}`.trim();
+      }
+
+      function formatAuthError(error) {
+        const code = error?.code || error?.name;
+        if (code === "NotAuthorizedException") {
+          return "El correo o la contraseña no son correctos.";
+        }
+        if (code === "UserNotFoundException") {
+          return "El usuario no existe en Cognito.";
+        }
+        if (code === "PasswordResetRequiredException") {
+          return "El usuario requiere restablecer su contraseña.";
+        }
+        if (code === "InvalidPasswordException") {
+          return "La contraseña nueva no cumple la política definida en Cognito.";
+        }
+        return error?.message || "No fue posible iniciar sesión.";
+      }
+
       function renderLoggedOut() {
+        elements.contentPanel.hidden = true;
         elements.loginButton.hidden = false;
         elements.logoutButton.hidden = true;
         elements.userLabel.textContent = "Sin sesión";
@@ -207,7 +498,13 @@ const title = "Gestión de Proyectos";
 
       function renderNav() {
         elements.moduleNav.innerHTML = "";
-        for (const module of state.profile.modules) {
+        const visibleModules = getVisibleModules(state.profile.modules);
+        state.activeModule = normalizeModuleKey(state.activeModule);
+        if (!visibleModules.some((module) => module.key === state.activeModule)) {
+          state.activeModule = getDefaultModule(visibleModules);
+        }
+
+        for (const module of visibleModules) {
           const button = document.createElement("button");
           button.type = "button";
           button.textContent = module.label;
@@ -222,21 +519,29 @@ const title = "Gestión de Proyectos";
 
       function renderDefaultNav() {
         elements.moduleNav.innerHTML = "";
-        for (const module of defaultModules) {
+        const activeModule = getDefaultModule(defaultModules);
+        for (const module of getVisibleModules(defaultModules)) {
           const button = document.createElement("button");
           button.type = "button";
           button.textContent = module.label;
-          button.className = module.key === "home" ? "navItem active" : "navItem muted";
+          button.className = module.key === activeModule ? "navItem active" : "navItem muted";
           button.setAttribute("aria-disabled", "true");
           elements.moduleNav.append(button);
         }
       }
 
       function renderModule(moduleKey) {
+        moduleKey = normalizeModuleKey(moduleKey);
+        if (moduleKey === "projects" || moduleKey === "tasks") {
+          renderWorkspace();
+          return;
+        }
+
         const copy = viewCopy[moduleKey] || viewCopy.home;
         const items = copy.items.map((item) => `<li>${item}</li>`).join("");
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
+        elements.contentPanel.className = "contentGrid";
         elements.viewTitle.textContent = copy.title;
         elements.contentPanel.innerHTML = `
           <article class="panel modulePanel">
@@ -272,9 +577,711 @@ const title = "Gestión de Proyectos";
         `;
       }
 
+      async function renderWorkspace() {
+        elements.statusPanel.hidden = true;
+        elements.contentPanel.hidden = false;
+        elements.viewTitle.textContent = "Proyectos y tareas";
+        elements.contentPanel.className = "workspaceLayout";
+
+        if (!state.workspace) {
+          elements.contentPanel.innerHTML = `<section class="panel"><h2>Cargando espacio de trabajo</h2><p>Preparando personas, proyectos y tareas.</p></section>`;
+          try {
+            await loadWorkspace();
+          } catch (error) {
+            elements.contentPanel.innerHTML = `
+              <section class="panel">
+                <h2>No fue posible cargar proyectos y tareas</h2>
+                <p>${escapeHtml(error.message || "Intenta nuevamente en unos minutos.")}</p>
+              </section>
+            `;
+            return;
+          }
+        }
+
+        const workspace = state.workspace;
+        if (!workspace) {
+          return;
+        }
+
+        if (!state.activeProjectId && workspace.projects.length > 0) {
+          state.activeProjectId = workspace.projects[0].id;
+        }
+
+        const activeProject = workspace.projects.find((project) => project.id === state.activeProjectId) || workspace.projects[0] || null;
+        const peopleById = Object.fromEntries(workspace.people.map((person) => [person.id, person]));
+        const projectCards = workspace.projects.map((project) => renderProjectCard(project, activeProject?.id === project.id, peopleById)).join("");
+        const peopleCards = workspace.people.map(renderPersonCard).join("");
+        const columns = workspace.taskStatuses.map((status) => renderTaskColumn(status, activeProject, peopleById)).join("");
+        const detailPanel = renderDetailPanel(activeProject, peopleById);
+
+        elements.contentPanel.innerHTML = `
+          <section class="panel peoplePanel">
+            <div class="sectionHeader">
+              <div>
+                <p class="eyebrow">Personas</p>
+                <h2>Equipo disponible</h2>
+              </div>
+              <button id="togglePersonFormButton" class="tinyButton" type="button">${state.showPersonForm ? "Cerrar" : "Crear"}</button>
+            </div>
+            <form id="personQuickForm" class="quickForm" ${state.showPersonForm ? "" : "hidden"}>
+              <input name="firstName" type="text" placeholder="Nombre" required />
+              <input name="lastName" type="text" placeholder="Apellido" required />
+              <details class="optionalDetails">
+                <summary>Más datos</summary>
+                <input name="area" type="text" placeholder="Área" />
+                <textarea name="availabilityNotes" rows="2" placeholder="Vacaciones o disponibilidad"></textarea>
+                <textarea name="notes" rows="2" placeholder="Notas"></textarea>
+              </details>
+              <button class="primaryButton" type="submit">Crear usuario</button>
+            </form>
+            <input id="peopleSearch" class="searchInput" type="search" placeholder="Buscar usuario" />
+            <div id="peopleList" class="peopleList">${peopleCards || `<p class="emptyText">Aún no hay usuarios creados.</p>`}</div>
+          </section>
+
+          <section class="projectsTasksArea">
+            <section class="panel projectsPanel">
+              <div class="sectionHeader">
+                <div>
+                  <p class="eyebrow">Proyectos</p>
+                  <h2>Trabajo activo</h2>
+                </div>
+              </div>
+              <form id="projectQuickForm" class="inlineForm">
+                <input name="name" type="text" placeholder="Nuevo proyecto" required />
+                <button class="primaryButton" type="submit">Crear</button>
+              </form>
+              <div class="projectList">${projectCards || `<p class="emptyText">Crea el primer proyecto para iniciar.</p>`}</div>
+            </section>
+
+            ${detailPanel}
+
+            <section class="panel tasksPanel">
+              <div class="sectionHeader">
+                <div>
+                  <p class="eyebrow">Tareas</p>
+                  <h2>${activeProject ? activeProject.name : "Selecciona un proyecto"}</h2>
+                </div>
+                ${activeProject ? `
+                  <div class="sectionActions">
+                    <span class="countPill">${activeProject.tasks.length} tareas</span>
+                    <button id="toggleTaskFormButton" class="tinyButton" type="button">${state.showTaskForm ? "Cerrar" : "Crear"}</button>
+                  </div>
+                ` : ""}
+              </div>
+              ${activeProject ? `
+                <form id="taskQuickForm" class="inlineForm" ${state.showTaskForm ? "" : "hidden"}>
+                  <input name="title" type="text" placeholder="Nueva tarea" required />
+                  <button class="primaryButton" type="submit">Crear</button>
+                </form>
+                <div class="kanbanBoard">${columns}</div>
+              ` : `<p class="emptyText">Crea o selecciona un proyecto para administrar tareas.</p>`}
+            </section>
+          </section>
+        `;
+
+        bindWorkspaceEvents();
+      }
+
+      async function loadWorkspace() {
+        const payload = await apiRequest("api/workspace");
+        state.workspace = payload.data;
+      }
+
+      function renderPersonCard(person) {
+        const isSelected = state.selectedDetail?.type === "person" && state.selectedDetail.id === person.id;
+        return `
+          <article class="personCard ${isSelected ? "selected" : ""}" draggable="true" data-person-id="${person.id}" data-person-select="${person.id}">
+            <div class="cardHeader">
+              <strong>${escapeHtml(person.fullName)}</strong>
+              <button class="tinyButton ghost" type="button" data-detail-person="${person.id}">Editar</button>
+            </div>
+            <span>${escapeHtml(person.area || "Sin área")}</span>
+          </article>
+        `;
+      }
+
+      function renderProjectCard(project, isActive, peopleById) {
+        const memberNames = project.members
+          .map((member) => peopleById[member.personId]?.fullName)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ");
+        const memberIds = new Set(project.members.map((member) => member.personId));
+        const availablePeople = state.workspace.people.filter((person) => !memberIds.has(person.id));
+        const isSelected = state.selectedDetail?.type === "project" && state.selectedDetail.id === project.id;
+        return `
+          <article class="projectCard ${isActive ? "active" : ""} ${isSelected ? "selected" : ""}" data-project-id="${project.id}">
+            <button type="button" class="projectSelectButton" data-project-select="${project.id}">
+              <strong>${escapeHtml(project.name)}</strong>
+              <span>${project.tasks.length} tareas · ${project.members.length} personas</span>
+              <small>${escapeHtml(memberNames || "Arrastra personas aquí")}</small>
+            </button>
+            <select class="projectMemberSelect" data-project-member="${project.id}" aria-label="Agregar persona al proyecto" ${availablePeople.length ? "" : "disabled"}>
+              <option value="">Agregar persona</option>
+              ${availablePeople.map((person) => `<option value="${person.id}">${escapeHtml(person.fullName)}</option>`).join("")}
+            </select>
+            <div class="cardActions">
+              <button class="tinyButton ghost" type="button" data-detail-project="${project.id}">Editar</button>
+            </div>
+          </article>
+        `;
+      }
+
+      function renderTaskColumn(status, project, peopleById) {
+        const tasks = project.tasks.filter((task) => task.status === status.key);
+        const cards = tasks.map((task) => renderTaskCard(task, peopleById)).join("");
+        return `
+          <section class="kanbanColumn" data-task-status="${status.key}">
+            <header>
+              <strong>${status.label}</strong>
+              <span>${tasks.length}</span>
+            </header>
+            <div class="taskDropZone">${cards || `<p class="emptyText">Suelta tareas aquí.</p>`}</div>
+          </section>
+        `;
+      }
+
+      function renderTaskCard(task, peopleById) {
+        const assignee = task.assigneePersonId ? peopleById[task.assigneePersonId] : null;
+        const isSelected = state.selectedDetail?.type === "task" && state.selectedDetail.id === task.id;
+        return `
+          <article class="taskCard ${isSelected ? "selected" : ""}" draggable="true" data-task-id="${task.id}" data-task-select="${task.id}">
+            <div class="cardHeader">
+              <strong>${escapeHtml(task.title)}</strong>
+              <button class="tinyButton ghost" type="button" data-detail-task="${task.id}">Detalle</button>
+            </div>
+            <div class="taskMeta">
+              <span>${priorityLabel(task.priority)}</span>
+              <small>${assignee ? escapeHtml(assignee.fullName) : "Sin responsable"}</small>
+            </div>
+            <small>Arrastra para cambiar estado o asignar persona.</small>
+          </article>
+        `;
+      }
+
+      function renderDetailPanel(activeProject, peopleById) {
+        const detail = getSelectedDetail(activeProject);
+        if (!detail) {
+          return "";
+        }
+
+        if (detail.type === "person") {
+          return renderPersonDetail(detail.item);
+        }
+        if (detail.type === "project") {
+          return renderProjectDetail(detail.item, peopleById);
+        }
+        return renderTaskDetail(detail.item, peopleById);
+      }
+
+      function getSelectedDetail(activeProject) {
+        if (!state.selectedDetail || !state.workspace) {
+          return null;
+        }
+        if (state.selectedDetail.type === "person") {
+          const person = state.workspace.people.find((item) => item.id === state.selectedDetail.id);
+          return person ? { type: "person", item: person } : null;
+        }
+        if (state.selectedDetail.type === "project") {
+          const project = state.workspace.projects.find((item) => item.id === state.selectedDetail.id);
+          return project ? { type: "project", item: project } : null;
+        }
+
+        const project = state.workspace.projects.find((item) => item.id === (state.selectedDetail.projectId || activeProject?.id));
+        const task = project?.tasks.find((item) => item.id === state.selectedDetail.id);
+        return task ? { type: "task", item: task } : null;
+      }
+
+      function renderPersonDetail(person) {
+        return `
+          <aside class="panel detailPanel">
+            <div class="detailHeader">
+              <div>
+                <p class="eyebrow">Usuario</p>
+                <h2>${escapeHtml(person.fullName)}</h2>
+              </div>
+              <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
+            </div>
+            <form id="personDetailForm" class="detailForm" data-person-detail="${person.id}">
+              <label>Nombre<input name="firstName" type="text" value="${escapeAttribute(person.firstName)}" required /></label>
+              <label>Apellido<input name="lastName" type="text" value="${escapeAttribute(person.lastName)}" required /></label>
+              <label>Área<input name="area" type="text" value="${escapeAttribute(person.area)}" /></label>
+              <label>Estado
+                <select name="status">
+                  <option value="active" ${person.status === "active" ? "selected" : ""}>Activo</option>
+                  <option value="inactive" ${person.status === "inactive" ? "selected" : ""}>Inactivo</option>
+                </select>
+              </label>
+              <label>Vacaciones o disponibilidad<textarea name="availabilityNotes" rows="3">${escapeHtml(person.availabilityNotes)}</textarea></label>
+              <label>Notas<textarea name="notes" rows="3">${escapeHtml(person.notes)}</textarea></label>
+              <button class="primaryButton" type="submit">Guardar usuario</button>
+            </form>
+          </aside>
+        `;
+      }
+
+      function renderProjectDetail(project, peopleById) {
+        return `
+          <aside class="panel detailPanel">
+            <div class="detailHeader">
+              <div>
+                <p class="eyebrow">Proyecto</p>
+                <h2>${escapeHtml(project.name)}</h2>
+              </div>
+              <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
+            </div>
+            <form id="projectDetailForm" class="detailForm" data-project-detail="${project.id}">
+              <label>Nombre<input name="name" type="text" value="${escapeAttribute(project.name)}" required /></label>
+              <label>Estado
+                <select name="status">
+                  ${projectStatusOptions(project.status)}
+                </select>
+              </label>
+              <label>Responsable
+                <select name="ownerPersonId">
+                  <option value="">Sin responsable</option>
+                  ${state.workspace.people.map((person) => `<option value="${person.id}" ${person.id === project.ownerPersonId ? "selected" : ""}>${escapeHtml(person.fullName)}</option>`).join("")}
+                </select>
+              </label>
+              <label>Descripción<textarea name="description" rows="4">${escapeHtml(project.description)}</textarea></label>
+              <button class="primaryButton" type="submit">Guardar proyecto</button>
+            </form>
+            <div class="detailList">
+              <strong>Miembros</strong>
+              ${project.members.length ? project.members.map((member) => renderMemberRoleControl(project.id, member, peopleById)).join("") : `<p class="emptyText">Aún no hay miembros asignados.</p>`}
+            </div>
+          </aside>
+        `;
+      }
+
+      function renderMemberRoleControl(projectId, member, peopleById) {
+        const person = peopleById[member.personId];
+        return `
+          <label class="memberRoleRow">
+            <span>${escapeHtml(person?.fullName || "Usuario no encontrado")}</span>
+            <select data-member-role="${projectId}" data-member-person="${member.personId}" aria-label="Rol del usuario">
+              <option value="owner" ${member.role === "owner" ? "selected" : ""}>Owner</option>
+              <option value="member" ${member.role === "member" ? "selected" : ""}>Miembro</option>
+              <option value="reader" ${member.role === "reader" ? "selected" : ""}>Lector</option>
+            </select>
+          </label>
+        `;
+      }
+
+      function renderTaskDetail(task, peopleById) {
+        return `
+          <aside class="panel detailPanel">
+            <div class="detailHeader">
+              <div>
+                <p class="eyebrow">Tarea</p>
+                <h2>${escapeHtml(task.title)}</h2>
+              </div>
+              <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
+            </div>
+            <form id="taskDetailForm" class="detailForm" data-task-detail="${task.id}">
+              <label>Título<input name="title" type="text" value="${escapeAttribute(task.title)}" required /></label>
+              <label>Estado
+                <select name="status">
+                  ${state.workspace.taskStatuses.map((status) => `<option value="${status.key}" ${status.key === task.status ? "selected" : ""}>${escapeHtml(status.label)}</option>`).join("")}
+                </select>
+              </label>
+              <label>Prioridad
+                <select name="priority">
+                  ${state.workspace.taskPriorities.map((priority) => `<option value="${priority.key}" ${priority.key === task.priority ? "selected" : ""}>${escapeHtml(priority.label)}</option>`).join("")}
+                </select>
+              </label>
+              <label>Responsable
+                <select name="assigneePersonId">
+                  <option value="">Sin responsable</option>
+                  ${state.workspace.people.map((person) => `<option value="${person.id}" ${person.id === task.assigneePersonId ? "selected" : ""}>${escapeHtml(person.fullName)}</option>`).join("")}
+                </select>
+              </label>
+              <label>Notas<textarea name="notes" rows="4">${escapeHtml(task.notes)}</textarea></label>
+              <button class="primaryButton" type="submit">Guardar tarea</button>
+            </form>
+            <p class="detailHint">Responsable actual: ${escapeHtml(peopleById[task.assigneePersonId]?.fullName || "Sin responsable")}</p>
+          </aside>
+        `;
+      }
+
+      function projectStatusOptions(currentStatus) {
+        const labels = {
+          planned: "Planificado",
+          active: "Activo",
+          paused: "Pausado",
+          closed: "Cerrado"
+        };
+        return Object.entries(labels)
+          .map(([key, label]) => `<option value="${key}" ${key === currentStatus ? "selected" : ""}>${label}</option>`)
+          .join("");
+      }
+
+      function bindWorkspaceEvents() {
+        const personForm = document.querySelector("#personQuickForm");
+        const projectForm = document.querySelector("#projectQuickForm");
+        const taskForm = document.querySelector("#taskQuickForm");
+        const peopleSearch = document.querySelector("#peopleSearch");
+        const personDetailForm = document.querySelector("#personDetailForm");
+        const projectDetailForm = document.querySelector("#projectDetailForm");
+        const taskDetailForm = document.querySelector("#taskDetailForm");
+        const togglePersonFormButton = document.querySelector("#togglePersonFormButton");
+        const toggleTaskFormButton = document.querySelector("#toggleTaskFormButton");
+
+        personForm?.addEventListener("submit", submitPersonForm);
+        projectForm?.addEventListener("submit", submitProjectForm);
+        taskForm?.addEventListener("submit", submitTaskForm);
+        peopleSearch?.addEventListener("input", filterPeople);
+        personDetailForm?.addEventListener("submit", submitPersonDetailForm);
+        projectDetailForm?.addEventListener("submit", submitProjectDetailForm);
+        taskDetailForm?.addEventListener("submit", submitTaskDetailForm);
+        togglePersonFormButton?.addEventListener("click", () => {
+          state.showPersonForm = !state.showPersonForm;
+          renderWorkspace();
+        });
+        toggleTaskFormButton?.addEventListener("click", () => {
+          state.showTaskForm = !state.showTaskForm;
+          renderWorkspace();
+        });
+
+        for (const button of document.querySelectorAll("[data-project-select]")) {
+          button.addEventListener("click", () => {
+            state.activeProjectId = button.dataset.projectSelect;
+            renderWorkspace();
+          });
+        }
+
+        for (const card of document.querySelectorAll("[data-person-id]")) {
+          card.addEventListener("dragstart", (event) => {
+            event.dataTransfer.setData("text/plain", JSON.stringify({ type: "person", id: card.dataset.personId }));
+          });
+        }
+
+        for (const card of document.querySelectorAll("[data-task-id]")) {
+          card.addEventListener("dragstart", (event) => {
+            event.dataTransfer.setData("text/plain", JSON.stringify({ type: "task", id: card.dataset.taskId }));
+          });
+          card.addEventListener("dragover", allowDrop);
+          card.addEventListener("drop", dropOnTask);
+        }
+
+        for (const project of document.querySelectorAll("[data-project-id]")) {
+          project.addEventListener("dragover", allowDrop);
+          project.addEventListener("drop", dropOnProject);
+        }
+
+        for (const column of document.querySelectorAll("[data-task-status]")) {
+          column.addEventListener("dragover", allowDrop);
+          column.addEventListener("drop", dropOnColumn);
+        }
+
+        for (const select of document.querySelectorAll("[data-project-member]")) {
+          select.addEventListener("click", (event) => event.stopPropagation());
+          select.addEventListener("change", async () => {
+            if (!select.value) {
+              return;
+            }
+            try {
+              await addProjectMember(select.dataset.projectMember, select.value);
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        }
+
+        for (const select of document.querySelectorAll("[data-member-role]")) {
+          select.addEventListener("change", async () => {
+            try {
+              await updateProjectMember(select.dataset.memberRole, select.dataset.memberPerson, { role: select.value });
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        }
+
+        for (const button of document.querySelectorAll("[data-detail-person]")) {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            state.selectedDetail = { type: "person", id: button.dataset.detailPerson };
+            renderWorkspace();
+          });
+        }
+
+        for (const button of document.querySelectorAll("[data-detail-project]")) {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            state.selectedDetail = { type: "project", id: button.dataset.detailProject };
+            renderWorkspace();
+          });
+        }
+
+        for (const button of document.querySelectorAll("[data-detail-task]")) {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            state.selectedDetail = { type: "task", id: button.dataset.detailTask, projectId: state.activeProjectId };
+            renderWorkspace();
+          });
+        }
+
+        document.querySelector("[data-close-detail]")?.addEventListener("click", () => {
+          state.selectedDetail = null;
+          renderWorkspace();
+        });
+      }
+
+      async function submitPersonForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const form = new FormData(target);
+        try {
+          await apiRequest("api/people", {
+            method: "POST",
+            body: JSON.stringify(Object.fromEntries(form.entries()))
+          });
+          state.selectedDetail = null;
+          state.showPersonForm = false;
+          target.reset();
+          await refreshWorkspace();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function submitProjectForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const form = new FormData(target);
+        try {
+          const payload = await apiRequest("api/projects", {
+            method: "POST",
+            body: JSON.stringify(Object.fromEntries(form.entries()))
+          });
+          state.activeProjectId = payload.data.id;
+          state.selectedDetail = { type: "project", id: payload.data.id };
+          target.reset();
+          await refreshWorkspace();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function submitPersonDetailForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const form = new FormData(target);
+        try {
+          await updatePerson(target.dataset.personDetail, Object.fromEntries(form.entries()));
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function submitProjectDetailForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const form = new FormData(target);
+        try {
+          await updateProject(target.dataset.projectDetail, Object.fromEntries(form.entries()));
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function submitTaskDetailForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const form = new FormData(target);
+        try {
+          await updateTask(target.dataset.taskDetail, Object.fromEntries(form.entries()), state.selectedDetail?.projectId || state.activeProjectId);
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function submitTaskForm(event) {
+        event.preventDefault();
+        if (!state.activeProjectId) {
+          return;
+        }
+        const target = event.currentTarget;
+        const form = new FormData(target);
+        try {
+          await apiRequest(`api/projects/${state.activeProjectId}/tasks`, {
+            method: "POST",
+            body: JSON.stringify(Object.fromEntries(form.entries()))
+          });
+          state.selectedDetail = null;
+          state.showTaskForm = false;
+          target.reset();
+          await refreshWorkspace();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function dropOnProject(event) {
+        event.preventDefault();
+        const data = getDragData(event);
+        const projectId = event.currentTarget.dataset.projectId;
+        if (data?.type !== "person" || !projectId) {
+          return;
+        }
+        try {
+          await addProjectMember(projectId, data.id);
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function addProjectMember(projectId, personId) {
+        await apiRequest(`api/projects/${projectId}/members`, {
+          method: "POST",
+          body: JSON.stringify({ personId })
+        });
+        state.activeProjectId = projectId;
+        await refreshWorkspace();
+      }
+
+      async function updatePerson(personId, values) {
+        await apiRequest(`api/people/${personId}`, {
+          method: "PATCH",
+          body: JSON.stringify(values)
+        });
+        state.selectedDetail = { type: "person", id: personId };
+        await refreshWorkspace();
+      }
+
+      async function updateProject(projectId, values) {
+        await apiRequest(`api/projects/${projectId}`, {
+          method: "PATCH",
+          body: JSON.stringify(values)
+        });
+        state.activeProjectId = projectId;
+        state.selectedDetail = { type: "project", id: projectId };
+        await refreshWorkspace();
+      }
+
+      async function updateProjectMember(projectId, personId, values) {
+        await apiRequest(`api/projects/${projectId}/members/${personId}`, {
+          method: "PATCH",
+          body: JSON.stringify(values)
+        });
+        state.activeProjectId = projectId;
+        state.selectedDetail = { type: "project", id: projectId };
+        await refreshWorkspace();
+      }
+
+      async function dropOnColumn(event) {
+        event.preventDefault();
+        const data = getDragData(event);
+        const status = event.currentTarget.dataset.taskStatus;
+        if (data?.type !== "task" || !status) {
+          return;
+        }
+        try {
+          await updateTask(data.id, { status }, state.activeProjectId, false);
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function dropOnTask(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const data = getDragData(event);
+        const taskId = event.currentTarget.dataset.taskId;
+        if (data?.type !== "person" || !taskId) {
+          return;
+        }
+        try {
+          await updateTask(taskId, { assigneePersonId: data.id }, state.activeProjectId, false);
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      function allowDrop(event) {
+        event.preventDefault();
+      }
+
+      function getDragData(event) {
+        try {
+          return JSON.parse(event.dataTransfer.getData("text/plain"));
+        } catch {
+          return null;
+        }
+      }
+
+      async function updateTask(taskId, values, projectId = state.activeProjectId, showDetail = true) {
+        if (!projectId || !taskId) {
+          return;
+        }
+        await apiRequest(`api/projects/${projectId}/tasks/${taskId}`, {
+          method: "PATCH",
+          body: JSON.stringify(values)
+        });
+        state.activeProjectId = projectId;
+        if (showDetail) {
+          state.selectedDetail = { type: "task", id: taskId, projectId };
+        }
+        await refreshWorkspace();
+      }
+
+      async function refreshWorkspace() {
+        state.workspace = null;
+        await loadWorkspace();
+        renderWorkspace();
+      }
+
+      function filterPeople(event) {
+        const query = event.target.value.trim().toLowerCase();
+        for (const card of document.querySelectorAll(".personCard")) {
+          card.hidden = query && !card.textContent.toLowerCase().includes(query);
+        }
+      }
+
+      async function apiRequest(path, options = {}) {
+        const response = await fetch(`${state.config.apiBaseUrl}${path}`, {
+          ...options,
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${state.user.idToken}`,
+            ...(options.headers || {})
+          }
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error?.message || "No fue posible completar la acción.");
+        }
+        return payload;
+      }
+
+      function priorityLabel(priority) {
+        const labels = {
+          low: "Baja",
+          medium: "Media",
+          high: "Alta",
+          critical: "Crítica"
+        };
+        return labels[priority] || "Media";
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function escapeAttribute(value) {
+        return escapeHtml(value);
+      }
+
       function renderStatus(title, message) {
         elements.statusPanel.hidden = false;
         elements.contentPanel.hidden = true;
+        elements.contentPanel.className = "contentGrid";
         elements.viewTitle.textContent = title;
         elements.statusPanel.innerHTML = `
           <div>
@@ -312,6 +1319,10 @@ const title = "Gestión de Proyectos";
 
   * {
     box-sizing: border-box;
+  }
+
+  [hidden] {
+    display: none !important;
   }
 
   body {
@@ -465,6 +1476,144 @@ const title = "Gestión de Proyectos";
     color: #ffffff;
   }
 
+  .dialogBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(18, 29, 33, 0.44);
+  }
+
+  .dialogBackdrop[hidden],
+  .newPasswordFields[hidden] {
+    display: none;
+  }
+
+  .loginDialog {
+    width: min(460px, 100%);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 24px 70px rgba(18, 29, 33, 0.28);
+  }
+
+  .dialogHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid var(--line);
+    padding: 22px 24px 18px;
+  }
+
+  .dialogHeader h2 {
+    margin: 4px 0 0;
+    font-size: 1.35rem;
+    line-height: 1.2;
+  }
+
+  .iconButton {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 1.35rem;
+    line-height: 1;
+  }
+
+  .loginForm {
+    display: grid;
+    gap: 14px;
+    padding: 22px 24px 24px;
+  }
+
+  .loginForm label {
+    display: grid;
+    gap: 7px;
+    color: #304148;
+    font-weight: 650;
+  }
+
+  .loginForm input {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font: inherit;
+  }
+
+  .loginForm input:focus {
+    border-color: var(--focus);
+    outline: 3px solid rgba(37, 99, 235, 0.18);
+  }
+
+  .loginForm input:disabled {
+    background: #f3f6f7;
+    color: var(--muted);
+  }
+
+  .newPasswordFields {
+    display: grid;
+    gap: 12px;
+    border: 1px solid #b8dad5;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    padding: 14px;
+  }
+
+  .newPasswordFields p {
+    margin: 0;
+    color: #305f5a;
+    line-height: 1.45;
+  }
+
+  .loginMessage {
+    min-height: 20px;
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .loginMessage.error {
+    color: #b42318;
+  }
+
+  .loginMessage.info {
+    color: var(--accent-strong);
+  }
+
+  .dialogActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 2px;
+  }
+
+  .primaryButton,
+  .secondaryButton {
+    min-height: 42px;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 650;
+  }
+
+  .primaryButton {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .secondaryButton {
+    background: #ffffff;
+    color: #34454b;
+  }
+
   .statusPanel,
   .panel {
     border: 1px solid var(--line);
@@ -567,6 +1716,316 @@ const title = "Gestión de Proyectos";
     margin-top: 0;
   }
 
+  .workspaceLayout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .projectsTasksArea {
+    display: grid;
+    gap: 16px;
+  }
+
+  .sectionHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .sectionHeader h2 {
+    margin: 4px 0 0;
+  }
+
+  .sectionActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .quickForm,
+  .inlineForm {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .inlineForm {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .quickForm input,
+  .quickForm textarea,
+  .inlineForm input,
+  .searchInput,
+  .projectMemberSelect,
+  .taskCard select {
+    width: 100%;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--text);
+    font: inherit;
+    min-height: 40px;
+    padding: 9px 11px;
+  }
+
+  .quickForm textarea {
+    resize: vertical;
+  }
+
+  .optionalDetails {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    padding: 10px;
+  }
+
+  .optionalDetails summary {
+    color: var(--accent-strong);
+    cursor: pointer;
+    font-weight: 650;
+  }
+
+  .optionalDetails input,
+  .optionalDetails textarea {
+    margin-top: 10px;
+  }
+
+  .searchInput {
+    margin-bottom: 12px;
+  }
+
+  .peopleList,
+  .projectList {
+    display: grid;
+    gap: 10px;
+  }
+
+  .personCard,
+  .projectCard,
+  .taskCard {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    color: #34454b;
+  }
+
+  .personCard.selected,
+  .projectCard.selected,
+  .taskCard.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  }
+
+  .personCard {
+    display: grid;
+    gap: 4px;
+    padding: 11px 12px;
+    cursor: grab;
+  }
+
+  .cardHeader,
+  .detailHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .cardHeader strong,
+  .detailHeader h2 {
+    min-width: 0;
+  }
+
+  .tinyButton {
+    min-height: 32px;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: var(--accent-strong);
+    font-size: 0.82rem;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+
+  .tinyButton.ghost {
+    background: #ffffff;
+  }
+
+  .cardActions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 12px 12px;
+  }
+
+  .personCard strong,
+  .taskCard strong {
+    color: var(--text);
+    line-height: 1.25;
+  }
+
+  .personCard span,
+  .projectCard span,
+  .projectCard small,
+  .taskCard span,
+  .taskCard small {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  .projectCard.active {
+    border-color: #9bcac4;
+    background: var(--accent-soft);
+  }
+
+  .projectSelectButton {
+    display: grid;
+    width: 100%;
+    gap: 5px;
+    border: 0;
+    background: transparent;
+    padding: 13px;
+    text-align: left;
+  }
+
+  .projectMemberSelect {
+    margin: 0 12px 12px;
+    width: calc(100% - 24px);
+  }
+
+  .countPill {
+    border: 1px solid #b8dad5;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    padding: 5px 10px;
+    font-size: 0.82rem;
+    font-weight: 650;
+  }
+
+  .kanbanBoard {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    gap: 12px;
+    overflow-x: auto;
+  }
+
+  .kanbanColumn {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 340px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f7fafb;
+  }
+
+  .kanbanColumn header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    padding: 10px 12px;
+  }
+
+  .kanbanColumn header span {
+    color: var(--muted);
+  }
+
+  .taskDropZone {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .taskCard {
+    display: grid;
+    gap: 8px;
+    padding: 11px;
+    cursor: grab;
+    background: #ffffff;
+  }
+
+  .taskMeta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .emptyText {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  .detailPanel {
+    position: static;
+  }
+
+  .detailForm {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .detailForm label,
+  .memberRoleRow {
+    display: grid;
+    gap: 6px;
+    color: #304148;
+    font-weight: 650;
+  }
+
+  .detailForm input,
+  .detailForm select,
+  .detailForm textarea,
+  .memberRoleRow select {
+    width: 100%;
+    min-height: 40px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--text);
+    font: inherit;
+    padding: 9px 11px;
+  }
+
+  .detailForm textarea {
+    resize: vertical;
+  }
+
+  .detailList {
+    display: grid;
+    gap: 10px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+
+  .memberRoleRow {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    padding: 10px;
+  }
+
+  .memberRoleRow span {
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  .detailHint {
+    margin-top: 14px;
+    font-size: 0.86rem;
+  }
+
   dl {
     margin: 0;
     display: grid;
@@ -621,8 +2080,18 @@ const title = "Gestión de Proyectos";
     }
 
     .statusPanel,
-    .contentGrid {
+    .contentGrid,
+    .workspaceLayout {
       grid-template-columns: 1fr;
+    }
+
+    .inlineForm {
+      grid-template-columns: 1fr;
+    }
+
+    .kanbanBoard {
+      grid-template-columns: minmax(220px, 1fr);
+      overflow: visible;
     }
 
     .panelHeader {

@@ -66,14 +66,15 @@ Error:
 
 ```text
 GET /api/me
-GET /api/projects
+GET /api/workspace
+POST /api/people
+PATCH /api/people/{personId}
 POST /api/projects
-GET /api/projects/{id}
-PUT /api/projects/{id}
-GET /api/projects/{id}/tasks
-POST /api/projects/{id}/tasks
-PUT /api/projects/{id}/tasks/{taskId}
-POST /api/projects/{id}/join
+PATCH /api/projects/{projectId}
+POST /api/projects/{projectId}/members
+PATCH /api/projects/{projectId}/members/{personId}
+POST /api/projects/{projectId}/tasks
+PATCH /api/projects/{projectId}/tasks/{taskId}
 GET /api/catalog/databases
 GET /api/catalog/tables
 GET /api/catalog/{database}/{table}
@@ -88,6 +89,15 @@ GET /api/admin/audit
 
 Cada endpoint debe llamar una funcion comun de autorizacion antes de ejecutar la accion. El permiso debe considerar usuario, modulo, proyecto y recurso afectado.
 
+En el primer corte de proyectos y tareas, las rutas de workspace validan que el usuario tenga habilitado el módulo `projects` o `tasks` antes de operar.
+
+Las rutas de edición del panel de detalle validan permisos en backend:
+
+- `projects` para editar personas, proyectos y roles de miembros.
+- `tasks` para editar tareas.
+
+Si un usuario no tiene módulos funcionales configurados, el backend debe rechazar la operación con `403`.
+
 ## Auditoria
 
 Registrar como minimo:
@@ -96,5 +106,6 @@ Registrar como minimo:
 - Creacion y edicion de proyectos.
 - Cambios de estado de tareas.
 - Cambios de prioridad de tareas.
+- Cambios de responsable de tareas.
 - Cambios de contexto funcional.
 - Acciones administrativas.
