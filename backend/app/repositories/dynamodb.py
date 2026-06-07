@@ -37,6 +37,15 @@ class MainTableRepository:
         )
         return response.get("Items", [])
 
+    def get_project(self, project_id: str) -> dict[str, Any] | None:
+        response = self._table.get_item(
+            Key={
+                "PK": f"PROJECT#{project_id}",
+                "SK": "META"
+            }
+        )
+        return response.get("Item")
+
     def list_project_members(self, project_id: str) -> list[dict[str, Any]]:
         response = self._table.query(
             KeyConditionExpression=Key("PK").eq(f"PROJECT#{project_id}") & Key("SK").begins_with("PERSON#")
@@ -130,6 +139,14 @@ class MainTableRepository:
             ReturnValues="ALL_NEW"
         )
         return response["Attributes"]
+
+    def delete_project_member(self, project_id: str, person_id: str) -> None:
+        self._table.delete_item(
+            Key={
+                "PK": f"PROJECT#{project_id}",
+                "SK": f"PERSON#{person_id}"
+            }
+        )
 
     def update_task(self, project_id: str, task_id: str, values: dict[str, Any]) -> dict[str, Any]:
         names = {"#updatedAt": "updatedAt"}

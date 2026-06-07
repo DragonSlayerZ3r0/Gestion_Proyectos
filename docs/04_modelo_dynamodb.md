@@ -96,9 +96,9 @@ SK = <timestamp>#<eventId>
 El panel de detalle actualiza los mismos registros operativos:
 
 - `PERSON`: nombre, apellido, nombre completo, área, notas, disponibilidad y estado.
-- `PROJECT`: nombre, descripción, estado y responsable.
+- `PROJECT`: nombre, descripción, estado opcional y responsable opcional.
 - `PROJECT_MEMBER`: rol funcional dentro del proyecto.
-- `TASK`: título, estado, prioridad, responsable y notas.
+- `TASK`: título, estado, prioridad opcional, responsable opcional y notas.
 
 Los cambios de tarea en estado, prioridad o responsable generan `AUDIT_EVENT` con `changedFields`.
 

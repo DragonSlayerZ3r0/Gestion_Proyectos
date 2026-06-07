@@ -32,7 +32,7 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         return route_projects(event, method)
 
     if path.startswith("/api/projects/") and "/members/" in path:
-        return route_project_member_update(event, method, path_parameters)
+        return route_project_member(event, method, path_parameters)
 
     if path.endswith("/members"):
         return route_project_members(event, method, path_parameters)
@@ -171,16 +171,18 @@ def route_project_members(event: dict[str, Any], method: str, path_parameters: d
         return error("INTERNAL_ERROR", "Error inesperado al agregar el usuario al proyecto.", 500)
 
 
-def route_project_member_update(event: dict[str, Any], method: str, path_parameters: dict[str, str]) -> dict[str, Any]:
-    if method != "PATCH":
+def route_project_member(event: dict[str, Any], method: str, path_parameters: dict[str, str]) -> dict[str, Any]:
+    if method not in {"PATCH", "DELETE"}:
         return error("METHOD_NOT_ALLOWED", "Método no permitido.", 405)
     try:
         identity = get_user_identity(event)
         ensure_module_access(identity, ["projects"])
         project_id = path_parameters.get("projectId") or ""
         person_id = path_parameters.get("personId") or ""
-        member = WorkspaceService().update_project_member(project_id, person_id, parse_body(event), identity)
-        return success(member)
+        service = WorkspaceService()
+        if method == "DELETE":
+            return success(service.remove_project_member(project_id, person_id, identity))
+        return success(service.update_project_member(project_id, person_id, parse_body(event), identity))
     except ValueError as exc:
         return error("UNAUTHORIZED", str(exc), 401)
     except PermissionError as exc:
@@ -188,7 +190,7 @@ def route_project_member_update(event: dict[str, Any], method: str, path_paramet
     except ValidationError as exc:
         return error("VALIDATION_ERROR", str(exc), 400)
     except Exception:
-        return error("INTERNAL_ERROR", "Error inesperado al actualizar el rol del usuario.", 500)
+        return error("INTERNAL_ERROR", "Error inesperado al actualizar la asignación del usuario.", 500)
 
 
 def route_project_tasks(event: dict[str, Any], method: str, path_parameters: dict[str, str]) -> dict[str, Any]:

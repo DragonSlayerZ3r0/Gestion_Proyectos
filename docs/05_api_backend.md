@@ -73,6 +73,7 @@ POST /api/projects
 PATCH /api/projects/{projectId}
 POST /api/projects/{projectId}/members
 PATCH /api/projects/{projectId}/members/{personId}
+DELETE /api/projects/{projectId}/members/{personId}
 POST /api/projects/{projectId}/tasks
 PATCH /api/projects/{projectId}/tasks/{taskId}
 GET /api/catalog/databases
@@ -94,7 +95,10 @@ En el primer corte de proyectos y tareas, las rutas de workspace validan que el 
 Las rutas de edición del panel de detalle validan permisos en backend:
 
 - `projects` para editar personas, proyectos y roles de miembros.
+- `projects` para quitar personas de proyectos.
 - `tasks` para editar tareas.
+
+En proyectos y tareas, los campos `ownerPersonId`, `assigneePersonId`, `project.status` y `task.priority` pueden enviarse como cadena vacía para representar `Ninguno` o `Ninguna`. El backend no debe imponer responsable, prioridad de tarea ni estado de proyecto por defecto.
 
 Si un usuario no tiene módulos funcionales configurados, el backend debe rechazar la operación con `403`.
 

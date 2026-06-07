@@ -280,7 +280,7 @@ export class GestionProyectosStack extends Stack {
     });
     httpApi.addRoutes({
       path: "/api/projects/{projectId}/members/{personId}",
-      methods: [apigwv2.HttpMethod.PATCH],
+      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
       integration,
       authorizer: jwtAuthorizer
     });

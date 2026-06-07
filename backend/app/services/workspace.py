@@ -83,7 +83,7 @@ class WorkspaceService:
             "entityType": "PROJECT",
             "projectId": project_id,
             "name": name,
-            "status": self._allowed(payload.get("status") or "active", PROJECT_STATUSES, "Estado del proyecto"),
+            "status": self._allowed_optional(payload.get("status"), PROJECT_STATUSES, "Estado del proyecto"),
             "ownerPersonId": self._optional_text(payload, "ownerPersonId"),
             "description": self._optional_text(payload, "description"),
             "createdAt": now,
@@ -149,7 +149,7 @@ class WorkspaceService:
         if "description" in payload:
             values["description"] = self._optional_text(payload, "description")
         if "status" in payload:
-            values["status"] = self._allowed(payload["status"], PROJECT_STATUSES, "Estado del proyecto")
+            values["status"] = self._allowed_optional(payload["status"], PROJECT_STATUSES, "Estado del proyecto")
         if "ownerPersonId" in payload:
             values["ownerPersonId"] = self._optional_text(payload, "ownerPersonId")
 
@@ -166,6 +166,25 @@ class WorkspaceService:
         }
         return self._normalize_member(self._repository.update_project_member_role(project_id, person_id, role, values))
 
+    def remove_project_member(self, project_id: str, person_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        project_id = self._required_text({"projectId": project_id}, "projectId", "Proyecto")
+        person_id = self._required_text({"personId": person_id}, "personId", "Usuario")
+
+        project = self._repository.get_project(project_id) or {}
+        if project.get("ownerPersonId") == person_id:
+            self._repository.update_project(project_id, {
+                "ownerPersonId": "",
+                "updatedAt": self._now(),
+                "updatedBy": identity["userId"]
+            })
+
+        self._repository.delete_project_member(project_id, person_id)
+        return {
+            "projectId": project_id,
+            "personId": person_id,
+            "removed": True
+        }
+
     def create_task(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         title = self._required_text(payload, "title", "Título de la tarea")
         now = self._now()
@@ -178,7 +197,7 @@ class WorkspaceService:
             "taskId": task_id,
             "title": title,
             "status": self._allowed(payload.get("status") or "pending", TASK_STATUSES, "Estado de la tarea"),
-            "priority": self._allowed(payload.get("priority") or "medium", TASK_PRIORITIES, "Prioridad"),
+            "priority": self._allowed_optional(payload.get("priority"), TASK_PRIORITIES, "Prioridad"),
             "assigneePersonId": self._optional_text(payload, "assigneePersonId"),
             "notes": self._optional_text(payload, "notes"),
             "createdAt": now,
@@ -198,7 +217,7 @@ class WorkspaceService:
         if "status" in payload:
             values["status"] = self._allowed(payload["status"], TASK_STATUSES, "Estado de la tarea")
         if "priority" in payload:
-            values["priority"] = self._allowed(payload["priority"], TASK_PRIORITIES, "Prioridad")
+            values["priority"] = self._allowed_optional(payload["priority"], TASK_PRIORITIES, "Prioridad")
         if "assigneePersonId" in payload:
             values["assigneePersonId"] = self._optional_text(payload, "assigneePersonId")
         if "title" in payload:
@@ -219,7 +238,7 @@ class WorkspaceService:
             "area": item.get("area", ""),
             "notes": item.get("notes", ""),
             "availabilityNotes": item.get("availabilityNotes", ""),
-            "status": item.get("status", "active"),
+            "status": item.get("status", ""),
             "updatedAt": item.get("updatedAt", "")
         }
 
@@ -227,7 +246,7 @@ class WorkspaceService:
         return {
             "id": item["projectId"],
             "name": item.get("name", ""),
-            "status": item.get("status", "active"),
+            "status": item.get("status", ""),
             "ownerPersonId": item.get("ownerPersonId", ""),
             "description": item.get("description", ""),
             "updatedAt": item.get("updatedAt", ""),
@@ -249,7 +268,7 @@ class WorkspaceService:
             "projectId": item["projectId"],
             "title": item.get("title", ""),
             "status": item.get("status", "pending"),
-            "priority": item.get("priority", "medium"),
+            "priority": item.get("priority", ""),
             "assigneePersonId": item.get("assigneePersonId", ""),
             "notes": item.get("notes", ""),
             "updatedAt": item.get("updatedAt", "")
@@ -266,6 +285,14 @@ class WorkspaceService:
 
     def _allowed(self, value: str, allowed_values: list[str], label: str) -> str:
         normalized = str(value or "").strip()
+        if normalized not in allowed_values:
+            raise ValidationError(f"{label} no es válido.")
+        return normalized
+
+    def _allowed_optional(self, value: str | None, allowed_values: list[str], label: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            return ""
         if normalized not in allowed_values:
             raise ValidationError(f"{label} no es válido.")
         return normalized

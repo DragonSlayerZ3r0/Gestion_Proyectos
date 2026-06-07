@@ -17,6 +17,7 @@ La primera pantalla debe orientar sin convertirse en landing page: mostrar estad
 - Área principal enfocada en la tarea actual.
 - Estados vacíos claros y accionables.
 - Tablas densas pero legibles.
+- En pantallas operativas densas, el menú lateral debe poder contraerse para liberar espacio de trabajo.
 
 ## Menú lateral
 
@@ -74,8 +75,6 @@ Usar drag and drop solo donde aporte valor claro, especialmente en tareas por es
 
 Para proyectos y tareas, drag and drop debe usarse en acciones que el usuario entienda visualmente:
 
-- Arrastrar una persona hacia un proyecto para agregarla como miembro.
-- Arrastrar una persona hacia una tarea para asignarla como responsable.
 - Arrastrar una tarea entre columnas de estado.
 - Reordenar tareas dentro de una columna solo si aporta claridad.
 
@@ -85,14 +84,29 @@ Cada acción drag and drop debe tener una alternativa visible: botón `Agregar`,
 
 La pantalla principal debe permitir trabajar sin cambiar de contexto:
 
-- Panel de personas con búsqueda y creación rápida.
-- Lista o tablero de proyectos con selección clara del proyecto activo.
-- Kanban simple de tareas del proyecto seleccionado.
+- Búsqueda general por proyecto, tarea o persona.
+- Lista de proyectos como vista principal.
+- Personas relacionadas dentro de cada tarjeta de proyecto.
+- Resumen de tareas por estado dentro de cada proyecto.
+- Tareas principales visibles dentro de cada proyecto.
+- Kanban simple dentro del proyecto solo cuando el usuario presione `Ver tablero`.
 - Panel de detalles para editar usuario, proyecto o tarea sin salir de la pantalla.
 
 Esta pantalla debe ser la entrada operativa predeterminada cuando el usuario tenga acceso a proyectos o tareas. Evitar abrir Administración o Catálogo como primera vista solo por orden alfabético de permisos.
 
-El panel de detalle debe permanecer dentro de la misma pantalla, sin tapar el tablero ni bloquear el trabajo del usuario. No debe abrirse automáticamente al seleccionar una tarjeta; debe abrirse solo con una acción explícita como `Editar` o `Detalle`.
+El panel de detalle debe permanecer dentro de la misma pantalla, sin tapar el tablero ni bloquear el trabajo del usuario. No debe abrirse automáticamente al seleccionar una tarjeta; debe abrirse solo con una acción explícita como `Editar` o `Detalle`. En escritorio debe comportarse como panel lateral derecho no modal; en móvil debe comportarse como bottom sheet con scroll interno.
+
+La pantalla no debe depender de seleccionar un proyecto arriba para ver tareas en una zona inferior. El usuario debe entender proyecto, responsable, personas y tareas sin hacer clic.
+
+El listado de proyectos debe incluir filtros visibles por estado. Por defecto se muestran todos los estados. Cada tarjeta de proyecto debe mostrar su estado actual para evitar que el usuario tenga que abrir el detalle para entenderlo.
+
+Cuando el usuario abre `Ver tablero`, la tarjeta debe ocultar la lista resumida de tareas para evitar dos tableros visibles del mismo proyecto. El Kanban reemplaza la vista resumida hasta que el usuario presione `Ocultar tablero`.
+
+Los estados deben tener color contextual sobrio: proyectos cerrados en rojo suave, activos en verde, planificados en azul y pausados en ámbar. Las tareas y prioridades también deben mostrarse con badges o acentos de color para facilitar lectura rápida. Si un proyecto no tiene estado o una tarea no tiene prioridad, no se debe mostrar un badge vacío ni texto de relleno.
+
+Las acciones de guardado en paneles de detalle deben mostrar retroalimentación visible dentro del mismo panel. Por ejemplo, al guardar proyecto o tarea debe mostrarse una confirmación como `Proyecto guardado correctamente.` o `Tarea guardada correctamente.`
+
+La asignación de responsable de una tarea debe hacerse con una acción explícita `Asignar` o `Cambiar`, abriendo el detalle enfocado en el selector `Responsable`. No se debe mostrar texto que indique arrastrar personas si no existe un panel visible de personas disponibles para esa acción.
 
 La creación rápida debe pedir solo lo mínimo:
 

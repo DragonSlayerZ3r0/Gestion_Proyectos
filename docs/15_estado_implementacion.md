@@ -12,6 +12,7 @@ Primer entregable implementado y desplegado en `dev`:
 - Panel de detalle contextual publicado para editar persona, proyecto, rol de miembro y tarea desde la misma pantalla.
 - Ajuste UX publicado para `Proyectos y tareas`: creación de personas y tareas colapsada hasta presionar `Crear`, tarjetas de tareas más compactas y detalle abierto solo por botón explícito `Detalle`.
 - Corrección frontend publicada para creación/edición de formularios: se conserva la referencia del formulario antes de llamadas asíncronas para evitar errores `currentTarget` nulo al crear usuarios, proyectos o tareas.
+- Mejora UX/API publicada para `Proyectos y tareas`: quitar miembros de un proyecto arrastrándolos de vuelta a `Personas`, quitar responsable de tareas por drag and drop, franja superior con altura controlada y menú lateral colapsable.
 - Repositorio DynamoDB para perfil funcional y módulos de usuario.
 - Infraestructura AWS CDK TypeScript para `dev`.
 - Seed automático en CDK para usuario inicial y módulos base.
@@ -104,6 +105,12 @@ En el corte de panel de detalle del 2026-06-05 se aplicaron con AWS CLI:
 - `aws apigatewayv2 update-api` para permitir `PATCH` en CORS desde CloudFront.
 - `aws lambda add-permission` para permitir invocación desde las nuevas rutas `PATCH`.
 
+En el corte de drag and drop reversible del 2026-06-05 se aplicaron con AWS CLI:
+
+- `aws lambda update-function-code` para `gestion-proyectos-dev-api`.
+- `aws apigatewayv2 create-route` para `DELETE /api/projects/{projectId}/members/{personId}`.
+- `aws lambda add-permission` para permitir invocación desde la nueva ruta `DELETE`.
+
 ## Publicación frontend
 
 El frontend se publica fuera de CDK para evitar depender de `BucketDeployment`:
@@ -151,13 +158,31 @@ El archivo runtime `/config.json` debe contener solamente valores públicos del 
 - Invalidation CloudFront `I2F1PDL8YPUDNE23CFEFSUA0HX` terminó en `Completed` para el panel de detalle.
 - Invalidation CloudFront `I1WEPCARA5O1OWVGU8ILWD6NRB` terminó en `Completed` para el ajuste UX de formularios colapsados y detalle explícito de tareas.
 - Invalidation CloudFront `I9MROWSUVDA5CBY8AGQFXH569W` terminó en `Completed` para la corrección de formularios con `currentTarget` nulo.
+- Invalidation CloudFront `I7OF6QESUK4DQUCZZBAQZKX065` terminó en `Completed` para drag and drop reversible y menú lateral colapsable.
+- Invalidation CloudFront `IAR80SN8MVX9ZERTOVKKGLZU8H` terminó en `Completed` para el ajuste visual de tablero: salida por drag and drop sobre `Personas`, lista de proyectos con scroll interno y tarjetas de tareas sin solapamiento.
+- Invalidation CloudFront `I7FS6K4HF8IVY48GPHYWOKJ5P7` terminó en `Completed` para filtros de proyectos por estado, estado visible en tarjetas de proyecto y salida por drag and drop sobre cualquier punto del panel `Personas` sin cuadro adicional.
+- Invalidation CloudFront `I476ZMUKJAUNHCSIE92CRWYLV6` terminó en `Completed` para la vista principal de proyectos con tareas visibles: búsqueda general, creación de proyecto como acción principal, personas dentro de cada proyecto, resumen de tareas por estado y tablero expandible por proyecto.
+- Invalidation CloudFront `I4RIINL2B8C30DQFVC4HGHQB32` terminó en `Completed` para corregir la doble vista al abrir `Ver tablero`, agregar colores contextuales por estado/prioridad y mostrar confirmación al guardar proyecto.
+- Invalidation CloudFront `IBP1FOY2E529SW1WID60QN8Q3D` terminó en `Completed` para agregar confirmación visible al guardar tarea desde el panel de detalle.
+- Invalidation CloudFront `IL8OPCXNKPI533FN2AN990BGG` terminó en `Completed` para restaurar `/config.json` runtime real con `CacheControl: no-store` después de detectar el config local vacío durante la verificación.
+- Invalidation CloudFront `I3R001EHICY4KGXB6ESMOYHSPH` terminó en `Completed` para mover el detalle contextual a un panel lateral derecho en escritorio, bottom sheet en móvil y simplificar la asignación de responsable de tareas.
+- Invalidation CloudFront `IE0E6ITW01V3U967ZA18X6RDZH` terminó en `Completed` para permitir `Ninguno` en estado de proyecto y responsable, y `Ninguna` en prioridad de tarea.
 - Invocaciones directas de Lambda validan edición de persona, proyecto, rol de miembro y tarea.
+- Lambda `gestion-proyectos-dev-api` fue publicada con `CodeSha256` `wscr50KCvGhpxbayfAeXx877sFK4tfgBoycnMdqd0gg=` para aceptar estado de proyecto y prioridad de tarea opcionales sin imponer valores por defecto.
 - DynamoDB registra `AUDIT_EVENT` para cambios de tarea en `status`, `priority` y `assigneePersonId`.
 - Validación negativa: prioridad inválida devuelve `400 VALIDATION_ERROR`.
 - Validación negativa: usuario sin módulos funcionales devuelve `403 FORBIDDEN`.
 - Preflight CORS `OPTIONS` para `PATCH` desde CloudFront devuelve `204` con `access-control-allow-methods` incluyendo `PATCH`.
 - Verificación publicada: CloudFront devuelve `HTTP/1.1 200`, `/config.json` conserva los valores runtime reales y el bundle servido contiene `togglePersonFormButton`, `toggleTaskFormButton`, `data-detail-task` y layout `280px minmax(0,1fr)`.
 - Verificación publicada del fix de formularios: el bundle servido por CloudFront usa una referencia local del formulario antes de `await` y ejecuta `reset()` sobre esa referencia.
+- Verificación publicada de drag and drop reversible: Lambda responde `ok: true` para `DELETE /api/projects/{projectId}/members/{personId}`, API Gateway rechaza `DELETE` sin token con `401`, CORS permite `DELETE` desde CloudFront, y el bundle servido contiene `projectMember`, `taskAssignee`, `sidebarCollapsed` y `workspaceTopRow`.
+- Verificación publicada del ajuste visual: CloudFront devuelve `HTTP/1.1 200`, `/config.json` conserva los valores runtime reales, el bundle servido contiene `data-people-drop-zone` y la función de salida sobre `Personas`, el CSS servido contiene `repeat(4,minmax(0,1fr))`, `overflow-wrap:anywhere` y `projectList` con `max-height:240px`; el bundle ya no contiene `taskUnassignZone`, `data-project-member-remove` ni el texto de la zona separada para sacar miembros.
+- Verificación publicada de filtros de proyecto: CloudFront devuelve `HTTP/1.1 200`, el HTML apunta a los assets `_astro/index.DkD0jP3z.css` y `_astro/index.astro_astro_type_script_index_0_lang.D7F4H8LC.js`, el bundle servido contiene `projectStatusFilter`, `data-project-status-filter`, `statusBadge` y `data-people-drop-zone`; el CSS servido contiene `projectFilters`, `filterChip` y `statusBadge`; el bundle no contiene `dropHint`, `data-project-member-remove` ni el texto del cuadro anterior.
+- Verificación publicada de vista general por proyecto: CloudFront devuelve `HTTP/1.1 200`, `/config.json` conserva los valores runtime reales, el HTML apunta a `_astro/index.BwOxn8QZ.css` y `_astro/index.astro_astro_type_script_index_0_lang.E89237E9.js`, el bundle servido contiene `Proyectos con tareas visibles`, `workspaceSearch`, `projectOverviewCard` y `data-toggle-board`; el CSS servido contiene `workspaceHero`, `projectOverviewCard`, `projectTaskGroups` y `taskSummaryRow`.
+- Verificación publicada de corrección visual y feedback: CloudFront devuelve `HTTP/1.1 200`, el HTML apunta a `_astro/index.BeBDBElM.css` y `_astro/index.astro_astro_type_script_index_0_lang.CxV8nlLr.js`, el bundle servido contiene `Proyecto guardado correctamente`, `saveFeedback`, `priorityBadge` y render condicionado de `projectTaskGroups`/`kanbanBoard`; el CSS servido contiene `projectStatus-closed`, `taskStatus-review`, `taskStatus-done`, `priorityBadge` y `saveFeedback`.
+- Verificación publicada de feedback en tareas: CloudFront devuelve `HTTP/1.1 200`, `/config.json` conserva los valores runtime reales de `dev`, el objeto S3 `config.json` tiene `CacheControl: no-store`, el HTML apunta a `_astro/index.BeBDBElM.css` y `_astro/index.astro_astro_type_script_index_0_lang.DmUkdTqk.js`, y el bundle servido contiene `Tarea guardada correctamente`, `Proyecto guardado correctamente` y `saveFeedback`.
+- Verificación publicada de detalle contextual compacto: CloudFront devuelve `HTTP/1.1 200`, `/config.json` conserva valores runtime reales de `dev`, el objeto S3 `config.json` tiene `CacheControl: no-store`, el HTML apunta a `_astro/index.DM2qNvAZ.css` y `_astro/index.astro_astro_type_script_index_0_lang.CvHw8x_3.js`, el bundle servido contiene `detailDrawerSlot`, `data-focus-task-assignee`, `Arrastra para cambiar estado.` y `Tarea guardada correctamente`; el bundle ya no contiene `Arrastra para cambiar estado o asignar persona`; el CSS servido contiene `projectOverview.hasDetail`, `detailDrawerSlot` y `tinyButton.subtle`.
+- Verificación publicada de campos opcionales: CloudFront devuelve `HTTP/1.1 200`, `/config.json` conserva valores runtime reales de `dev`, el objeto S3 `config.json` tiene `CacheControl: no-store`, el HTML apunta a `_astro/index.DM2qNvAZ.css` y `_astro/index.astro_astro_type_script_index_0_lang.Eg7lXEju.js`, el bundle servido contiene `Ninguno`, `Ninguna`, `Sin estado`, `projectStatusFilter` y `priority-none`; la Lambda responde `ok: true` en `/health` después del despliegue.
 
 ## Siguiente paso operativo
 
