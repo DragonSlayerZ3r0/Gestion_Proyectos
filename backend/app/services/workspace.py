@@ -64,7 +64,7 @@ class WorkspaceService:
             "area": self._optional_text(payload, "area"),
             "notes": self._optional_text(payload, "notes"),
             "availabilityNotes": self._optional_text(payload, "availabilityNotes"),
-            "status": "active",
+            "status": self._allowed_optional(payload.get("status"), PERSON_STATUSES, "Estado de la persona"),
             "createdAt": now,
             "updatedAt": now,
             "createdBy": identity["userId"],
@@ -98,7 +98,7 @@ class WorkspaceService:
         return project
 
     def add_project_member(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
-        person_id = self._required_text(payload, "personId", "Usuario")
+        person_id = self._required_text(payload, "personId", "Persona")
         now = self._now()
         item = {
             "PK": f"PROJECT#{project_id}",
@@ -135,7 +135,7 @@ class WorkspaceService:
         if "availabilityNotes" in payload:
             values["availabilityNotes"] = self._optional_text(payload, "availabilityNotes")
         if "status" in payload:
-            values["status"] = self._allowed(payload["status"], PERSON_STATUSES, "Estado del usuario")
+            values["status"] = self._allowed_optional(payload["status"], PERSON_STATUSES, "Estado de la persona")
 
         return self._normalize_person(self._repository.update_person(person_id, values))
 
@@ -159,7 +159,7 @@ class WorkspaceService:
         return project
 
     def update_project_member(self, project_id: str, person_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
-        role = self._allowed(payload.get("role") or "member", PROJECT_MEMBER_ROLES, "Rol del usuario")
+        role = self._allowed(payload.get("role") or "member", PROJECT_MEMBER_ROLES, "Rol de la persona")
         values = {
             "updatedAt": self._now(),
             "updatedBy": identity["userId"]
@@ -168,7 +168,7 @@ class WorkspaceService:
 
     def remove_project_member(self, project_id: str, person_id: str, identity: dict[str, str]) -> dict[str, Any]:
         project_id = self._required_text({"projectId": project_id}, "projectId", "Proyecto")
-        person_id = self._required_text({"personId": person_id}, "personId", "Usuario")
+        person_id = self._required_text({"personId": person_id}, "personId", "Persona")
 
         project = self._repository.get_project(project_id) or {}
         if project.get("ownerPersonId") == person_id:

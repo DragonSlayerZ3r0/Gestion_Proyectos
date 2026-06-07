@@ -51,7 +51,7 @@ Debe mostrar:
 - Validacion visible.
 - Mensajes claros.
 - Guardado evidente.
-- En `Proyectos y tareas`, los formularios de creación de usuarios y tareas deben estar colapsados por defecto y abrirse solo cuando el usuario presione `Crear`.
+- En `Proyectos y tareas`, los formularios de registro de personas y creación de tareas deben estar colapsados por defecto y abrirse solo cuando el usuario presione `Registrar persona` o `Crear tarea`. Si el usuario abandona una creación rápida, la acción debe llamarse `Cancelar`, cerrar el formulario y limpiar sus campos.
 
 ## Login
 
@@ -90,13 +90,21 @@ La pantalla principal debe permitir trabajar sin cambiar de contexto:
 - Resumen de tareas por estado dentro de cada proyecto.
 - Tareas principales visibles dentro de cada proyecto.
 - Kanban simple dentro del proyecto solo cuando el usuario presione `Ver tablero`.
-- Panel de detalles para editar usuario, proyecto o tarea sin salir de la pantalla.
+- Panel de detalles para editar persona, proyecto o tarea sin salir de la pantalla.
 
 Esta pantalla debe ser la entrada operativa predeterminada cuando el usuario tenga acceso a proyectos o tareas. Evitar abrir Administración o Catálogo como primera vista solo por orden alfabético de permisos.
 
-El panel de detalle debe permanecer dentro de la misma pantalla, sin tapar el tablero ni bloquear el trabajo del usuario. No debe abrirse automáticamente al seleccionar una tarjeta; debe abrirse solo con una acción explícita como `Editar` o `Detalle`. En escritorio debe comportarse como panel lateral derecho no modal; en móvil debe comportarse como bottom sheet con scroll interno.
+El panel de detalle debe permanecer dentro de la misma pantalla, sin tapar el tablero ni bloquear el trabajo del usuario. No debe abrirse automáticamente al seleccionar una tarjeta; debe abrirse solo con una acción explícita como `Editar`. En escritorio debe comportarse como panel lateral derecho no modal alineado con el proyecto o tarea que se está editando; en móvil debe comportarse como bottom sheet con scroll interno.
 
-La pantalla no debe depender de seleccionar un proyecto arriba para ver tareas en una zona inferior. El usuario debe entender proyecto, responsable, personas y tareas sin hacer clic.
+La pantalla no debe depender de seleccionar un proyecto arriba para ver tareas en una zona inferior. El usuario debe entender proyecto, responsable, personas y tareas sin hacer clic. En esta mesa, `persona` significa integrante operativo asignable a proyectos y tareas; `usuario` se reserva para cuentas de acceso, autenticación y administración.
+
+La pantalla debe mostrar una franja compacta de `Personas registradas` para que el usuario pueda:
+
+- Ver rápidamente quiénes existen.
+- Arrastrar una persona a un proyecto para agregarla.
+- Abrir edición con un ícono de lápiz y actualizar área, estado, notas o vacaciones/disponibilidad sin navegar a Administración.
+
+La franja de personas no debe mostrar datos secundarios por defecto. Cada tarjeta debe ocupar poco espacio: nombre de la persona y acción de edición por ícono. Si una persona no tiene estado, no debe mostrarse badge ni texto de relleno.
 
 El listado de proyectos debe incluir filtros visibles por estado. Por defecto se muestran todos los estados. Cada tarjeta de proyecto debe mostrar su estado actual para evitar que el usuario tenga que abrir el detalle para entenderlo.
 
@@ -106,11 +114,20 @@ Los estados deben tener color contextual sobrio: proyectos cerrados en rojo suav
 
 Las acciones de guardado en paneles de detalle deben mostrar retroalimentación visible dentro del mismo panel. Por ejemplo, al guardar proyecto o tarea debe mostrarse una confirmación como `Proyecto guardado correctamente.` o `Tarea guardada correctamente.`
 
-La asignación de responsable de una tarea debe hacerse con una acción explícita `Asignar` o `Cambiar`, abriendo el detalle enfocado en el selector `Responsable`. No se debe mostrar texto que indique arrastrar personas si no existe un panel visible de personas disponibles para esa acción.
+La asignación de responsable de una tarea debe hacerse con una acción explícita `Asignar` o `Cambiar`, abriendo la edición enfocada en el selector `Responsable`. No se debe mostrar texto que indique arrastrar personas si no existe un panel visible de personas disponibles para esa acción.
+
+Convención de verbos:
+
+- `Crear`: inicia o confirma una alta rápida.
+- `Editar`: abre un panel de edición contextual.
+- `Guardar`: persiste cambios en un panel de edición.
+- `Cancelar`: abandona una creación rápida sin guardar.
+
+Los campos opcionales no deben generar ruido visual cuando están vacíos. Por ejemplo, un proyecto sin responsable no debe mostrar `Responsable: Sin responsable` en su cabecera.
 
 La creación rápida debe pedir solo lo mínimo:
 
-- Usuario: nombre y apellido.
+- Persona: nombre y apellido.
 - Proyecto: nombre.
 - Tarea: título.
 

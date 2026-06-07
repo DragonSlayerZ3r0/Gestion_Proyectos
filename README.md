@@ -23,6 +23,40 @@ La aplicación debe mantenerse simple, clara y rápida. No busca replicar Jira n
 - Consultas controladas: Athena.
 - Data Lake: S3.
 
+## Diagrama de arquitectura
+
+La plataforma no usa MVC clásico. La construcción actual usa una arquitectura serverless por capas: interfaz Astro, adaptador HTTP en Lambda, servicios de dominio, repositorios AWS e infraestructura CDK.
+
+```mermaid
+flowchart LR
+  usuario["Usuario interno"] --> cf["CloudFront\nHTTPS 443"]
+  cf --> s3front["S3 privado\nfrontend Astro estático"]
+  cf --> config["/config.json\nconfiguración pública runtime"]
+
+  usuario --> cognito["Amazon Cognito\nlogin y tokens JWT"]
+  s3front --> app["Astro app\nfrontend/src/pages/index.astro"]
+  app --> apigw["API Gateway HTTP API\nHTTPS 443 + JWT Authorizer"]
+  apigw --> lambda["Lambda Python\nbackend/app/handler.py"]
+
+  lambda --> auth["auth.py\nidentidad desde claims"]
+  lambda --> services["services/\nlógica funcional"]
+  services --> repo["repositories/dynamodb.py\nacceso a datos"]
+  repo --> dynamodb["DynamoDB\ngestion-proyectos-dev-main"]
+
+  services -. "fase catálogo" .-> glue["Glue Catalog"]
+  services -. "preview controlado" .-> athena["Athena"]
+  athena -.-> datalake["S3 Data Lake"]
+
+  cdk["AWS CDK TypeScript\ninfra/"] --> cf
+  cdk --> s3front
+  cdk --> cognito
+  cdk --> apigw
+  cdk --> lambda
+  cdk --> dynamodb
+```
+
+Detalle de arquitectura, capas, puertos y flujo local/publicación: `docs/17_desarrollo_local_publicacion.md`.
+
 ## Documentacion
 
 El contexto detallado vive en `docs/`:
@@ -43,6 +77,8 @@ El contexto detallado vive en `docs/`:
 - `docs/13_backlog_inicial.md`: tareas iniciales de construccion.
 - `docs/14_permisos_aws_actuales.md`: perfil AWS validado, permisos encontrados y limitantes.
 - `docs/15_estado_implementacion.md`: estado actual del primer corte, comandos y pendientes.
+- `docs/16_credenciales_aws_sso.md`: uso del perfil SSO para este proyecto.
+- `docs/17_desarrollo_local_publicacion.md`: arquitectura por capas, puertos, desarrollo local y publicación.
 
 ## Estado actual
 
@@ -60,6 +96,13 @@ npm run check
 npm run dev
 npm run infra:deploy
 ```
+
+Desarrollo local:
+
+- Frontend Astro: `http://127.0.0.1:4321/`.
+- Backend: no expone puerto local por defecto; se ejecuta como Lambda en AWS.
+- API publicada dev: `https://63ibnl13da.execute-api.us-east-1.amazonaws.com/`.
+- Frontend publicado dev: `https://d269paz1z7q1g0.cloudfront.net/`.
 
 Antes de cualquier acción AWS:
 

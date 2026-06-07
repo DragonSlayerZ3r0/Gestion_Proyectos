@@ -113,10 +113,10 @@ const title = "Gestión de Proyectos";
         projects: {
           title: "Proyectos y tareas",
           eyebrow: "Gestión operativa",
-          body: "Mesa de trabajo para crear usuarios, proyectos y tareas sin cambiar de pantalla.",
+          body: "Mesa de trabajo para registrar personas, crear proyectos y crear tareas sin cambiar de pantalla.",
           metricLabel: "Vista única",
           metricValue: "1",
-          items: ["Usuarios disponibles", "Proyectos activos", "Tareas por estado"]
+          items: ["Personas registradas", "Proyectos activos", "Tareas por estado"]
         },
         tasks: {
           title: "Tareas",
@@ -635,11 +635,13 @@ const title = "Gestión de Proyectos";
 
         const activeProject = visibleProjects.find((project) => project.id === state.activeProjectId) || fallbackProject;
         const projectCards = visibleProjects.map((project) => renderProjectCard(project, activeProject?.id === project.id, peopleById)).join("");
-        const detailPanel = renderDetailPanel(activeProject, peopleById);
         const projectCountText = `${visibleProjects.length} de ${workspace.projects.length}`;
+        const personCreatedNotice = state.saveNotice?.target === "person-create" ? state.saveNotice.message : "";
+        const personDirectory = renderPeopleDirectory(workspace.people);
+        const selectedPersonDetail = renderSelectedPersonDetail();
 
         elements.contentPanel.innerHTML = `
-          <section class="projectOverview ${detailPanel ? "hasDetail" : ""}">
+          <section class="projectOverview">
             <section class="panel workspaceHero">
               <div class="workspaceHeroText">
                 <p class="eyebrow">Vista operativa</p>
@@ -652,7 +654,7 @@ const title = "Gestión de Proyectos";
               </form>
               <div class="workspaceControls">
                 <input id="workspaceSearch" class="searchInput" type="search" placeholder="Buscar proyecto, tarea o persona" value="${escapeAttribute(state.workspaceSearch)}" />
-                <button id="togglePersonFormButton" class="secondaryButton compact" type="button">${state.showPersonForm ? "Cerrar usuario" : "Crear usuario"}</button>
+                <button id="togglePersonFormButton" class="secondaryButton compact" type="button">${state.showPersonForm ? "Cancelar" : "Registrar persona"}</button>
               </div>
               <form id="personQuickForm" class="personCreateForm" ${state.showPersonForm ? "" : "hidden"}>
                 <input name="firstName" type="text" placeholder="Nombre" required />
@@ -663,22 +665,34 @@ const title = "Gestión de Proyectos";
                   <textarea name="availabilityNotes" rows="2" placeholder="Vacaciones o disponibilidad"></textarea>
                   <textarea name="notes" rows="2" placeholder="Notas"></textarea>
                 </details>
-                <button class="primaryButton" type="submit">Guardar usuario</button>
+                <button class="primaryButton" type="submit">Registrar persona</button>
               </form>
+              ${personCreatedNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(personCreatedNotice)}</p>` : ""}
+              <section class="personDirectory ${selectedPersonDetail ? "hasDetail" : ""}" data-people-drop-zone>
+                <div class="blockHeader">
+                  <div>
+                    <strong>Personas registradas</strong>
+                    <span>Arrastra una persona a un proyecto para agregarla.</span>
+                  </div>
+                  <span>${workspace.people.length}</span>
+                </div>
+                <div class="peopleStrip">
+                  ${personDirectory || `<p class="emptyText">Registra la primera persona para asignarla a proyectos y tareas.</p>`}
+                </div>
+                ${selectedPersonDetail ? `<section class="detailDrawerSlot personDetailSlot">${selectedPersonDetail}</section>` : ""}
+              </section>
               <div class="projectFilters" role="group" aria-label="Filtrar proyectos por estado">
                 ${renderProjectStatusFilters()}
               </div>
               <div class="workspaceCount">
                 <span class="countPill">${projectCountText}</span>
-                <span>${workspace.people.length} personas disponibles</span>
+                <span>${workspace.people.length} personas registradas</span>
               </div>
             </section>
 
-            <section class="overviewProjectList" data-people-drop-zone>
+            <section class="overviewProjectList">
               ${projectCards || `<section class="panel"><p class="emptyText">${workspace.projects.length ? "No hay proyectos que coincidan con los filtros." : "Crea el primer proyecto para iniciar."}</p></section>`}
             </section>
-
-            ${detailPanel ? `<section class="detailDrawerSlot">${detailPanel}</section>` : ""}
           </section>
         `;
 
@@ -740,11 +754,18 @@ const title = "Gestión de Proyectos";
           <article class="personCard ${isSelected ? "selected" : ""}" draggable="true" data-person-id="${person.id}" data-person-select="${person.id}">
             <div class="cardHeader">
               <strong>${escapeHtml(person.fullName)}</strong>
-              <button class="tinyButton ghost" type="button" data-detail-person="${person.id}">Editar</button>
+              ${renderEditIconButton("Editar persona", `data-detail-person="${person.id}"`)}
             </div>
-            <span>${escapeHtml(person.area || "Sin área")}</span>
           </article>
         `;
+      }
+
+      function renderPeopleDirectory(people) {
+        const query = state.workspaceSearch.trim().toLowerCase();
+        const visiblePeople = query
+          ? people.filter((person) => `${person.fullName} ${person.area || ""} ${person.availabilityNotes || ""} ${person.notes || ""}`.toLowerCase().includes(query))
+          : people;
+        return visiblePeople.map((person) => renderPersonCard(person)).join("");
       }
 
       function renderProjectCard(project, isActive, peopleById) {
@@ -767,61 +788,72 @@ const title = "Gestión de Proyectos";
         const memberIds = new Set(project.members.map((member) => member.personId));
         const availablePeople = state.workspace.people.filter((person) => !memberIds.has(person.id));
         const isSelected = state.selectedDetail?.type === "project" && state.selectedDetail.id === project.id;
-        const owner = peopleById[project.ownerPersonId] || project.members.map((member) => peopleById[member.personId]).find(Boolean);
+        const owner = peopleById[project.ownerPersonId] || null;
         const summary = renderTaskSummary(project);
         const taskGroups = renderProjectTaskGroups(project, peopleById);
         const boardOpen = state.expandedBoardProjectId === project.id;
         const taskFormOpen = state.showTaskForm && state.taskFormProjectId === project.id;
         const columns = boardOpen ? state.workspace.taskStatuses.map((status) => renderTaskColumn(status, project, peopleById)).join("") : "";
+        const detailPanel = renderProjectInlineDetail(project, peopleById);
+        const projectCreatedNotice = state.saveNotice?.target === `project-create:${project.id}` ? state.saveNotice.message : "";
+        const taskCreatedNotice = state.saveNotice?.target === `task-create:${project.id}` ? state.saveNotice.message : "";
+        const cardNotice = projectCreatedNotice || taskCreatedNotice;
         return `
-          <article class="projectOverviewCard ${projectStatusClass(project.status)} ${isActive ? "active" : ""} ${isSelected ? "selected" : ""}" data-project-id="${project.id}">
-            <div class="projectOverviewHeader">
-              <div>
-                <p class="eyebrow">Proyecto</p>
-                <h2>${escapeHtml(project.name)}</h2>
-                <p>Responsable: <strong>${escapeHtml(owner?.fullName || "Sin responsable")}</strong></p>
+          <article class="projectOverviewCard ${projectStatusClass(project.status)} ${isActive ? "active" : ""} ${isSelected ? "selected" : ""} ${detailPanel ? "hasInlineDetail" : ""}" data-project-id="${project.id}">
+            <div class="projectCardMain">
+              <div class="projectOverviewHeader">
+                <div>
+                  <p class="eyebrow">Proyecto</p>
+                  <h2>${escapeHtml(project.name)}</h2>
+                  ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
+                </div>
+                ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}" data-status="${escapeAttribute(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
               </div>
-              ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}" data-status="${escapeAttribute(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
+
+              <div class="projectOverviewGrid">
+                <section class="projectPeopleBlock">
+                  <div class="blockHeader">
+                    <strong>Personas relacionadas</strong>
+                    <span>${project.members.length}</span>
+                  </div>
+                  <div class="memberChipList spacious">
+                    ${memberChips || `<span class="emptyText">Agrega personas al proyecto.</span>`}
+                  </div>
+                  ${availablePeople.length ? `
+                    <select class="projectMemberSelect inline" data-project-member="${project.id}" aria-label="Agregar persona al proyecto">
+                      <option value="">Agregar persona</option>
+                      ${availablePeople.map((person) => `<option value="${person.id}">${escapeHtml(person.fullName)}</option>`).join("")}
+                    </select>
+                  ` : `<p class="emptyText helperText">No hay personas disponibles para agregar.</p>`}
+                </section>
+
+                <section class="projectSummaryBlock">
+                  <div class="blockHeader">
+                    <strong>Tareas</strong>
+                    <span>${project.tasks.length}</span>
+                  </div>
+                  <p>${summary}</p>
+                </section>
+              </div>
+
+              ${boardOpen ? "" : `<div class="projectTaskGroups">${taskGroups}</div>`}
+
+              <form class="inlineForm projectTaskForm" data-task-quick-project="${project.id}" ${taskFormOpen ? "" : "hidden"}>
+                <input name="title" type="text" placeholder="Nueva tarea" required />
+                <button class="primaryButton" type="submit">Crear tarea</button>
+              </form>
+
+              ${cardNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(cardNotice)}</p>` : ""}
+
+              <div class="projectActions">
+                <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cancelar" : "Crear tarea"}</button>
+                <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
+                ${renderEditIconButton("Editar proyecto", `data-detail-project="${project.id}"`)}
+              </div>
+
+              ${boardOpen ? `<div class="kanbanBoard compactBoard">${columns}</div>` : ""}
             </div>
-
-            <div class="projectOverviewGrid">
-              <section class="projectPeopleBlock">
-                <div class="blockHeader">
-                  <strong>Personas relacionadas</strong>
-                  <span>${project.members.length}</span>
-                </div>
-                <div class="memberChipList spacious">
-                  ${memberChips || `<span class="emptyText">Agrega personas al proyecto.</span>`}
-                </div>
-                <select class="projectMemberSelect inline" data-project-member="${project.id}" aria-label="Agregar persona al proyecto" ${availablePeople.length ? "" : "disabled"}>
-                  <option value="">Agregar persona</option>
-                  ${availablePeople.map((person) => `<option value="${person.id}">${escapeHtml(person.fullName)}</option>`).join("")}
-                </select>
-              </section>
-
-              <section class="projectSummaryBlock">
-                <div class="blockHeader">
-                  <strong>Tareas</strong>
-                  <span>${project.tasks.length}</span>
-                </div>
-                <p>${summary}</p>
-              </section>
-            </div>
-
-            ${boardOpen ? "" : `<div class="projectTaskGroups">${taskGroups}</div>`}
-
-            <form class="inlineForm projectTaskForm" data-task-quick-project="${project.id}" ${taskFormOpen ? "" : "hidden"}>
-              <input name="title" type="text" placeholder="Nueva tarea" required />
-              <button class="primaryButton" type="submit">Crear tarea</button>
-            </form>
-
-            <div class="projectActions">
-              <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cerrar tarea" : "Crear tarea"}</button>
-              <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
-              <button class="tinyButton ghost" type="button" data-detail-project="${project.id}">Editar proyecto</button>
-            </div>
-
-            ${boardOpen ? `<div class="kanbanBoard compactBoard">${columns}</div>` : ""}
+            ${detailPanel ? `<section class="detailDrawerSlot">${detailPanel}</section>` : ""}
           </article>
         `;
       }
@@ -865,7 +897,7 @@ const title = "Gestión de Proyectos";
               <span>Responsable: ${escapeHtml(assignee?.fullName || "Sin responsable")}</span>
               ${task.priority ? `<span class="priorityBadge ${priorityClass(task.priority)}">${priorityLabel(task.priority)}</span>` : ""}
             </div>
-            <button class="tinyButton ghost" type="button" data-detail-task="${task.id}" data-detail-task-project="${task.projectId}">Detalle</button>
+            ${renderEditIconButton("Editar tarea", `data-detail-task="${task.id}" data-detail-task-project="${task.projectId}"`)}
           </article>
         `;
       }
@@ -892,7 +924,7 @@ const title = "Gestión de Proyectos";
           <article class="taskCard ${isSelected ? "selected" : ""}" draggable="true" data-task-id="${task.id}" data-task-select="${task.id}">
             <div class="cardHeader">
               <strong>${escapeHtml(task.title)}</strong>
-              <button class="tinyButton ghost" type="button" data-detail-task="${task.id}" data-detail-task-project="${task.projectId}">Detalle</button>
+              ${renderEditIconButton("Editar tarea", `data-detail-task="${task.id}" data-detail-task-project="${task.projectId}"`)}
             </div>
             <div class="taskMeta">
               ${task.priority ? `<span class="priorityBadge ${priorityClass(task.priority)}">${priorityLabel(task.priority)}</span>` : ""}
@@ -927,6 +959,32 @@ const title = "Gestión de Proyectos";
         return renderTaskDetail(detail.item, peopleById);
       }
 
+      function renderProjectInlineDetail(project, peopleById) {
+        if (!state.selectedDetail) {
+          return "";
+        }
+        if (state.selectedDetail.type === "project" && state.selectedDetail.id === project.id) {
+          return renderProjectDetail(project, peopleById);
+        }
+        if (state.selectedDetail.type !== "task") {
+          return "";
+        }
+        const selectedProjectId = state.selectedDetail.projectId || project.id;
+        if (selectedProjectId !== project.id) {
+          return "";
+        }
+        const task = project.tasks.find((item) => item.id === state.selectedDetail.id);
+        return task ? renderTaskDetail(task, peopleById) : "";
+      }
+
+      function renderSelectedPersonDetail() {
+        if (state.selectedDetail?.type !== "person" || !state.workspace) {
+          return "";
+        }
+        const person = state.workspace.people.find((item) => item.id === state.selectedDetail.id);
+        return person ? renderPersonDetail(person) : "";
+      }
+
       function getSelectedDetail(activeProject) {
         if (!state.selectedDetail || !state.workspace) {
           return null;
@@ -946,11 +1004,12 @@ const title = "Gestión de Proyectos";
       }
 
       function renderPersonDetail(person) {
+        const notice = state.saveNotice?.target === `person:${person.id}` ? state.saveNotice.message : "";
         return `
           <aside class="panel detailPanel">
             <div class="detailHeader">
               <div>
-                <p class="eyebrow">Usuario</p>
+                <p class="eyebrow">Persona</p>
                 <h2>${escapeHtml(person.fullName)}</h2>
               </div>
               <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
@@ -961,13 +1020,15 @@ const title = "Gestión de Proyectos";
               <label>Área<input name="area" type="text" value="${escapeAttribute(person.area)}" /></label>
               <label>Estado
                 <select name="status">
+                  <option value="" ${person.status ? "" : "selected"}>Ninguno</option>
                   <option value="active" ${person.status === "active" ? "selected" : ""}>Activo</option>
                   <option value="inactive" ${person.status === "inactive" ? "selected" : ""}>Inactivo</option>
                 </select>
               </label>
               <label>Vacaciones o disponibilidad<textarea name="availabilityNotes" rows="3">${escapeHtml(person.availabilityNotes)}</textarea></label>
               <label>Notas<textarea name="notes" rows="3">${escapeHtml(person.notes)}</textarea></label>
-              <button class="primaryButton" type="submit">Guardar usuario</button>
+              <button class="primaryButton" type="submit">Guardar persona</button>
+              ${notice ? `<p class="saveFeedback" role="status">${escapeHtml(notice)}</p>` : ""}
             </form>
           </aside>
         `;
@@ -1018,9 +1079,9 @@ const title = "Gestión de Proyectos";
               draggable="true"
               data-member-drag-project="${projectId}"
               data-member-drag-person="${member.personId}"
-            >${escapeHtml(person?.fullName || "Usuario no encontrado")}</span>
-            <select data-member-role="${projectId}" data-member-person="${member.personId}" aria-label="Rol del usuario">
-              <option value="owner" ${member.role === "owner" ? "selected" : ""}>Owner</option>
+            >${escapeHtml(person?.fullName || "Persona no encontrada")}</span>
+            <select data-member-role="${projectId}" data-member-person="${member.personId}" aria-label="Rol de la persona">
+              <option value="owner" ${member.role === "owner" ? "selected" : ""}>Responsable</option>
               <option value="member" ${member.role === "member" ? "selected" : ""}>Miembro</option>
               <option value="reader" ${member.role === "reader" ? "selected" : ""}>Lector</option>
             </select>
@@ -1125,8 +1186,13 @@ const title = "Gestión de Proyectos";
         projectDetailForm?.addEventListener("submit", submitProjectDetailForm);
         taskDetailForm?.addEventListener("submit", submitTaskDetailForm);
         togglePersonFormButton?.addEventListener("click", () => {
-          state.showPersonForm = !state.showPersonForm;
+          const willOpen = !state.showPersonForm;
+          state.showPersonForm = willOpen;
+          state.saveNotice = null;
           renderWorkspace();
+          if (willOpen) {
+            requestAnimationFrame(() => document.querySelector("#personQuickForm input[name='firstName']")?.focus());
+          }
         });
 
         for (const form of document.querySelectorAll("[data-task-quick-project]")) {
@@ -1137,10 +1203,15 @@ const title = "Gestión de Proyectos";
           button.addEventListener("click", () => {
             const projectId = button.dataset.toggleTaskForm;
             const isOpen = state.showTaskForm && state.taskFormProjectId === projectId;
-            state.showTaskForm = !isOpen;
+            const willOpen = !isOpen;
+            state.showTaskForm = willOpen;
             state.taskFormProjectId = isOpen ? null : projectId;
             state.activeProjectId = projectId;
+            state.saveNotice = null;
             renderWorkspace();
+            if (willOpen) {
+              requestAnimationFrame(() => document.querySelector(`[data-task-quick-project="${projectId}"] input[name='title']`)?.focus());
+            }
           });
         }
 
@@ -1209,8 +1280,10 @@ const title = "Gestión de Proyectos";
           project.addEventListener("drop", dropOnProject);
         }
 
-        document.querySelector("[data-people-drop-zone]")?.addEventListener("dragover", allowDrop);
-        document.querySelector("[data-people-drop-zone]")?.addEventListener("drop", dropOnPeoplePanel);
+        for (const dropZone of document.querySelectorAll("[data-people-drop-zone]")) {
+          dropZone.addEventListener("dragover", allowDrop);
+          dropZone.addEventListener("drop", dropOnPeoplePanel);
+        }
 
         for (const column of document.querySelectorAll("[data-task-status]")) {
           column.addEventListener("dragover", allowDrop);
@@ -1244,6 +1317,7 @@ const title = "Gestión de Proyectos";
         for (const button of document.querySelectorAll("[data-detail-person]")) {
           button.addEventListener("click", (event) => {
             event.stopPropagation();
+            state.saveNotice = null;
             state.selectedDetail = { type: "person", id: button.dataset.detailPerson };
             renderWorkspace();
           });
@@ -1286,8 +1360,8 @@ const title = "Gestión de Proyectos";
             method: "POST",
             body: JSON.stringify(Object.fromEntries(form.entries()))
           });
-          state.selectedDetail = null;
           state.showPersonForm = false;
+          state.saveNotice = { target: "person-create", message: "Persona registrada." };
           target.reset();
           await refreshWorkspace();
         } catch (error) {
@@ -1306,6 +1380,7 @@ const title = "Gestión de Proyectos";
           });
           state.activeProjectId = payload.data.id;
           state.selectedDetail = { type: "project", id: payload.data.id };
+          state.saveNotice = { target: `project-create:${payload.data.id}`, message: "Proyecto creado." };
           target.reset();
           await refreshWorkspace();
         } catch (error) {
@@ -1360,9 +1435,9 @@ const title = "Gestión de Proyectos";
             body: JSON.stringify(Object.fromEntries(form.entries()))
           });
           state.activeProjectId = projectId;
-          state.selectedDetail = null;
           state.showTaskForm = false;
           state.taskFormProjectId = null;
+          state.saveNotice = { target: `task-create:${projectId}`, message: "Tarea creada." };
           target.reset();
           await refreshWorkspace();
         } catch (error) {
@@ -1436,6 +1511,7 @@ const title = "Gestión de Proyectos";
           body: JSON.stringify(values)
         });
         state.selectedDetail = { type: "person", id: personId };
+        state.saveNotice = { target: `person:${personId}`, message: "Persona guardada correctamente." };
         await refreshWorkspace();
       }
 
@@ -1555,6 +1631,17 @@ const title = "Gestión de Proyectos";
           critical: "Crítica"
         };
         return labels[priority] || "";
+      }
+
+      function renderEditIconButton(label, attributes) {
+        return `
+          <button class="iconTinyButton" type="button" ${attributes} aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20z"></path>
+              <path d="M13.5 6 18 10.5"></path>
+            </svg>
+          </button>
+        `;
       }
 
       function escapeHtml(value) {
@@ -2091,6 +2178,7 @@ const title = "Gestión de Proyectos";
 
   .workspaceControls,
   .projectFilters,
+  .personDirectory,
   .personCreateForm,
   .workspaceCount {
     grid-column: 1 / -1;
@@ -2289,10 +2377,48 @@ const title = "Gestión de Proyectos";
   }
 
   .personCard {
-    display: grid;
-    gap: 4px;
-    padding: 11px 12px;
+    display: block;
+    padding: 8px 10px;
     cursor: grab;
+  }
+
+  .personDirectory {
+    display: grid;
+    gap: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    padding: 10px 12px;
+  }
+
+  .personDirectory.hasDetail {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 390px);
+    align-items: start;
+  }
+
+  .personDirectory > .blockHeader,
+  .personDirectory > .peopleStrip {
+    min-width: 0;
+  }
+
+  .personDirectory.hasDetail > .blockHeader,
+  .personDirectory.hasDetail > .peopleStrip {
+    grid-column: 1;
+  }
+
+  .personDetailSlot {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .peopleStrip {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+    max-height: 116px;
+    overflow: auto;
+    padding-right: 2px;
+    scrollbar-gutter: stable;
   }
 
   .peoplePanel {
@@ -2341,6 +2467,27 @@ const title = "Gestión de Proyectos";
     padding: 4px 8px;
   }
 
+  .iconTinyButton {
+    display: inline-grid;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--accent-strong);
+  }
+
+  .iconTinyButton svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.9;
+  }
+
   .cardActions {
     display: flex;
     justify-content: flex-end;
@@ -2374,6 +2521,17 @@ const title = "Gestión de Proyectos";
     border-left-width: 5px;
     padding: 20px;
     background: #ffffff;
+  }
+
+  .projectOverviewCard.hasInlineDetail {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 400px);
+    align-items: start;
+  }
+
+  .projectCardMain {
+    display: grid;
+    min-width: 0;
+    gap: 16px;
   }
 
   .projectOverviewCard.active {
@@ -2628,6 +2786,10 @@ const title = "Gestión de Proyectos";
     width: 100%;
   }
 
+  .helperText {
+    margin-top: 10px;
+  }
+
   .memberChipList {
     display: flex;
     flex-wrap: wrap;
@@ -2836,6 +2998,10 @@ const title = "Gestión de Proyectos";
     padding: 10px 12px;
   }
 
+  .compactFeedback {
+    margin: 0;
+  }
+
   dl {
     margin: 0;
     display: grid;
@@ -2900,10 +3066,17 @@ const title = "Gestión de Proyectos";
     .workspaceLayout,
     .workspaceTopRow,
     .projectOverview.hasDetail,
+    .projectOverviewCard.hasInlineDetail,
+    .personDirectory.hasDetail,
     .workspaceHero,
     .projectOverviewGrid,
     .projectTaskGroups {
       grid-template-columns: 1fr;
+    }
+
+    .personDetailSlot {
+      grid-column: auto;
+      grid-row: auto;
     }
 
     .detailDrawerSlot {

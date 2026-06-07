@@ -2,18 +2,30 @@
 
 ## Arquitectura base
 
-```text
-Usuario
-  -> CloudFront
-  -> S3 privado con frontend Astro
-  -> Cognito Hosted UI o flujo OIDC
-  -> API Gateway
-  -> Lambda Python
-  -> DynamoDB
-  -> Glue Catalog
-  -> Athena
-  -> S3 Data Lake
+```mermaid
+flowchart LR
+  usuario["Usuario interno"] --> cf["CloudFront"]
+  cf --> s3front["S3 privado\nfrontend Astro"]
+  usuario --> cognito["Cognito"]
+  s3front --> app["Astro app"]
+  app --> apigw["API Gateway\nJWT Authorizer"]
+  apigw --> lambda["Lambda Python"]
+  lambda --> dynamodb["DynamoDB"]
+  lambda -. "metadata técnica" .-> glue["Glue Catalog"]
+  lambda -. "preview controlado" .-> athena["Athena"]
+  athena -.-> datalake["S3 Data Lake"]
 ```
+
+La estructura no es MVC clásico. El patrón actual es serverless por capas:
+
+- Capa de presentación: Astro en `frontend/`.
+- Capa de entrada HTTP: API Gateway y `backend/app/handler.py`.
+- Capa de identidad: Cognito, JWT Authorizer y `backend/app/auth.py`.
+- Capa funcional: servicios en `backend/app/services/`.
+- Capa de datos: repositorios en `backend/app/repositories/`.
+- Capa de infraestructura: CDK TypeScript en `infra/`.
+
+El detalle operativo de puertos, desarrollo local y publicación está en `docs/17_desarrollo_local_publicacion.md`.
 
 ## Servicios utilizados
 
@@ -52,6 +64,14 @@ Usuario
 ## Flujo API
 
 Todas las operaciones deben pasar por API Gateway y Lambda. El frontend no debe acceder directamente a DynamoDB, Glue, Athena ni S3 Data Lake.
+
+## Flujo local a publicación
+
+1. Desarrollar frontend con Astro en `http://127.0.0.1:4321/`.
+2. Validar frontend, Python y CDK con `npm run check`.
+3. Publicar cambios de backend con zip de `backend/app` hacia Lambda cuando solo cambia código Python.
+4. Publicar frontend con `npm run build -w frontend`, `aws s3 sync` e invalidación CloudFront.
+5. Usar `npm run infra:deploy` cuando cambien recursos AWS o configuración estructural.
 
 ## Flujo consulta Data Lake
 

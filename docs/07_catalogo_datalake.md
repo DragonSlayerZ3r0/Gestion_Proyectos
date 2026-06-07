@@ -24,7 +24,7 @@ Athena = preview o consulta controlada
 ## Información guardada en DynamoDB
 
 - Descripción funcional de tabla.
-- Owner funcional.
+- Responsable funcional.
 - Proyecto asociado.
 - Nivel de sensibilidad.
 - Reglas de uso.

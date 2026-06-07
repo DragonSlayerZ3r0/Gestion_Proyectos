@@ -6,21 +6,25 @@ La gestión de proyectos y tareas debe concentrarse en una pantalla de trabajo s
 
 La pantalla debe sentirse como una vista general de proyectos con tareas visibles, no como Jira. El flujo principal debe permitir:
 
-- Crear usuario rápido con nombre y apellido como campos mínimos.
+- Registrar persona rápido con nombre y apellido como campos mínimos.
 - Completar datos opcionales solo si el usuario los necesita: área, notas, vacaciones u observaciones.
 - Buscar proyectos, tareas o personas desde una búsqueda general.
 - Crear proyecto rápido con nombre; responsable y estado son opcionales.
 - Ver cada proyecto como una tarjeta con responsable, personas relacionadas, resumen de tareas y tareas principales.
 - Agregar personas desde la tarjeta del proyecto.
+- Editar una persona desde la franja `Personas registradas`, usando el ícono de lápiz, para actualizar área, estado, notas o vacaciones/disponibilidad.
 - Crear tareas rápidas dentro del proyecto con título como dato mínimo.
 - Arrastrar tareas entre estados.
 - Asignar o cambiar responsable de tarea desde la acción explícita `Asignar` o `Cambiar`, usando el selector `Responsable` del panel de detalle.
 - Filtrar proyectos por estado desde la parte superior del listado, mostrando todos por defecto.
 - Mostrar el estado actual dentro de cada tarjeta de proyecto solo si fue definido.
 - Usar colores contextuales para estado de proyecto, estado de tarea y prioridad cuando existan.
-- Abrir formularios de usuario y tarea solo cuando el usuario presione `Crear`, para mantener limpia la mesa de trabajo.
-- Abrir detalle de tarea solo mediante un botón pequeño de `Detalle`, no al seleccionar o arrastrar la tarjeta.
+- Abrir formularios de persona y tarea solo cuando el usuario presione `Registrar persona` o `Crear tarea`, para mantener limpia la mesa de trabajo.
+- Abrir edición de tarea solo mediante un ícono de lápiz, no al seleccionar o arrastrar la tarjeta.
 - Mostrar confirmación visible al guardar cambios de proyecto o tarea desde el panel de detalle.
+- Mostrar confirmación breve al registrar persona, crear proyecto o crear tarea.
+
+Nota de lenguaje: en esta pantalla se usa `persona` para integrantes operativos que pueden participar en proyectos y tareas. `Usuario` queda reservado para cuentas de acceso a la aplicación web, autenticación, perfiles y administración.
 
 Regla de navegación: no separar `Proyectos` y `Tareas` en dos ventanas del menú. El usuario debe entenderlo como una sola mesa de trabajo: ver proyecto, responsable, personas y tareas en la misma tarjeta.
 
@@ -28,11 +32,11 @@ Regla de navegación: no separar `Proyectos` y `Tareas` en dos ventanas del men�
 
 La pantalla principal debe tener una jerarquía directa:
 
-- Barra superior: búsqueda general, creación de proyecto, creación secundaria de usuario y filtros de estado.
+- Barra superior: búsqueda general, creación de proyecto, registro secundario de persona y filtros de estado.
 - Lista de proyectos: cada tarjeta muestra responsable, personas relacionadas, resumen de tareas y tareas visibles agrupadas por estado.
 - Tablero: se abre solo dentro del proyecto cuando el usuario presiona `Ver tablero` y reemplaza la lista resumida de tareas para no duplicar vistas.
 
-El usuario no debe llenar formularios largos para empezar. Los detalles extendidos se editan desde un panel contextual cuando haga falta, sin cubrir el tablero ni abrirse automáticamente. En escritorio, el detalle debe abrirse como panel lateral derecho no modal; en móvil, como bottom sheet con scroll interno.
+El usuario no debe llenar formularios largos para empezar. Los detalles extendidos se editan desde un panel contextual cuando haga falta, sin cubrir el tablero ni abrirse automáticamente. En escritorio, el detalle debe abrirse como panel lateral derecho no modal alineado con el proyecto o tarea seleccionada; en móvil, como bottom sheet con scroll interno.
 
 No debe existir un panel lateral fijo de `Personas / Equipo disponible` como bloque principal. Las personas deben verse dentro del proyecto donde participan. El menú lateral puede contraerse para liberar espacio horizontal durante el trabajo operativo.
 
@@ -40,13 +44,15 @@ No debe existir un panel lateral fijo de `Personas / Equipo disponible` como blo
 
 La pantalla incluye un panel contextual. El panel se abre por acción explícita en una persona, proyecto o tarea, y permite editar los campos principales sin cambiar de ventana.
 
-- Persona: nombre, apellido, área, notas, vacaciones/disponibilidad y estado.
+- Persona: nombre, apellido, área, estado opcional, notas y vacaciones/disponibilidad. Este panel debe ser fácil de abrir desde la franja `Personas registradas`, por ejemplo para marcar a alguien como inactivo o actualizar que ya regresó de vacaciones.
 - Proyecto: nombre, descripción, estado opcional, responsable opcional y roles de miembros.
 - Tarea: título, estado, prioridad opcional, responsable opcional y notas.
 
 El panel debe complementar la creación rápida y el drag and drop, no reemplazarlos. Para tareas, el panel es la vía principal para asignar, cambiar o quitar responsable.
 
-## Creación rápida de usuarios
+Los textos de acción deben ser consistentes: `Crear` para altas rápidas, `Editar` para abrir edición, `Guardar` para persistir cambios y `Cancelar` para abandonar una creación rápida.
+
+## Registro rápido de personas
 
 Campos mínimos:
 
@@ -59,10 +65,11 @@ Campos opcionales:
 - Notas.
 - Días de vacaciones u observaciones de disponibilidad.
 - Estado activo/inactivo.
+- El estado puede quedar en `Ninguno`; en ese caso no se muestra ningún badge en la tarjeta.
 
-Si el usuario ya existe, debe poder agregarse al proyecto desde el selector de personas de la tarjeta del proyecto.
+Si la persona ya existe, debe poder agregarse al proyecto desde el selector de personas de la tarjeta del proyecto.
 
-Si el usuario ya está en el proyecto, debe mostrarse como persona relacionada dentro de la tarjeta del proyecto. No debe agregarse un panel lateral fijo ni un cuadro visible adicional que quite espacio al listado.
+Si la persona ya está en el proyecto, debe mostrarse como persona relacionada dentro de la tarjeta del proyecto. No debe agregarse un panel lateral fijo ni un cuadro visible adicional que quite espacio al listado.
 
 ## Proyectos
 
@@ -71,8 +78,8 @@ El modulo debe permitir:
 - Crear proyectos.
 - Editar proyectos.
 - Consultar detalle de proyecto.
-- Asignar usuarios.
-- Definir project owner.
+- Asignar personas.
+- Definir responsable.
 - Asociar tablas del Data Lake.
 - Configurar modo de acceso al proyecto.
 
@@ -88,11 +95,11 @@ Estados iniciales sugeridos:
 
 El estado del proyecto no es obligatorio. Si el usuario selecciona `Ninguno`, no debe mostrarse badge de estado en la tarjeta.
 
-## Usuarios del proyecto
+## Personas del proyecto
 
-Un usuario puede participar en un proyecto con un rol funcional:
+Una persona puede participar en un proyecto con un rol funcional:
 
-- Owner.
+- Responsable.
 - Miembro.
 - Lector.
 
@@ -100,7 +107,7 @@ Un usuario puede participar en un proyecto con un rol funcional:
 
 El proyecto puede definir si la incorporacion de usuarios es:
 
-- Manual por project owner.
+- Manual por responsable.
 - Autoasignacion solicitada por el usuario.
 - Restringida por administrador.
 
