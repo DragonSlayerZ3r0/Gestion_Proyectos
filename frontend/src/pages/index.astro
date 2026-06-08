@@ -11,7 +11,7 @@ const title = "Gestión de Proyectos";
     <title>{title}</title>
   </head>
   <body>
-    <div id="app" class="shell">
+    <div id="app" class="shell loginOnly">
       <aside class="sidebar" aria-label="Módulos">
         <div class="brand">
           <span class="brandMark">GP</span>
@@ -25,6 +25,30 @@ const title = "Gestión de Proyectos";
       </aside>
 
       <main class="main">
+        <section id="loginLanding" class="loginLanding" aria-labelledby="loginLandingTitle">
+          <div class="loginHero">
+            <div class="loginBrandBlock">
+              <span class="loginBrandMark">GP</span>
+              <div>
+                <p class="eyebrow">Acceso interno</p>
+                <h1 id="loginLandingTitle">Gestión de Proyectos</h1>
+              </div>
+            </div>
+            <p class="loginHeroText">Coordina proyectos, tareas y personas con una experiencia simple, clara y enfocada en el trabajo diario.</p>
+            <div class="loginHeroMeta" aria-label="Información de acceso">
+              <span>Ambiente <strong id="loginLandingEnvironment">dev</strong></span>
+              <span>Acceso privado</span>
+            </div>
+          </div>
+
+          <section class="loginAccessCard" aria-label="Inicio de sesión">
+            <p class="eyebrow">Sesión segura</p>
+            <h2>Ingresa para continuar</h2>
+            <p id="loginLandingMessage">Tus módulos y permisos se cargan después de validar tu identidad.</p>
+            <button id="landingLoginButton" class="primaryButton loginAccessButton" type="button">Ingresar</button>
+          </section>
+        </section>
+
         <header class="topbar">
           <div>
             <p id="environmentLabel" class="eyebrow">dev</p>
@@ -171,6 +195,10 @@ const title = "Gestión de Proyectos";
         moduleNav: document.querySelector("#moduleNav"),
         app: document.querySelector("#app"),
         sidebarToggleButton: document.querySelector("#sidebarToggleButton"),
+        loginLanding: document.querySelector("#loginLanding"),
+        landingLoginButton: document.querySelector("#landingLoginButton"),
+        loginLandingMessage: document.querySelector("#loginLandingMessage"),
+        loginLandingEnvironment: document.querySelector("#loginLandingEnvironment"),
         loginButton: document.querySelector("#loginButton"),
         logoutButton: document.querySelector("#logoutButton"),
         userLabel: document.querySelector("#userLabel"),
@@ -196,9 +224,10 @@ const title = "Gestión de Proyectos";
         renderDefaultNav();
         state.config = await loadConfig();
         elements.environmentLabel.textContent = state.config.environment || "dev";
+        elements.loginLandingEnvironment.textContent = state.config.environment || "dev";
 
         if (!hasAuthConfig(state.config)) {
-          renderStatus("Configuración pendiente", "Falta completar config.json con Cognito y API Gateway.");
+          renderLoginUnavailable("Falta completar la configuración de acceso.");
           return;
         }
 
@@ -207,6 +236,7 @@ const title = "Gestión de Proyectos";
         });
 
         elements.loginButton.addEventListener("click", openLoginDialog);
+        elements.landingLoginButton.addEventListener("click", openLoginDialog);
         elements.logoutButton.addEventListener("click", logout);
         elements.sidebarToggleButton.addEventListener("click", toggleSidebar);
         elements.loginForm.addEventListener("submit", submitLogin);
@@ -318,6 +348,10 @@ const title = "Gestión de Proyectos";
       }
 
       function openLoginDialog() {
+        if (!state.authClient) {
+          renderLoginUnavailable("La configuración de acceso todavía no está disponible.");
+          return;
+        }
         resetLoginForm();
         elements.loginDialog.hidden = false;
         elements.emailInput.focus();
@@ -494,17 +528,20 @@ const title = "Gestión de Proyectos";
       }
 
       function renderLoggedOut() {
+        elements.app.classList.add("loginOnly");
+        elements.loginLanding.hidden = false;
+        elements.landingLoginButton.disabled = false;
+        elements.loginLandingMessage.textContent = "Tus módulos y permisos se cargan después de validar tu identidad.";
         elements.contentPanel.hidden = true;
+        elements.statusPanel.hidden = true;
         elements.loginButton.hidden = false;
         elements.logoutButton.hidden = true;
         elements.userLabel.textContent = "Sin sesión";
-        renderStatus(
-          "Acceso requerido",
-          "Inicia sesión para cargar tu perfil funcional, validar permisos y mostrar solo los módulos que tienes habilitados."
-        );
       }
 
       function renderApp() {
+        elements.app.classList.remove("loginOnly");
+        elements.loginLanding.hidden = true;
         elements.loginButton.hidden = true;
         elements.logoutButton.hidden = false;
         elements.userLabel.textContent = state.profile.user.email;
@@ -1658,6 +1695,8 @@ const title = "Gestión de Proyectos";
       }
 
       function renderStatus(title, message) {
+        elements.app.classList.remove("loginOnly");
+        elements.loginLanding.hidden = true;
         elements.statusPanel.hidden = false;
         elements.contentPanel.hidden = true;
         elements.contentPanel.className = "contentGrid";
@@ -1674,6 +1713,18 @@ const title = "Gestión de Proyectos";
             <li>Frontend privado servido por CloudFront.</li>
           </ul>
         `;
+      }
+
+      function renderLoginUnavailable(message) {
+        elements.app.classList.add("loginOnly");
+        elements.loginLanding.hidden = false;
+        elements.statusPanel.hidden = true;
+        elements.contentPanel.hidden = true;
+        elements.loginButton.hidden = true;
+        elements.logoutButton.hidden = true;
+        elements.userLabel.textContent = "Sin sesión";
+        elements.landingLoginButton.disabled = true;
+        elements.loginLandingMessage.textContent = message;
       }
     </script>
   </body>
@@ -1742,8 +1793,139 @@ const title = "Gestión de Proyectos";
     transition: grid-template-columns 160ms ease;
   }
 
+  .shell.loginOnly {
+    display: block;
+    min-height: 100vh;
+  }
+
   .shell.sidebarCollapsed {
     grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .shell.loginOnly .sidebar,
+  .shell.loginOnly .topbar,
+  .shell.loginOnly .statusPanel,
+  .shell.loginOnly .contentGrid,
+  .shell.loginOnly .workspaceLayout {
+    display: none;
+  }
+
+  .shell.loginOnly .main {
+    max-width: none;
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  .loginLanding {
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(0, 720px) minmax(340px, 410px);
+    justify-content: center;
+    gap: clamp(22px, 3vw, 38px);
+    align-items: center;
+    min-height: 100vh;
+    padding: clamp(28px, 5vw, 72px);
+    background: #eef3f4;
+  }
+
+  .loginLanding::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(42vw, 640px);
+    background: #0f766e;
+  }
+
+  .loginHero,
+  .loginAccessCard {
+    position: relative;
+    z-index: 1;
+    border: 1px solid rgba(216, 225, 228, 0.92);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: var(--shadow);
+  }
+
+  .loginHero {
+    display: grid;
+    gap: 28px;
+    max-width: 760px;
+    padding: clamp(28px, 5vw, 56px);
+  }
+
+  .loginBrandBlock {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .loginBrandMark {
+    display: grid;
+    width: 56px;
+    height: 56px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 1.15rem;
+    font-weight: 800;
+  }
+
+  .loginBrandBlock h1 {
+    margin: 4px 0 0;
+    color: var(--text);
+    font-size: clamp(2.4rem, 5vw, 4.6rem);
+    line-height: 0.98;
+  }
+
+  .loginHeroText {
+    max-width: 620px;
+    margin: 0;
+    color: #31454c;
+    font-size: clamp(1.05rem, 2vw, 1.35rem);
+    line-height: 1.5;
+  }
+
+  .loginHeroMeta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .loginHeroMeta span {
+    border: 1px solid #b8dad5;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: 0.86rem;
+    font-weight: 650;
+    padding: 7px 11px;
+  }
+
+  .loginAccessCard {
+    display: grid;
+    gap: 14px;
+    padding: 28px;
+  }
+
+  .loginAccessCard h2 {
+    margin: 0;
+    font-size: 1.55rem;
+    line-height: 1.2;
+  }
+
+  .loginAccessCard p:not(.eyebrow) {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .loginAccessButton {
+    width: 100%;
+    margin-top: 10px;
+    min-height: 48px;
   }
 
   .sidebar {
@@ -3023,6 +3205,31 @@ const title = "Gestión de Proyectos";
     .shell,
     .shell.sidebarCollapsed {
       grid-template-columns: 1fr;
+    }
+
+    .shell.loginOnly {
+      display: block;
+    }
+
+    .loginLanding {
+      grid-template-columns: 1fr;
+      align-content: center;
+      gap: 18px;
+      padding: 18px;
+    }
+
+    .loginLanding::before {
+      width: 100%;
+      height: 32vh;
+    }
+
+    .loginHero,
+    .loginAccessCard {
+      padding: 22px;
+    }
+
+    .loginBrandBlock {
+      align-items: flex-start;
     }
 
     .sidebar {

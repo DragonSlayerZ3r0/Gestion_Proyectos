@@ -55,7 +55,18 @@ Debe mostrar:
 
 ## Login
 
-El login visible al usuario debe estar en español y dentro de la experiencia de la aplicación. La ventana de credenciales debe incluir:
+La vista principal sin sesión debe ser una pantalla de acceso aislada y moderna. No debe mostrar menú lateral, módulos, tableros, paneles internos ni contenido operativo de la plataforma antes de autenticar al usuario.
+
+La portada de acceso debe mostrar solamente:
+
+- Marca de la plataforma.
+- Mensaje breve de acceso interno.
+- Ambiente actual.
+- Acción principal `Ingresar`.
+
+En pantallas anchas, los bloques de marca e ingreso deben mantenerse como una unidad centrada con ancho máximo. La tarjeta de ingreso no debe desplazarse al extremo derecho del viewport.
+
+El login visible al usuario debe estar en español. La ventana de credenciales debe incluir:
 
 - Campo de correo.
 - Campo de contraseña.
