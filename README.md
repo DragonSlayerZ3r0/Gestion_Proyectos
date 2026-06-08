@@ -27,35 +27,11 @@ La aplicación debe mantenerse simple, clara y rápida. No busca replicar Jira n
 
 La plataforma no usa MVC clásico. La construcción actual usa una arquitectura serverless por capas: interfaz Astro, adaptador HTTP en Lambda, servicios de dominio, repositorios AWS e infraestructura CDK.
 
-```mermaid
-flowchart LR
-  usuario["Usuario interno"] --> cf["CloudFront\nHTTPS 443"]
-  cf --> s3front["S3 privado\nfrontend Astro estático"]
-  cf --> config["/config.json\nconfiguración pública runtime"]
+→ **[Ver diagrama completo con capas, puertos y flujos](docs/arquitectura.excalidraw)**
 
-  usuario --> cognito["Amazon Cognito\nlogin y tokens JWT"]
-  s3front --> app["Astro app\nfrontend/src/pages/index.astro"]
-  app --> apigw["API Gateway HTTP API\nHTTPS 443 + JWT Authorizer"]
-  apigw --> lambda["Lambda Python\nbackend/app/handler.py"]
+Abrir con la extensión **Excalidraw** en VS Code, o importar en [excalidraw.com](https://excalidraw.com). El diagrama muestra las 7 capas (Cliente · CDN & Identidad · Presentación · API · Cómputo · Datos Operativos · Catálogo & Data Lake), los puertos (`:443`), los endpoints API, el modelo DynamoDB (`PK/SK`) y las integraciones con Glue/Athena. Para regenerarlo: `python3 scripts/gen_arquitectura_excalidraw.py`.
 
-  lambda --> auth["auth.py\nidentidad desde claims"]
-  lambda --> services["services/\nlógica funcional"]
-  services --> repo["repositories/dynamodb.py\nacceso a datos"]
-  repo --> dynamodb["DynamoDB\ngestion-proyectos-dev-main"]
-
-  services -. "fase catálogo" .-> glue["Glue Catalog"]
-  services -. "preview controlado" .-> athena["Athena"]
-  athena -.-> datalake["S3 Data Lake"]
-
-  cdk["AWS CDK TypeScript\ninfra/"] --> cf
-  cdk --> s3front
-  cdk --> cognito
-  cdk --> apigw
-  cdk --> lambda
-  cdk --> dynamodb
-```
-
-Detalle de arquitectura, capas, puertos y flujo local/publicación: `docs/17_desarrollo_local_publicacion.md`.
+Detalle de arquitectura, capas y flujo local/publicación: [`docs/01_arquitectura_aws.md`](docs/01_arquitectura_aws.md) · [`docs/17_desarrollo_local_publicacion.md`](docs/17_desarrollo_local_publicacion.md)
 
 ## Documentacion
 
