@@ -8,7 +8,8 @@ La pantalla debe sentirse como una vista general de proyectos con tareas visible
 
 - Registrar persona rápido con nombre y apellido como campos mínimos.
 - Completar datos opcionales solo si el usuario los necesita: área, notas, vacaciones u observaciones.
-- Buscar proyectos, tareas o personas desde una búsqueda general.
+- Buscar proyectos y tareas desde un mismo input con alcance seleccionable: `Proyectos`, `Tareas` o ambos.
+- Buscar personas desde una búsqueda independiente en la franja `Personas registradas`.
 - Crear proyecto rápido con nombre; responsable y estado son opcionales.
 - Ver cada proyecto como una tarjeta con responsable, personas relacionadas, resumen de tareas y tareas principales.
 - Agregar personas desde la tarjeta del proyecto.
@@ -32,7 +33,7 @@ Regla de navegación: no separar `Proyectos` y `Tareas` en dos ventanas del men�
 
 La pantalla principal debe tener una jerarquía directa:
 
-- Barra superior: búsqueda general, creación de proyecto, registro secundario de persona y filtros de estado.
+- Barra superior: búsqueda de proyectos/tareas con alcance seleccionable, creación de proyecto, registro secundario de persona y filtros de estado.
 - Lista de proyectos: cada tarjeta muestra responsable, personas relacionadas, resumen de tareas y tareas visibles agrupadas por estado.
 - Tablero: se abre solo dentro del proyecto cuando el usuario presiona `Ver tablero` y reemplaza la lista resumida de tareas para no duplicar vistas.
 
@@ -70,6 +71,8 @@ Campos opcionales:
 Si la persona ya existe, debe poder agregarse al proyecto desde el selector de personas de la tarjeta del proyecto.
 
 Si la persona ya está en el proyecto, debe mostrarse como persona relacionada dentro de la tarjeta del proyecto. No debe agregarse un panel lateral fijo ni un cuadro visible adicional que quite espacio al listado.
+
+La búsqueda principal de proyectos y tareas no debe ocultar la franja de personas registradas ni afectar el selector `Agregar persona`. Las personas se filtran únicamente desde el campo `Buscar persona`.
 
 ## Proyectos
 

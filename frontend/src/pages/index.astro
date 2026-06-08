@@ -182,7 +182,12 @@ const title = "Gestión de Proyectos";
         showTaskForm: false,
         taskFormProjectId: null,
         projectStatusFilter: "all",
-        workspaceSearch: "",
+        projectSearch: "",
+        personSearch: "",
+        projectSearchScopes: {
+          projects: true,
+          tasks: true
+        },
         expandedBoardProjectId: null,
         saveNotice: null,
         sidebarCollapsed: false,
@@ -672,9 +677,13 @@ const title = "Gestión de Proyectos";
 
         const activeProject = visibleProjects.find((project) => project.id === state.activeProjectId) || fallbackProject;
         const projectCards = visibleProjects.map((project) => renderProjectCard(project, activeProject?.id === project.id, peopleById)).join("");
-        const projectCountText = `${visibleProjects.length} de ${workspace.projects.length}`;
+        const projectCountText = `${visibleProjects.length} de ${workspace.projects.length} proyectos`;
         const personCreatedNotice = state.saveNotice?.target === "person-create" ? state.saveNotice.message : "";
-        const personDirectory = renderPeopleDirectory(workspace.people);
+        const visiblePeople = getVisiblePeople(workspace.people);
+        const personDirectory = renderPeopleDirectory(visiblePeople);
+        const peopleCountText = state.personSearch.trim()
+          ? `${visiblePeople.length} de ${workspace.people.length}`
+          : String(workspace.people.length);
         const selectedPersonDetail = renderSelectedPersonDetail();
 
         elements.contentPanel.innerHTML = `
@@ -690,7 +699,11 @@ const title = "Gestión de Proyectos";
                 <button class="primaryButton" type="submit">Crear proyecto</button>
               </form>
               <div class="workspaceControls">
-                <input id="workspaceSearch" class="searchInput" type="search" placeholder="Buscar proyecto, tarea o persona" value="${escapeAttribute(state.workspaceSearch)}" />
+                <input id="projectSearch" class="searchInput" type="search" placeholder="Buscar en proyectos y tareas" value="${escapeAttribute(state.projectSearch)}" />
+                <div class="searchScope" role="group" aria-label="Buscar en">
+                  ${renderProjectSearchScopeButton("projects", "Proyectos")}
+                  ${renderProjectSearchScopeButton("tasks", "Tareas")}
+                </div>
                 <button id="togglePersonFormButton" class="secondaryButton compact" type="button">${state.showPersonForm ? "Cancelar" : "Registrar persona"}</button>
               </div>
               <form id="personQuickForm" class="personCreateForm" ${state.showPersonForm ? "" : "hidden"}>
@@ -711,10 +724,11 @@ const title = "Gestión de Proyectos";
                     <strong>Personas registradas</strong>
                     <span>Arrastra una persona a un proyecto para agregarla.</span>
                   </div>
-                  <span>${workspace.people.length}</span>
+                  <span>${peopleCountText}</span>
                 </div>
+                <input id="personSearch" class="searchInput personSearchInput" type="search" placeholder="Buscar persona" value="${escapeAttribute(state.personSearch)}" />
                 <div class="peopleStrip">
-                  ${personDirectory || `<p class="emptyText">Registra la primera persona para asignarla a proyectos y tareas.</p>`}
+                  ${personDirectory || renderPeopleEmptyState(workspace.people.length)}
                 </div>
                 ${selectedPersonDetail ? `<section class="detailDrawerSlot personDetailSlot">${selectedPersonDetail}</section>` : ""}
               </section>
@@ -728,7 +742,7 @@ const title = "Gestión de Proyectos";
             </section>
 
             <section class="overviewProjectList">
-              ${projectCards || `<section class="panel"><p class="emptyText">${workspace.projects.length ? "No hay proyectos que coincidan con los filtros." : "Crea el primer proyecto para iniciar."}</p></section>`}
+              ${projectCards || `<section class="panel"><p class="emptyText">${workspace.projects.length ? "No hay resultados con los filtros actuales." : "Crea el primer proyecto para iniciar."}</p></section>`}
             </section>
           </section>
         `;
@@ -742,7 +756,7 @@ const title = "Gestión de Proyectos";
       }
 
       function getVisibleProjects(projects, peopleById) {
-        const query = state.workspaceSearch.trim().toLowerCase();
+        const query = normalizeSearch(state.projectSearch);
         return projects.filter((project) => {
           if (state.projectStatusFilter === "none" && project.status) {
             return false;
@@ -753,15 +767,31 @@ const title = "Gestión de Proyectos";
           if (!query) {
             return true;
           }
-          const owner = peopleById[project.ownerPersonId]?.fullName || "";
-          const members = project.members
-            .map((member) => peopleById[member.personId]?.fullName || "")
-            .join(" ");
-          const tasks = project.tasks
-            .map((task) => `${task.title} ${peopleById[task.assigneePersonId]?.fullName || ""} ${priorityLabel(task.priority)}`)
-            .join(" ");
-          return `${project.name} ${project.description || ""} ${owner} ${members} ${tasks}`.toLowerCase().includes(query);
+          const matchesProject = state.projectSearchScopes.projects && projectSearchText(project, peopleById).includes(query);
+          const matchesTasks = state.projectSearchScopes.tasks && project.tasks.some((task) => taskSearchText(task, peopleById).includes(query));
+          return matchesProject || matchesTasks;
         });
+      }
+
+      function projectSearchText(project, peopleById) {
+        const owner = peopleById[project.ownerPersonId]?.fullName || "";
+        const members = project.members
+          .map((member) => peopleById[member.personId]?.fullName || "")
+          .join(" ");
+        return normalizeSearch(`${project.name} ${project.description || ""} ${owner} ${members}`);
+      }
+
+      function taskSearchText(task, peopleById) {
+        const assignee = peopleById[task.assigneePersonId]?.fullName || "";
+        return normalizeSearch(`${task.title} ${task.notes || ""} ${assignee} ${priorityLabel(task.priority)} ${taskStatusLabel(task.status)} ${task.status || ""}`);
+      }
+
+      function normalizeSearch(value) {
+        return String(value || "").trim().toLowerCase();
+      }
+
+      function taskStatusLabel(statusKey) {
+        return state.workspace?.taskStatuses.find((status) => status.key === statusKey)?.label || "";
       }
 
       function renderProjectStatusFilters() {
@@ -785,6 +815,18 @@ const title = "Gestión de Proyectos";
           .join("");
       }
 
+      function renderProjectSearchScopeButton(scope, label) {
+        const isActive = Boolean(state.projectSearchScopes[scope]);
+        return `
+          <button
+            class="scopeChip ${isActive ? "active" : ""}"
+            type="button"
+            data-project-search-scope="${scope}"
+            aria-pressed="${isActive ? "true" : "false"}"
+          >${label}</button>
+        `;
+      }
+
       function renderPersonCard(person) {
         const isSelected = state.selectedDetail?.type === "person" && state.selectedDetail.id === person.id;
         return `
@@ -797,12 +839,23 @@ const title = "Gestión de Proyectos";
         `;
       }
 
+      function getVisiblePeople(people) {
+        const query = normalizeSearch(state.personSearch);
+        if (!query) {
+          return people;
+        }
+        return people.filter((person) => normalizeSearch(`${person.fullName} ${person.area || ""} ${person.availabilityNotes || ""} ${person.notes || ""}`).includes(query));
+      }
+
       function renderPeopleDirectory(people) {
-        const query = state.workspaceSearch.trim().toLowerCase();
-        const visiblePeople = query
-          ? people.filter((person) => `${person.fullName} ${person.area || ""} ${person.availabilityNotes || ""} ${person.notes || ""}`.toLowerCase().includes(query))
-          : people;
-        return visiblePeople.map((person) => renderPersonCard(person)).join("");
+        return people.map((person) => renderPersonCard(person)).join("");
+      }
+
+      function renderPeopleEmptyState(totalPeople) {
+        if (totalPeople > 0 && state.personSearch.trim()) {
+          return `<p class="emptyText">No hay personas que coincidan con la búsqueda.</p>`;
+        }
+        return `<p class="emptyText">Registra la primera persona para asignarla a proyectos y tareas.</p>`;
       }
 
       function renderProjectCard(project, isActive, peopleById) {
@@ -1202,7 +1255,8 @@ const title = "Gestión de Proyectos";
       function bindWorkspaceEvents() {
         const personForm = document.querySelector("#personQuickForm");
         const projectForm = document.querySelector("#projectQuickForm");
-        const workspaceSearch = document.querySelector("#workspaceSearch");
+        const projectSearch = document.querySelector("#projectSearch");
+        const personSearch = document.querySelector("#personSearch");
         const personDetailForm = document.querySelector("#personDetailForm");
         const projectDetailForm = document.querySelector("#projectDetailForm");
         const taskDetailForm = document.querySelector("#taskDetailForm");
@@ -1210,13 +1264,22 @@ const title = "Gestión de Proyectos";
 
         personForm?.addEventListener("submit", submitPersonForm);
         projectForm?.addEventListener("submit", submitProjectForm);
-        workspaceSearch?.addEventListener("input", (event) => {
-          state.workspaceSearch = event.target.value;
+        projectSearch?.addEventListener("input", (event) => {
+          state.projectSearch = event.target.value;
           renderWorkspace();
           requestAnimationFrame(() => {
-            const input = document.querySelector("#workspaceSearch");
+            const input = document.querySelector("#projectSearch");
             input?.focus();
-            input?.setSelectionRange(state.workspaceSearch.length, state.workspaceSearch.length);
+            input?.setSelectionRange(state.projectSearch.length, state.projectSearch.length);
+          });
+        });
+        personSearch?.addEventListener("input", (event) => {
+          state.personSearch = event.target.value;
+          renderWorkspace();
+          requestAnimationFrame(() => {
+            const input = document.querySelector("#personSearch");
+            input?.focus();
+            input?.setSelectionRange(state.personSearch.length, state.personSearch.length);
           });
         });
         personDetailForm?.addEventListener("submit", submitPersonDetailForm);
@@ -1231,6 +1294,25 @@ const title = "Gestión de Proyectos";
             requestAnimationFrame(() => document.querySelector("#personQuickForm input[name='firstName']")?.focus());
           }
         });
+
+        for (const button of document.querySelectorAll("[data-project-search-scope]")) {
+          button.addEventListener("click", () => {
+            const scope = button.dataset.projectSearchScope;
+            if (!scope || !(scope in state.projectSearchScopes)) {
+              return;
+            }
+            const nextValue = !state.projectSearchScopes[scope];
+            const otherScope = scope === "projects" ? "tasks" : "projects";
+            if (!nextValue && !state.projectSearchScopes[otherScope]) {
+              return;
+            }
+            state.projectSearchScopes = {
+              ...state.projectSearchScopes,
+              [scope]: nextValue
+            };
+            renderWorkspace();
+          });
+        }
 
         for (const form of document.querySelectorAll("[data-task-quick-project]")) {
           form.addEventListener("submit", submitTaskForm);
@@ -2481,6 +2563,38 @@ const title = "Gestión de Proyectos";
   .searchInput {
     margin-bottom: 0;
     flex: 1 1 320px;
+  }
+
+  .searchScope {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    padding: 4px;
+  }
+
+  .scopeChip {
+    min-height: 30px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #50656d;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 650;
+    padding: 5px 10px;
+  }
+
+  .scopeChip.active {
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .personSearchInput {
+    flex: none;
+    min-height: 36px;
   }
 
   .peopleList,

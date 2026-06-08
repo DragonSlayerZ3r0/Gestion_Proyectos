@@ -95,7 +95,8 @@ Cada acción drag and drop debe tener una alternativa visible: botón `Agregar`,
 
 La pantalla principal debe permitir trabajar sin cambiar de contexto:
 
-- Búsqueda general por proyecto, tarea o persona.
+- Búsqueda principal por proyectos y tareas con alcance seleccionable: `Proyectos`, `Tareas` o ambos.
+- Búsqueda independiente de personas dentro de la franja `Personas registradas`.
 - Lista de proyectos como vista principal.
 - Personas relacionadas dentro de cada tarjeta de proyecto.
 - Resumen de tareas por estado dentro de cada proyecto.
@@ -116,6 +117,8 @@ La pantalla debe mostrar una franja compacta de `Personas registradas` para que 
 - Abrir edición con un ícono de lápiz y actualizar área, estado, notas o vacaciones/disponibilidad sin navegar a Administración.
 
 La franja de personas no debe mostrar datos secundarios por defecto. Cada tarjeta debe ocupar poco espacio: nombre de la persona y acción de edición por ícono. Si una persona no tiene estado, no debe mostrarse badge ni texto de relleno.
+
+La búsqueda principal no debe ocultar personas registradas ni impedir asignarlas a un proyecto. Las personas deben filtrarse únicamente desde `Buscar persona`, y el selector `Agregar persona` dentro de cada proyecto debe seguir mostrando las personas disponibles para ese proyecto.
 
 El listado de proyectos debe incluir filtros visibles por estado. Por defecto se muestran todos los estados. Cada tarjeta de proyecto debe mostrar su estado actual para evitar que el usuario tenga que abrir el detalle para entenderlo.
 
