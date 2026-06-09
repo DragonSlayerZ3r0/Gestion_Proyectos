@@ -9,12 +9,13 @@ const title = "Gestión de Proyectos";
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    <link rel="icon" type="image/png" href="/icono_gp.png" />
   </head>
   <body>
     <div id="app" class="shell loginOnly">
       <aside class="sidebar" aria-label="Módulos">
         <div class="brand">
-          <span class="brandMark">GP</span>
+          <img class="brandMark" src="/icono_gp.png" alt="Logo" />
           <div>
             <strong>Gestión</strong>
             <small>Proyectos</small>
@@ -28,13 +29,13 @@ const title = "Gestión de Proyectos";
         <section id="loginLanding" class="loginLanding" aria-labelledby="loginLandingTitle">
           <div class="loginHero">
             <div class="loginBrandBlock">
-              <span class="loginBrandMark">GP</span>
+              <img class="loginBrandMark" src="/icono_gp.png" alt="Logo" />
               <div>
                 <p class="eyebrow">Acceso interno</p>
                 <h1 id="loginLandingTitle">Gestión de Proyectos</h1>
               </div>
             </div>
-            <p class="loginHeroText">Coordina proyectos, tareas y personas con una experiencia simple, clara y enfocada en el trabajo diario.</p>
+            <p class="loginHeroText">Coordinación de proyectos, tareas y personas.<br>Catálogo de datos.</p>
             <div class="loginHeroMeta" aria-label="Información de acceso">
               <span>Ambiente <strong id="loginLandingEnvironment">dev</strong></span>
               <span>Acceso privado</span>
@@ -2326,16 +2327,11 @@ const title = "Gestión de Proyectos";
   }
 
   .loginBrandMark {
-    display: grid;
     width: 56px;
     height: 56px;
     flex: 0 0 auto;
-    place-items: center;
     border-radius: 8px;
-    background: var(--accent);
-    color: #ffffff;
-    font-size: 1.15rem;
-    font-weight: 800;
+    object-fit: cover;
   }
 
   .loginBrandBlock h1 {
@@ -2421,14 +2417,10 @@ const title = "Gestión de Proyectos";
   }
 
   .brandMark {
-    display: grid;
     width: 40px;
     height: 40px;
-    place-items: center;
     border-radius: 8px;
-    background: var(--accent);
-    color: #ffffff;
-    font-weight: 700;
+    object-fit: cover;
   }
 
   .brand strong {
