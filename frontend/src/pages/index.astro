@@ -198,6 +198,7 @@ const title = "Gestión de Proyectos";
         catalogTables: [],
         catalogSelectedTable: null,
         catalogSearch: "",
+        catalogSearchScope: ["table"],
         catalogLoading: false,
         catalogSaving: false,
         catalogSyncedAt: null,
@@ -1826,17 +1827,17 @@ const title = "Gestión de Proyectos";
 
       async function syncCatalogAll() {
         const btn = elements.contentPanel.querySelector(".syncAllBtn");
-        if (btn) { btn.disabled = true; btn.textContent = "Iniciando…"; }
+        if (btn) btn.disabled = true;
         try {
           await apiRequest("api/catalog/sync", { method: "POST" });
           state.catalogSyncStatus = "syncing";
           state.catalogDatabases = [];
           state.catalogTables = [];
           state.catalogSelectedTable = null;
-          if (btn) { btn.disabled = false; btn.textContent = "↻ Sincronizar todo"; }
+          if (btn) btn.disabled = false;
           paintCatalog();
         } catch (err) {
-          if (btn) { btn.disabled = false; btn.textContent = "↻ Sincronizar todo"; }
+          if (btn) btn.disabled = false;
           alert(err.message || "Error al iniciar sincronización.");
         }
       }
@@ -1869,15 +1870,27 @@ const title = "Gestión de Proyectos";
       }
 
       function paintCatalog() {
-        const { catalogDatabases, catalogSelectedDb, catalogTables, catalogSelectedTable, catalogSearch, catalogLoading } = state;
+        const { catalogDatabases, catalogSelectedDb, catalogTables, catalogSelectedTable, catalogSearch, catalogSearchScope, catalogLoading } = state;
         const syncedAt = state.catalogSyncedAt;
         const syncStatus = state.catalogSyncStatus;
 
         const noCache = !catalogLoading && !catalogDatabases.length;
 
-        const filteredTables = catalogTables.filter(t =>
-          !catalogSearch || t.name.toLowerCase().includes(catalogSearch.toLowerCase())
-        );
+        const q = catalogSearch.toLowerCase();
+        const scopes = catalogSearchScope; // array
+        const filteredTables = catalogTables.filter(t => {
+          if (!q) return true;
+          const cols = state.catalogSelectedTable?.columns || [];
+          return (
+            (scopes.includes("table")   && t.name.toLowerCase().includes(q)) ||
+            (scopes.includes("context") && (t.description || "").toLowerCase().includes(q)) ||
+            (scopes.includes("column")  && cols.some(c => c.name.toLowerCase().includes(q))) ||
+            (scopes.includes("colDesc") && cols.some(c =>
+              (c.context?.description || "").toLowerCase().includes(q) ||
+              (c.context?.notes || "").toLowerCase().includes(q)
+            ))
+          );
+        });
 
         const dbListHtml = catalogLoading
           ? `<p class="catalogEmpty">Cargando…</p>`
@@ -1900,7 +1913,7 @@ const title = "Gestión de Proyectos";
           : `<span class="catalogSyncBadge none">Sin sincronizar</span>`;
 
         const tableListHtml = noCache
-          ? `<div class="catalogNoCacheMsg"><p>El catálogo no tiene datos aún.</p><p>Haz clic en <strong>↻ Sincronizar todo</strong> para importar todas las bases de datos y tablas desde AWS Glue.</p></div>`
+          ? `<div class="catalogNoCacheMsg"><p>El catálogo no tiene datos aún.</p><p>Usa el botón de sincronización para importar todas las bases de datos y tablas desde AWS Glue.</p></div>`
           : !catalogSelectedDb
           ? `<p class="catalogEmpty">Selecciona una base de datos.</p>`
           : !catalogTables.length
@@ -1924,7 +1937,12 @@ const title = "Gestión de Proyectos";
           <div class="catalogSidebar">
             <div class="catalogSidebarHeader">
               <p class="eyebrow">Bases de datos</p>
-              <button class="tinyButton syncAllBtn" type="button">↻ Sincronizar todo</button>
+              <button class="syncAllBtn iconTinyButton" type="button" title="Sincronizar todo desde AWS Glue">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+                  <path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+                </svg>
+              </button>
             </div>
             ${syncBadge}
             <nav class="catalogDbList">${dbListHtml}</nav>
@@ -1932,7 +1950,18 @@ const title = "Gestión de Proyectos";
           <div class="catalogMain">
             <div class="catalogMainHeader">
               <p class="eyebrow">${catalogSelectedDb ? escapeHtml(catalogSelectedDb) : "Tablas"}</p>
-              ${!noCache ? `<input class="searchInput catalogSearchInput" type="search" placeholder="Buscar tabla…" value="${escapeAttribute(catalogSearch)}" />` : ""}
+              ${!noCache ? `
+              <div class="catalogSearchBar">
+                <input class="searchInput catalogSearchInput" type="search" placeholder="Buscar…" value="${escapeAttribute(catalogSearch)}" />
+                <div class="catalogScopeChips">
+                  ${[
+                    { key: "table",   label: "Tabla" },
+                    { key: "context", label: "Contexto" },
+                    { key: "column",  label: "Columna" },
+                    { key: "colDesc", label: "Desc. columna" },
+                  ].map(s => `<button class="catalogScopeChip${catalogSearchScope.includes(s.key) ? " active" : ""}" data-scope="${s.key}" type="button">${s.label}</button>`).join("")}
+                </div>
+              </div>` : ""}
             </div>
             <div class="catalogTableList">${tableListHtml}</div>
           </div>
@@ -2036,11 +2065,22 @@ const title = "Gestión de Proyectos";
 
         const searchInput = panel.querySelector(".catalogSearchInput");
         if (searchInput) {
-          searchInput.oninput = (e) => {
-            state.catalogSearch = e.target.value;
-            const tables = state.catalogTables.filter(t =>
-              !state.catalogSearch || t.name.toLowerCase().includes(state.catalogSearch.toLowerCase())
-            );
+          const applySearch = () => {
+            const q = state.catalogSearch.toLowerCase();
+            const scopes = state.catalogSearchScope;
+            const tables = state.catalogTables.filter(t => {
+              if (!q) return true;
+              const cols = state.catalogSelectedTable?.columns || [];
+              return (
+                (scopes.includes("table")   && t.name.toLowerCase().includes(q)) ||
+                (scopes.includes("context") && (t.description || "").toLowerCase().includes(q)) ||
+                (scopes.includes("column")  && cols.some(c => c.name.toLowerCase().includes(q))) ||
+                (scopes.includes("colDesc") && cols.some(c =>
+                  (c.context?.description || "").toLowerCase().includes(q) ||
+                  (c.context?.notes || "").toLowerCase().includes(q)
+                ))
+              );
+            });
             panel.querySelector(".catalogTableList").innerHTML = tables.length
               ? tables.map(t => {
                   const selected = state.catalogSelectedTable && state.catalogSelectedTable.name === t.name;
@@ -2050,11 +2090,29 @@ const title = "Gestión de Proyectos";
                     ${t.description ? `<span class="catalogTableDesc">${escapeHtml(t.description)}</span>` : ""}
                   </button>`;
                 }).join("")
-              : `<p class="catalogEmpty">Sin resultados.</p>`;
+              : `<p class="catalogEmpty">Sin resultados para "${escapeHtml(state.catalogSearch)}".</p>`;
             panel.querySelectorAll(".catalogTableCard").forEach(btn => {
               btn.onclick = () => selectCatalogTable(btn.dataset.db, btn.dataset.table);
             });
           };
+
+          searchInput.oninput = (e) => { state.catalogSearch = e.target.value; applySearch(); };
+
+          panel.querySelectorAll(".catalogScopeChip").forEach(chip => {
+            chip.onclick = () => {
+              const scope = chip.dataset.scope;
+              const active = state.catalogSearchScope;
+              const isActive = active.includes(scope);
+              if (isActive && active.length === 1) return; // mínimo 1 activo
+              state.catalogSearchScope = isActive
+                ? active.filter(s => s !== scope)
+                : [...active, scope];
+              panel.querySelectorAll(".catalogScopeChip").forEach(c =>
+                c.classList.toggle("active", state.catalogSearchScope.includes(c.dataset.scope))
+              );
+              applySearch();
+            };
+          });
         }
 
         panel.querySelectorAll(".saveTableCtxBtn").forEach(btn => {
@@ -3924,6 +3982,45 @@ const title = "Gestión de Proyectos";
   }
 
   .catalogMainHeader .eyebrow { margin: 0; }
+
+  .catalogSearchBar {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .catalogScopeChips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .catalogScopeChip {
+    padding: 3px 9px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+
+  .catalogScopeChip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .catalogScopeChip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .syncAllBtn svg {
+    display: block;
+  }
 
   .catalogTableList {
     flex: 1;
