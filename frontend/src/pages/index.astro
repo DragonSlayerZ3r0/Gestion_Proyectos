@@ -192,6 +192,15 @@ const title = "Gestión de Proyectos";
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
+        catalogDatabases: [],
+        catalogSelectedDb: null,
+        catalogTables: [],
+        catalogSelectedTable: null,
+        catalogSearch: "",
+        catalogLoading: false,
+        catalogSaving: false,
+        catalogSyncedAt: null,
+        catalogSyncStatus: null,
         needsNewPassword: false,
         loginBusy: false
       };
@@ -593,6 +602,10 @@ const title = "Gestión de Proyectos";
         moduleKey = normalizeModuleKey(moduleKey);
         if (moduleKey === "projects" || moduleKey === "tasks") {
           renderWorkspace();
+          return;
+        }
+        if (moduleKey === "catalog") {
+          renderCatalog();
           return;
         }
 
@@ -1741,6 +1754,376 @@ const title = "Gestión de Proyectos";
         }
         return payload;
       }
+
+      // ── Catálogo ─────────────────────────────────────────────────────────────
+
+      function catalogSyncedLabel(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        const diffMs = Date.now() - d.getTime();
+        const diffH = Math.floor(diffMs / 3600000);
+        const diffM = Math.floor(diffMs / 60000);
+        if (diffM < 1) return "Ahora mismo";
+        if (diffM < 60) return `Hace ${diffM} min`;
+        if (diffH < 24) return `Hace ${diffH} h`;
+        return `Hace ${Math.floor(diffH / 24)} días`;
+      }
+
+      async function renderCatalog() {
+        elements.statusPanel.hidden = true;
+        elements.contentPanel.hidden = false;
+        elements.contentPanel.className = "catalogLayout";
+        elements.viewTitle.textContent = "Catálogo";
+
+        if (!state.catalogDatabases.length) {
+          state.catalogLoading = true;
+          paintCatalog();
+          try {
+            const payload = await apiRequest("api/catalog");
+            state.catalogDatabases = payload.data.databases || [];
+            state.catalogSyncedAt = payload.data.syncedAt;
+            state.catalogSyncStatus = payload.data.syncStatus;
+            state.catalogLoading = false;
+            if (state.catalogDatabases.length && !state.catalogSelectedDb) {
+              await selectCatalogDb(state.catalogDatabases[0].name);
+              return;
+            }
+          } catch {
+            state.catalogDatabases = [];
+            state.catalogLoading = false;
+          }
+        }
+        paintCatalog();
+      }
+
+      async function selectCatalogDb(dbName) {
+        state.catalogSelectedDb = dbName;
+        state.catalogSelectedTable = null;
+        state.catalogTables = [];
+        state.catalogSearch = "";
+        paintCatalog();
+        try {
+          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}`);
+          state.catalogTables = payload.data;
+        } catch {
+          state.catalogTables = [];
+        }
+        paintCatalog();
+      }
+
+      async function selectCatalogTable(dbName, tableName) {
+        state.catalogSelectedTable = { name: tableName, database: dbName, loading: true, columns: [], context: {} };
+        paintCatalog();
+        try {
+          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}`);
+          state.catalogSelectedTable = payload.data;
+        } catch (err) {
+          state.catalogSelectedTable = { name: tableName, database: dbName, error: true, errorMsg: err.message, columns: [], context: {} };
+        }
+        paintCatalog();
+      }
+
+      async function syncCatalogAll() {
+        const btn = elements.contentPanel.querySelector(".syncAllBtn");
+        if (btn) { btn.disabled = true; btn.textContent = "Iniciando…"; }
+        try {
+          await apiRequest("api/catalog/sync", { method: "POST" });
+          state.catalogSyncStatus = "syncing";
+          state.catalogDatabases = [];
+          state.catalogTables = [];
+          state.catalogSelectedTable = null;
+          if (btn) { btn.disabled = false; btn.textContent = "↻ Sincronizar todo"; }
+          paintCatalog();
+        } catch (err) {
+          if (btn) { btn.disabled = false; btn.textContent = "↻ Sincronizar todo"; }
+          alert(err.message || "Error al iniciar sincronización.");
+        }
+      }
+
+      async function syncCatalogDb(dbName) {
+        const btn = elements.contentPanel.querySelector(`[data-sync-db="${CSS.escape(dbName)}"]`);
+        if (btn) { btn.disabled = true; btn.textContent = "…"; }
+        try {
+          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/sync`, { method: "POST" });
+          const idx = state.catalogDatabases.findIndex(d => d.name === dbName);
+          if (idx >= 0) state.catalogDatabases[idx] = { ...state.catalogDatabases[idx], tableCount: payload.data.tableCount, syncedAt: payload.data.syncedAt };
+          state.catalogTables = [];
+          await selectCatalogDb(dbName);
+        } catch (err) {
+          if (btn) { btn.disabled = false; btn.textContent = "↻"; }
+          alert(err.message || "Error al sincronizar la base de datos.");
+        }
+      }
+
+      async function syncCatalogTable(dbName, tableName) {
+        const btn = elements.contentPanel.querySelector(".syncTableBtn");
+        if (btn) { btn.disabled = true; btn.textContent = "Actualizando…"; }
+        try {
+          await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}/sync`, { method: "POST" });
+          await selectCatalogTable(dbName, tableName);
+        } catch (err) {
+          if (btn) { btn.disabled = false; btn.textContent = "↻ Actualizar tabla"; }
+          alert(err.message || "Error al actualizar la tabla.");
+        }
+      }
+
+      function paintCatalog() {
+        const { catalogDatabases, catalogSelectedDb, catalogTables, catalogSelectedTable, catalogSearch, catalogLoading } = state;
+        const syncedAt = state.catalogSyncedAt;
+        const syncStatus = state.catalogSyncStatus;
+
+        const noCache = !catalogLoading && !catalogDatabases.length;
+
+        const filteredTables = catalogTables.filter(t =>
+          !catalogSearch || t.name.toLowerCase().includes(catalogSearch.toLowerCase())
+        );
+
+        const dbListHtml = catalogLoading
+          ? `<p class="catalogEmpty">Cargando…</p>`
+          : noCache
+          ? `<p class="catalogEmpty">Sin datos. Sincroniza para importar desde Glue.</p>`
+          : catalogDatabases.map(db => `
+              <div class="catalogDbRow${db.name === catalogSelectedDb ? " active" : ""}">
+                <button class="catalogDbItem" data-db="${escapeAttribute(db.name)}" type="button">
+                  <span class="catalogDbName">${escapeHtml(db.name)}</span>
+                  <span class="catalogDbMeta">${db.tableCount || 0} tablas · ${db.syncedAt ? catalogSyncedLabel(db.syncedAt) : "sin sync"}</span>
+                </button>
+                <button class="catalogSyncDbBtn iconTinyButton" type="button" data-sync-db="${escapeAttribute(db.name)}" title="Actualizar ${escapeAttribute(db.name)}">↻</button>
+              </div>
+            `).join("");
+
+        const syncBadge = (syncStatus === "syncing" && !catalogDatabases.length)
+          ? `<span class="catalogSyncBadge syncing">Sincronizando en background… Vuelve a entrar al catálogo en unos momentos.</span>`
+          : syncedAt
+          ? `<span class="catalogSyncBadge">Última sync: ${catalogSyncedLabel(syncedAt)}</span>`
+          : `<span class="catalogSyncBadge none">Sin sincronizar</span>`;
+
+        const tableListHtml = noCache
+          ? `<div class="catalogNoCacheMsg"><p>El catálogo no tiene datos aún.</p><p>Haz clic en <strong>↻ Sincronizar todo</strong> para importar todas las bases de datos y tablas desde AWS Glue.</p></div>`
+          : !catalogSelectedDb
+          ? `<p class="catalogEmpty">Selecciona una base de datos.</p>`
+          : !catalogTables.length
+          ? `<p class="catalogEmpty">Cargando tablas…</p>`
+          : !filteredTables.length
+          ? `<p class="catalogEmpty">Sin resultados para "${escapeHtml(catalogSearch)}".</p>`
+          : filteredTables.map(t => {
+              const selected = catalogSelectedTable && catalogSelectedTable.name === t.name && catalogSelectedTable.database === t.database;
+              return `
+                <button class="catalogTableCard${selected ? " active" : ""}" data-db="${escapeAttribute(t.database)}" data-table="${escapeAttribute(t.name)}" type="button">
+                  <strong class="catalogTableName">${escapeHtml(t.name)}</strong>
+                  <span class="catalogTableMeta">${t.columnCount} columnas${t.tableType ? ` · ${t.tableType}` : ""}</span>
+                  ${t.description ? `<span class="catalogTableDesc">${escapeHtml(t.description)}</span>` : ""}
+                </button>
+              `;
+            }).join("");
+
+        const detailHtml = renderCatalogDetail(catalogSelectedTable);
+
+        elements.contentPanel.innerHTML = `
+          <div class="catalogSidebar">
+            <div class="catalogSidebarHeader">
+              <p class="eyebrow">Bases de datos</p>
+              <button class="tinyButton syncAllBtn" type="button">↻ Sincronizar todo</button>
+            </div>
+            ${syncBadge}
+            <nav class="catalogDbList">${dbListHtml}</nav>
+          </div>
+          <div class="catalogMain">
+            <div class="catalogMainHeader">
+              <p class="eyebrow">${catalogSelectedDb ? escapeHtml(catalogSelectedDb) : "Tablas"}</p>
+              ${!noCache ? `<input class="searchInput catalogSearchInput" type="search" placeholder="Buscar tabla…" value="${escapeAttribute(catalogSearch)}" />` : ""}
+            </div>
+            <div class="catalogTableList">${tableListHtml}</div>
+          </div>
+          <div class="catalogDetail">${detailHtml}</div>
+        `;
+
+        bindCatalogEvents();
+      }
+
+      function renderCatalogDetail(table) {
+        if (!table) {
+          return `<div class="catalogDetailEmpty"><p>Selecciona una tabla para ver sus columnas y agregar contexto.</p></div>`;
+        }
+        if (table.loading) {
+          return `<div class="catalogDetailEmpty"><p>Cargando ${escapeHtml(table.name)}…</p></div>`;
+        }
+        if (table.error) {
+          return `<div class="catalogDetailEmpty">
+            <p>${escapeHtml(table.errorMsg || "No fue posible cargar la tabla.")}</p>
+            <button class="tinyButton syncTableBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}">↻ Actualizar tabla desde Glue</button>
+          </div>`;
+        }
+
+        const ctx = table.context || {};
+        const sensitivityOptions = ["", "alta", "media", "baja"].map(v =>
+          `<option value="${v}"${ctx.sensitivity === v ? " selected" : ""}>${v === "" ? "Sin clasificar" : v.charAt(0).toUpperCase() + v.slice(1)}</option>`
+        ).join("");
+
+        const columnsHtml = (table.columns || []).map(col => {
+          const colCtx = col.context || {};
+          const hasDesc = colCtx.description || colCtx.notes;
+          return `
+            <div class="catalogColumn" data-column="${escapeAttribute(col.name)}">
+              <div class="catalogColumnHeader">
+                <strong>${escapeHtml(col.name)}</strong>
+                <code class="catalogColumnType">${escapeHtml(col.type)}</code>
+                ${col.isPartition ? `<span class="catalogPartitionBadge">partición</span>` : ""}
+              </div>
+              ${col.comment ? `<p class="catalogColumnComment">${escapeHtml(col.comment)}</p>` : ""}
+              <div class="catalogColumnCtx${hasDesc ? " hasCtx" : ""}">
+                <textarea class="catalogColumnDesc" name="description" placeholder="Descripción funcional…" rows="2">${escapeHtml(colCtx.description || "")}</textarea>
+                <textarea class="catalogColumnNotes" name="notes" placeholder="Notas internas…" rows="1">${escapeHtml(colCtx.notes || "")}</textarea>
+                <button class="tinyButton saveColumnCtxBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}" data-column="${escapeAttribute(col.name)}">Guardar</button>
+                <span class="catalogColSaveNotice" hidden></span>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        return `
+          <div class="catalogDetailHeader">
+            <div class="catalogDetailHeaderTop">
+              <div>
+                <p class="eyebrow">${escapeHtml(table.database)}</p>
+                <h3>${escapeHtml(table.name)}</h3>
+                ${table.tableType ? `<p class="catalogTableTypeLine">${escapeHtml(table.tableType)}</p>` : ""}
+                ${table.location ? `<p class="catalogLocation">${escapeHtml(table.location)}</p>` : ""}
+                ${table.syncedAt ? `<p class="catalogLocation">Sync: ${catalogSyncedLabel(table.syncedAt)}</p>` : ""}
+              </div>
+              <button class="tinyButton syncTableBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}">↻ Actualizar</button>
+            </div>
+          </div>
+          <div class="catalogTableCtxForm">
+            <p class="catalogSectionLabel">Contexto de tabla</p>
+            <textarea class="catalogCtxInput" name="tableDescription" placeholder="Descripción funcional de la tabla…" rows="3">${escapeHtml(ctx.description || "")}</textarea>
+            <div class="catalogCtxRow">
+              <input class="catalogCtxInput" name="tableResponsible" type="text" placeholder="Responsable funcional" value="${escapeAttribute(ctx.responsible || "")}" />
+              <select class="catalogCtxInput" name="tableSensitivity">${sensitivityOptions}</select>
+            </div>
+            <textarea class="catalogCtxInput" name="tableUsageNotes" placeholder="Reglas de uso o notas…" rows="2">${escapeHtml(ctx.usageNotes || "")}</textarea>
+            <button class="tinyButton saveTableCtxBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}">Guardar contexto</button>
+            <span class="catalogTableSaveNotice" hidden></span>
+          </div>
+          <div class="catalogColumnSection">
+            <p class="catalogSectionLabel">${(table.columns || []).length} columnas</p>
+            <div class="catalogColumnList">${columnsHtml}</div>
+          </div>
+        `;
+      }
+
+      function bindCatalogEvents() {
+        const panel = elements.contentPanel;
+
+        panel.querySelector(".syncAllBtn")?.addEventListener("click", syncCatalogAll);
+
+        panel.querySelectorAll(".catalogDbItem").forEach(btn => {
+          btn.onclick = () => selectCatalogDb(btn.dataset.db);
+        });
+
+        panel.querySelectorAll(".catalogSyncDbBtn").forEach(btn => {
+          btn.onclick = (e) => { e.stopPropagation(); syncCatalogDb(btn.dataset.syncDb); };
+        });
+
+        panel.querySelectorAll(".syncTableBtn").forEach(btn => {
+          btn.onclick = () => syncCatalogTable(btn.dataset.db, btn.dataset.table);
+        });
+
+        panel.querySelectorAll(".catalogTableCard").forEach(btn => {
+          btn.onclick = () => selectCatalogTable(btn.dataset.db, btn.dataset.table);
+        });
+
+        const searchInput = panel.querySelector(".catalogSearchInput");
+        if (searchInput) {
+          searchInput.oninput = (e) => {
+            state.catalogSearch = e.target.value;
+            const tables = state.catalogTables.filter(t =>
+              !state.catalogSearch || t.name.toLowerCase().includes(state.catalogSearch.toLowerCase())
+            );
+            panel.querySelector(".catalogTableList").innerHTML = tables.length
+              ? tables.map(t => {
+                  const selected = state.catalogSelectedTable && state.catalogSelectedTable.name === t.name;
+                  return `<button class="catalogTableCard${selected ? " active" : ""}" data-db="${escapeAttribute(t.database)}" data-table="${escapeAttribute(t.name)}" type="button">
+                    <strong class="catalogTableName">${escapeHtml(t.name)}</strong>
+                    <span class="catalogTableMeta">${t.columnCount} columnas${t.tableType ? ` · ${t.tableType}` : ""}</span>
+                    ${t.description ? `<span class="catalogTableDesc">${escapeHtml(t.description)}</span>` : ""}
+                  </button>`;
+                }).join("")
+              : `<p class="catalogEmpty">Sin resultados.</p>`;
+            panel.querySelectorAll(".catalogTableCard").forEach(btn => {
+              btn.onclick = () => selectCatalogTable(btn.dataset.db, btn.dataset.table);
+            });
+          };
+        }
+
+        panel.querySelectorAll(".saveTableCtxBtn").forEach(btn => {
+          btn.onclick = async () => {
+            const { db, table } = btn.dataset;
+            const form = btn.closest(".catalogTableCtxForm");
+            const notice = form.querySelector(".catalogTableSaveNotice");
+            const body = {
+              description: form.querySelector("[name=tableDescription]").value,
+              responsible: form.querySelector("[name=tableResponsible]").value,
+              sensitivity: form.querySelector("[name=tableSensitivity]").value,
+              usageNotes: form.querySelector("[name=tableUsageNotes]").value,
+            };
+            btn.disabled = true;
+            try {
+              await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/context`, {
+                method: "PUT",
+                body: JSON.stringify(body),
+              });
+              if (state.catalogSelectedTable) state.catalogSelectedTable.context = body;
+              notice.textContent = "Guardado.";
+              notice.hidden = false;
+              setTimeout(() => { notice.hidden = true; }, 2500);
+            } catch (err) {
+              notice.textContent = err.message || "Error al guardar.";
+              notice.hidden = false;
+            } finally {
+              btn.disabled = false;
+            }
+          };
+        });
+
+        panel.querySelectorAll("textarea").forEach(ta => {
+          const autoResize = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };
+          autoResize();
+          ta.addEventListener("input", autoResize);
+        });
+
+        panel.querySelectorAll(".saveColumnCtxBtn").forEach(btn => {
+          btn.onclick = async () => {
+            const { db, table, column } = btn.dataset;
+            const colDiv = btn.closest(".catalogColumn");
+            const notice = colDiv.querySelector(".catalogColSaveNotice");
+            const body = {
+              description: colDiv.querySelector("[name=description]").value,
+              notes: colDiv.querySelector("[name=notes]").value,
+            };
+            btn.disabled = true;
+            try {
+              await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}/context`, {
+                method: "PUT",
+                body: JSON.stringify(body),
+              });
+              const col = (state.catalogSelectedTable?.columns || []).find(c => c.name === column);
+              if (col) col.context = body;
+              colDiv.classList.add("hasCtx");
+              notice.textContent = "Guardado.";
+              notice.hidden = false;
+              setTimeout(() => { notice.hidden = true; }, 2500);
+            } catch (err) {
+              notice.textContent = err.message || "Error al guardar.";
+              notice.hidden = false;
+            } finally {
+              btn.disabled = false;
+            }
+          };
+        });
+      }
+
+      // ─────────────────────────────────────────────────────────────────────────
 
       function priorityLabel(priority) {
         const labels = {
@@ -3439,6 +3822,327 @@ const title = "Gestión de Proyectos";
 
     .metric {
       width: 100%;
+    }
+  }
+
+  /* ── Catálogo ────────────────────────────────────────────────────── */
+  .catalogLayout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) minmax(340px, 420px);
+    gap: 0;
+    height: calc(100vh - 64px);
+    overflow: hidden;
+  }
+
+  .catalogSidebar {
+    border-right: 1px solid var(--line);
+    padding: 14px 0 18px 14px;
+    overflow-y: auto;
+    background: var(--panel-soft);
+  }
+
+  .catalogSidebarHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 12px;
+    margin-bottom: 6px;
+  }
+
+  .catalogSidebarHeader .eyebrow { margin: 0; }
+
+  .catalogSyncBadge {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    padding: 0 12px 8px 0;
+  }
+
+  .catalogSyncBadge.syncing { color: var(--accent-strong); }
+  .catalogSyncBadge.none { color: #b45309; }
+
+  .catalogNoCacheMsg {
+    padding: 24px 16px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.55;
+  }
+
+  .catalogNoCacheMsg p { margin: 0 0 8px; }
+
+  .catalogDbList {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .catalogDbRow {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    border-radius: 6px;
+  }
+
+  .catalogDbRow.active { background: var(--accent-soft); }
+  .catalogDbRow:hover { background: var(--line); }
+
+  .catalogDbItem {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+    padding: 8px 4px 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text);
+  }
+
+  .catalogDbRow.active .catalogDbItem { color: var(--accent-strong); font-weight: 600; }
+
+  .catalogSyncDbBtn {
+    flex-shrink: 0;
+    margin-right: 6px;
+    opacity: 0.5;
+    font-size: 0.85rem;
+  }
+
+  .catalogDbRow:hover .catalogSyncDbBtn { opacity: 1; }
+
+  .catalogDbName { font-size: 0.83rem; word-break: break-all; }
+  .catalogDbMeta { font-size: 0.72rem; color: var(--muted); }
+
+  .catalogMain {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .catalogMainHeader {
+    padding: 18px 18px 12px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .catalogMainHeader .eyebrow { margin: 0; }
+
+  .catalogTableList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .catalogTableCard {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: border-color 0.12s, background 0.12s;
+  }
+
+  .catalogTableCard:hover { border-color: var(--accent); }
+  .catalogTableCard.active { border-color: var(--accent); background: var(--accent-soft); }
+
+  .catalogTableName { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+  .catalogTableMeta { font-size: 0.78rem; color: var(--muted); }
+  .catalogTableDesc { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .catalogEmpty { color: var(--muted); font-size: 0.85rem; padding: 12px 0; }
+
+  .catalogDetail {
+    overflow-y: auto;
+    background: var(--panel-soft);
+  }
+
+  .catalogDetailEmpty {
+    padding: 32px 20px;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+
+  .catalogDetailHeader {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .catalogDetailHeaderTop {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .catalogDetailHeader h3 {
+    margin: 4px 0 0;
+    font-size: 1rem;
+    font-weight: 700;
+    word-break: break-all;
+  }
+
+  .catalogTableTypeLine,
+  .catalogLocation {
+    font-size: 0.76rem;
+    color: var(--muted);
+    margin: 3px 0 0;
+    word-break: break-all;
+  }
+
+  .catalogTableCtxForm {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .catalogSectionLabel {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 4px;
+  }
+
+  .catalogCtxInput {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 0.83rem;
+    background: var(--panel);
+    color: var(--text);
+    font-family: inherit;
+    resize: none;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .catalogCtxInput:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+  .catalogSearchInput { flex: none; }
+
+  .catalogCtxRow {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .catalogTableSaveNotice,
+  .catalogColSaveNotice {
+    font-size: 0.8rem;
+    color: var(--accent-strong);
+  }
+
+  .catalogColumnSection {
+    padding: 14px 20px 24px;
+  }
+
+  .catalogColumnList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .catalogColumn {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--panel);
+  }
+
+  .catalogColumn.hasCtx { border-color: #b8dad5; }
+
+  .catalogColumnHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+
+  .catalogColumnHeader strong { font-size: 0.85rem; }
+
+  .catalogColumnType {
+    font-size: 0.76rem;
+    background: var(--line);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--muted);
+    font-family: monospace;
+  }
+
+  .catalogPartitionBadge {
+    font-size: 0.72rem;
+    background: #fef3c7;
+    color: #92400e;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid #fcd34d;
+  }
+
+  .catalogColumnComment {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+
+  .catalogColumnCtx {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .catalogColumnDesc,
+  .catalogColumnNotes {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-size: 0.8rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    resize: none;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  .catalogColumnDesc:focus,
+  .catalogColumnNotes:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+  @media (max-width: 900px) {
+    .catalogLayout {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto;
+      height: auto;
+      overflow: visible;
+    }
+
+    .catalogSidebar,
+    .catalogMain,
+    .catalogDetail {
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      max-height: 40vh;
+      overflow-y: auto;
     }
   }
 </style>

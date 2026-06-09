@@ -140,6 +140,69 @@ class MainTableRepository:
         )
         return response["Attributes"]
 
+    # ── Catálogo caché ──────────────────────────────────────────────────────────
+
+    def get_catalog_sync_meta(self) -> dict[str, Any] | None:
+        response = self._table.get_item(Key={"PK": "CATALOG#SYNC", "SK": "META"})
+        return response.get("Item")
+
+    def put_catalog_sync_meta(self, synced_at: str, status: str) -> None:
+        self._table.put_item(Item={
+            "PK": "CATALOG#SYNC", "SK": "META",
+            "entityType": "CATALOG_SYNC", "syncedAt": synced_at, "status": status,
+        })
+
+    def list_catalog_databases(self) -> list[dict[str, Any]]:
+        response = self._table.query(
+            KeyConditionExpression=Key("PK").eq("CATALOG#DB")
+        )
+        return response.get("Items", [])
+
+    def put_catalog_database(self, database: str, table_count: int, synced_at: str, description: str = "") -> None:
+        self._table.put_item(Item={
+            "PK": "CATALOG#DB", "SK": database,
+            "entityType": "CATALOG_DB",
+            "database": database, "description": description,
+            "tableCount": table_count, "syncedAt": synced_at,
+        })
+
+    def list_catalog_tables(self, database: str) -> list[dict[str, Any]]:
+        response = self._table.query(
+            KeyConditionExpression=Key("PK").eq(f"CATALOG#{database}") & Key("SK").begins_with("TABLE#"),
+            ProjectionExpression="#n, #db, tableType, description, columnCount, syncedAt, SK",
+            ExpressionAttributeNames={"#n": "name", "#db": "database"},
+        )
+        return response.get("Items", [])
+
+    def get_catalog_table(self, database: str, table: str) -> dict[str, Any] | None:
+        response = self._table.get_item(
+            Key={"PK": f"CATALOG#{database}", "SK": f"TABLE#{table}"}
+        )
+        return response.get("Item")
+
+    def put_catalog_table(self, item: dict[str, Any]) -> None:
+        self._table.put_item(Item=item)
+
+    # ── Contexto funcional ───────────────────────────────────────────────────────
+
+    def get_table_context(self, database: str, table_name: str) -> dict[str, Any] | None:
+        response = self._table.get_item(
+            Key={"PK": f"TABLE#{database}#{table_name}", "SK": "CONTEXT"}
+        )
+        return response.get("Item")
+
+    def list_column_contexts(self, database: str, table_name: str) -> list[dict[str, Any]]:
+        response = self._table.query(
+            KeyConditionExpression=Key("PK").eq(f"TABLE#{database}#{table_name}") & Key("SK").begins_with("COLUMN#")
+        )
+        return response.get("Items", [])
+
+    def get_column_context(self, database: str, table_name: str, column_name: str) -> dict[str, Any] | None:
+        response = self._table.get_item(
+            Key={"PK": f"TABLE#{database}#{table_name}", "SK": f"COLUMN#{column_name}"}
+        )
+        return response.get("Item")
+
     def delete_project_member(self, project_id: str, person_id: str) -> None:
         self._table.delete_item(
             Key={

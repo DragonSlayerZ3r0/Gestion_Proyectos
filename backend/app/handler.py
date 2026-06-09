@@ -1,17 +1,25 @@
 import json
+import os
 from typing import Any
 
 from auth import get_user_identity
 from repositories.dynamodb import MainTableRepository
 from responses import error, success
+from services.catalog import CatalogService
 from services.users import UserNotConfiguredError, UserService
 from services.workspace import ValidationError, WorkspaceService
 
 
-def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
+def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    # EventBridge scheduled trigger o self-invocation asíncrona
+    if event.get("action") == "catalog_sync_all" or event.get("source") == "aws.events":
+        CatalogService().run_sync_all()
+        return {"ok": True}
+
     method = event.get("requestContext", {}).get("http", {}).get("method", "")
     path = event.get("rawPath", "")
     path_parameters = event.get("pathParameters") or {}
+    _lambda_context = context
 
     if method == "GET" and path == "/health":
         return success({"status": "ok"})
@@ -45,6 +53,22 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
 
     if path.startswith("/api/projects/"):
         return route_project_update(event, method, path_parameters)
+
+    if path == "/api/catalog":
+        return route_catalog_databases(event, method)
+
+    if path.startswith("/api/catalog/"):
+        parts = path.split("/")
+        if "/columns/" in path and path.endswith("/context"):
+            return route_catalog_column_context(event, method, path_parameters)
+        if path.endswith("/sync"):
+            return route_catalog_sync(event, method, path_parameters, parts, _lambda_context)
+        if path.endswith("/context"):
+            return route_catalog_table_context(event, method, path_parameters)
+        if len(parts) == 5:
+            return route_catalog_table(event, method, path_parameters)
+        if len(parts) == 4:
+            return route_catalog_database_tables(event, method, path_parameters)
 
     return error("NOT_FOUND", "Ruta no encontrada.", 404)
 
@@ -230,6 +254,129 @@ def route_task_update(event: dict[str, Any], method: str, path_parameters: dict[
         return error("VALIDATION_ERROR", str(exc), 400)
     except Exception:
         return error("INTERNAL_ERROR", "Error inesperado al actualizar la tarea.", 500)
+
+
+def route_catalog_sync(event: dict[str, Any], method: str, path_parameters: dict[str, str], parts: list[str], context: Any) -> dict[str, Any]:
+    if method != "POST":
+        return error("METHOD_NOT_ALLOWED", "Método no permitido.", 405)
+    try:
+        identity = get_user_identity(event)
+        ensure_module_access(identity, ["catalog"])
+        service = CatalogService()
+        # /api/catalog/sync → sync global asíncrono
+        if len(parts) == 4:
+            started_at = service.start_sync_all(context.function_name)
+            return success({"started": True, "startedAt": started_at})
+        # /api/catalog/{database}/sync → sync de una BD completa
+        if len(parts) == 5:
+            database = path_parameters.get("database") or ""
+            result = service.sync_database(database)
+            return success(result)
+        # /api/catalog/{database}/{table}/sync → sync de una tabla
+        if len(parts) == 6:
+            database = path_parameters.get("database") or ""
+            table = path_parameters.get("table") or ""
+            result = service.sync_table(database, table)
+            return success(result)
+        return error("NOT_FOUND", "Ruta no encontrada.", 404)
+    except ValueError as exc:
+        return error("NOT_FOUND", str(exc), 404)
+    except PermissionError as exc:
+        return error("FORBIDDEN", str(exc), 403)
+    except Exception:
+        return error("INTERNAL_ERROR", "Error inesperado durante la sincronización.", 500)
+
+
+def route_catalog_databases(event: dict[str, Any], method: str) -> dict[str, Any]:
+    if method != "GET":
+        return error("METHOD_NOT_ALLOWED", "Método no permitido.", 405)
+    try:
+        identity = get_user_identity(event)
+        ensure_module_access(identity, ["catalog"])
+        data = CatalogService().list_databases()
+        return success(data)
+    except ValueError as exc:
+        return error("UNAUTHORIZED", str(exc), 401)
+    except PermissionError as exc:
+        return error("FORBIDDEN", str(exc), 403)
+    except Exception:
+        return error("INTERNAL_ERROR", "Error inesperado al listar bases de datos.", 500)
+
+
+def route_catalog_database_tables(event: dict[str, Any], method: str, path_parameters: dict[str, str]) -> dict[str, Any]:
+    if method != "GET":
+        return error("METHOD_NOT_ALLOWED", "Método no permitido.", 405)
+    try:
+        identity = get_user_identity(event)
+        ensure_module_access(identity, ["catalog"])
+        database = path_parameters.get("database") or ""
+        data = CatalogService().list_tables(database)
+        return success(data)
+    except ValueError as exc:
+        return error("UNAUTHORIZED", str(exc), 401)
+    except PermissionError as exc:
+        return error("FORBIDDEN", str(exc), 403)
+    except Exception:
+        return error("INTERNAL_ERROR", "Error inesperado al listar tablas.", 500)
+
+
+def route_catalog_table(event: dict[str, Any], method: str, path_parameters: dict[str, str]) -> dict[str, Any]:
+    if method != "GET":
+        return error("METHOD_NOT_ALLOWED", "Método no permitido.", 405)
+    try:
+        identity = get_user_identity(event)
+        ensure_module_access(identity, ["catalog"])
+        database = path_parameters.get("database") or ""
+        table = path_parameters.get("table") or ""
+        data = CatalogService().get_table(database, table)
+        return success(data)
+    except ValueError as exc:
+        return error("NOT_FOUND", str(exc), 404)
+    except PermissionError as exc:
+        return error("FORBIDDEN", str(exc), 403)
+    except Exception:
+        return error("INTERNAL_ERROR", "Error inesperado al obtener la tabla.", 500)
+
+
+def route_catalog_table_context(event: dict[str, Any], method: str, path_parameters: dict[str, str]) -> dict[str, Any]:
+    if method != "PUT":
+        return error("METHOD_NOT_ALLOWED", "Método no permitido.", 405)
+    try:
+        identity = get_user_identity(event)
+        ensure_module_access(identity, ["catalog"])
+        database = path_parameters.get("database") or ""
+        table = path_parameters.get("table") or ""
+        data = CatalogService().save_table_context(database, table, parse_body(event), identity)
+        return success(data)
+    except ValueError as exc:
+        return error("UNAUTHORIZED", str(exc), 401)
+    except PermissionError as exc:
+        return error("FORBIDDEN", str(exc), 403)
+    except ValidationError as exc:
+        return error("VALIDATION_ERROR", str(exc), 400)
+    except Exception:
+        return error("INTERNAL_ERROR", "Error inesperado al guardar el contexto.", 500)
+
+
+def route_catalog_column_context(event: dict[str, Any], method: str, path_parameters: dict[str, str]) -> dict[str, Any]:
+    if method != "PUT":
+        return error("METHOD_NOT_ALLOWED", "Método no permitido.", 405)
+    try:
+        identity = get_user_identity(event)
+        ensure_module_access(identity, ["catalog"])
+        database = path_parameters.get("database") or ""
+        table = path_parameters.get("table") or ""
+        column = path_parameters.get("column") or ""
+        data = CatalogService().save_column_context(database, table, column, parse_body(event), identity)
+        return success(data)
+    except ValueError as exc:
+        return error("UNAUTHORIZED", str(exc), 401)
+    except PermissionError as exc:
+        return error("FORBIDDEN", str(exc), 403)
+    except ValidationError as exc:
+        return error("VALIDATION_ERROR", str(exc), 400)
+    except Exception:
+        return error("INTERNAL_ERROR", "Error inesperado al guardar el contexto de columna.", 500)
 
 
 def parse_body(event: dict[str, Any]) -> dict[str, Any]:
