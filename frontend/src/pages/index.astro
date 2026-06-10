@@ -1,5 +1,5 @@
 ---
-const title = "Gestión de Proyectos";
+const title = "Gestión de Datos";
 ---
 
 <!doctype html>
@@ -18,7 +18,7 @@ const title = "Gestión de Proyectos";
           <img class="brandMark" src="/icono_gp.png" alt="Logo" />
           <div>
             <strong>Gestión</strong>
-            <small>Proyectos</small>
+            <small>de Datos</small>
           </div>
           <button id="sidebarToggleButton" class="sidebarToggle" type="button" aria-label="Contraer menú" aria-expanded="true">☰</button>
         </div>
@@ -32,7 +32,7 @@ const title = "Gestión de Proyectos";
               <img class="loginBrandMark" src="/icono_gp.png" alt="Logo" />
               <div>
                 <p class="eyebrow">Acceso interno</p>
-                <h1 id="loginLandingTitle">Gestión de Proyectos</h1>
+                <h1 id="loginLandingTitle">Gestión de Datos</h1>
               </div>
             </div>
             <p class="loginHeroText">Coordinación de proyectos, tareas y personas.<br>Catálogo de datos.</p>
@@ -203,6 +203,7 @@ const title = "Gestión de Proyectos";
         catalogSaving: false,
         catalogSyncedAt: null,
         catalogSyncStatus: null,
+        catalogTableCache: {},
         needsNewPassword: false,
         loginBusy: false
       };
@@ -340,7 +341,11 @@ const title = "Gestión de Proyectos";
         }
 
         state.profile = payload.data;
-        state.activeModule = getDefaultModule(payload.data.modules);
+        const visibleModules = getVisibleModules(payload.data.modules);
+        const savedModule = normalizeModuleKey(window.sessionStorage.getItem("gestionProyectosModule") || "");
+        state.activeModule = visibleModules.some((module) => module.key === savedModule)
+          ? savedModule
+          : getDefaultModule(payload.data.modules);
         renderApp();
       }
 
@@ -495,6 +500,7 @@ const title = "Gestión de Proyectos";
 
       function logout() {
         window.sessionStorage.removeItem("gestionProyectosAuth");
+        window.sessionStorage.removeItem("gestionProyectosModule");
         state.user = null;
         state.profile = null;
         state.workspace = null;
@@ -581,6 +587,7 @@ const title = "Gestión de Proyectos";
           button.className = module.key === state.activeModule ? "navItem active" : "navItem";
           button.addEventListener("click", () => {
             state.activeModule = module.key;
+            window.sessionStorage.setItem("gestionProyectosModule", module.key);
             renderApp();
           });
           elements.moduleNav.append(button);
@@ -1819,6 +1826,7 @@ const title = "Gestión de Proyectos";
         try {
           const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}`);
           state.catalogSelectedTable = payload.data;
+          state.catalogTableCache[`${dbName}::${tableName}`] = payload.data;
         } catch (err) {
           state.catalogSelectedTable = { name: tableName, database: dbName, error: true, errorMsg: err.message, columns: [], context: {} };
         }
@@ -1949,7 +1957,16 @@ const title = "Gestión de Proyectos";
           </div>
           <div class="catalogMain">
             <div class="catalogMainHeader">
-              <p class="eyebrow">${catalogSelectedDb ? escapeHtml(catalogSelectedDb) : "Tablas"}</p>
+              <div class="catalogMainHeaderTop">
+                <p class="eyebrow">${catalogSelectedDb ? escapeHtml(catalogSelectedDb) : "Tablas"}</p>
+                ${!noCache ? `
+                <button class="catalogGraphBtn iconTinyButton" type="button" title="Ver grafo de relaciones entre tablas">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/>
+                    <line x1="7.2" y1="6" x2="16.8" y2="6"/><line x1="5.8" y1="8" x2="11" y2="16"/><line x1="18.2" y1="8" x2="13" y2="16"/>
+                  </svg>
+                </button>` : ""}
+              </div>
               ${!noCache ? `
               <div class="catalogSearchBar">
                 <input class="searchInput catalogSearchInput" type="search" placeholder="Buscar…" value="${escapeAttribute(catalogSearch)}" />
@@ -2046,6 +2063,7 @@ const title = "Gestión de Proyectos";
         const panel = elements.contentPanel;
 
         panel.querySelector(".syncAllBtn")?.addEventListener("click", syncCatalogAll);
+        panel.querySelector(".catalogGraphBtn")?.addEventListener("click", openCatalogGraph);
 
         panel.querySelectorAll(".catalogDbItem").forEach(btn => {
           btn.onclick = () => selectCatalogDb(btn.dataset.db);
@@ -2180,6 +2198,1027 @@ const title = "Gestión de Proyectos";
             }
           };
         });
+      }
+
+      // ── Grafo de relaciones ─────────────────────────────────────────────────
+
+      function loadD3() {
+        return new Promise((resolve, reject) => {
+          if (window.d3) { resolve(); return; }
+          const s = document.createElement("script");
+          s.src = "https://unpkg.com/d3@7/dist/d3.min.js";
+          s.onload = resolve;
+          s.onerror = () => reject(new Error("No fue posible cargar D3 desde CDN."));
+          document.head.appendChild(s);
+        });
+      }
+
+      async function openCatalogGraph() {
+        const btn = elements.contentPanel.querySelector(".catalogGraphBtn");
+        if (btn) { btn.disabled = true; btn.style.opacity = "0.5"; }
+        try { await loadD3(); } catch (e) {
+          alert("No fue posible cargar la librería de visualización. Verifica tu conexión.");
+          if (btn) { btn.disabled = false; btn.style.opacity = ""; }
+          return;
+        }
+        const tables = state.catalogTables;
+        if (!tables.length) {
+          if (btn) { btn.disabled = false; btn.style.opacity = ""; }
+          alert("No hay tablas cargadas para mostrar el grafo.");
+          return;
+        }
+
+        // Precarga las columnas de todas las tablas (con concurrencia limitada)
+        // para que el grafo abra completo, con relaciones ya detectadas
+        const pending = tables.filter(t => !state.catalogTableCache[`${t.database}::${t.name}`]);
+        if (pending.length) {
+          const queue = [...pending];
+          const workers = Array.from({ length: Math.min(6, queue.length) }, async () => {
+            while (queue.length) {
+              const t = queue.shift();
+              try {
+                const payload = await apiRequest(`api/catalog/${encodeURIComponent(t.database)}/${encodeURIComponent(t.name)}`);
+                state.catalogTableCache[`${t.database}::${t.name}`] = payload.data;
+              } catch {
+                // Tabla sin detalle: se muestra sin subnodos
+              }
+            }
+          });
+          await Promise.all(workers);
+        }
+        if (btn) { btn.disabled = false; btn.style.opacity = ""; }
+
+        const palette = ["#1a7f6e","#2563eb","#9333ea","#ea580c","#0891b2","#16a34a","#db2777","#ca8a04"];
+        const dbColors = {};
+        [...new Set(tables.map(t => t.database))].forEach((db, i) => { dbColors[db] = palette[i % palette.length]; });
+
+        renderGraphModal(tables, dbColors);
+      }
+
+      // Construye nodos y enlaces del grafo a partir de las tablas listadas y la
+      // caché de detalles de tabla (state.catalogTableCache). Las columnas de tipo
+      // partición se incluyen como subnodos pero quedan excluidas de relaciones
+      // (FK / columnas compartidas).
+      function buildCatalogGraphData(tables, dbColors) {
+        const tableNodes = tables.map(t => ({
+          id: `T::${t.database}::${t.name}`,
+          type: "table",
+          label: t.name,
+          db: t.database,
+          columnCount: t.columnCount || 0,
+          tableType: t.tableType || "",
+          isSelected: state.catalogSelectedTable?.name === t.name && state.catalogSelectedTable?.database === t.database,
+        }));
+
+        const tableNodeIds = new Set(tableNodes.map(n => n.id));
+
+        // ── Column nodes (solo de tablas en caché) ──────────────────────────
+        const columnNodes = [];
+        const parentLinks  = [];
+        const tableColMap  = {}; // "db::name" → Set<colName> (excluye columnas de partición)
+
+        for (const [, tData] of Object.entries(state.catalogTableCache)) {
+          const tableId = `T::${tData.database}::${tData.name}`;
+          if (!tableNodeIds.has(tableId)) continue;
+          tableColMap[`${tData.database}::${tData.name}`] = new Set();
+          const cols = tData.columns || [];
+          cols.forEach((col, colIndex) => {
+            const colId = `C::${tData.database}::${tData.name}::${col.name}`;
+            columnNodes.push({
+              id: colId,
+              type: "column",
+              label: col.name,
+              colType: col.type || "",
+              db: tData.database,
+              parentId: tableId,
+              parentLabel: tData.name,
+              isPartition: !!col.isPartition,
+              colIndex,
+              colTotal: cols.length,
+            });
+            parentLinks.push({ source: tableId, target: colId, type: "parent" });
+            if (!col.isPartition) tableColMap[`${tData.database}::${tData.name}`].add(col.name);
+          });
+        }
+
+        // ── Cross-table links ────────────────────────────────────────────────
+        const crossLinks = [];
+        const linkSet    = new Set();
+
+        function addCrossLink(src, tgt, type, meta) {
+          const key = [src, tgt].sort().join("|||");
+          if (!linkSet.has(key) && src !== tgt) { linkSet.add(key); crossLinks.push({ source: src, target: tgt, type, ...meta }); }
+        }
+
+        // FK: col_id → matching table node (las columnas de partición no generan FK)
+        for (const [, tData] of Object.entries(state.catalogTableCache)) {
+          const db = tData.database;
+          for (const col of (tData.columns || [])) {
+            if (col.isPartition) continue;
+            if (!col.name.endsWith("_id")) continue;
+            const prefix = col.name.slice(0, -3);
+            for (const cand of [prefix, prefix + "s", prefix + "es"]) {
+              const tid = `T::${db}::${cand}`;
+              if (tableNodeIds.has(tid)) {
+                const srcColId = `C::${db}::${tData.name}::${col.name}`;
+                addCrossLink(srcColId, tid, "fk", { colLabel: col.name });
+                break;
+              }
+            }
+          }
+        }
+
+        // Shared column names (column-to-column, same name in different tables;
+        // ya excluye columnas de partición porque no se agregaron a tableColMap)
+        const cacheKeys = Object.keys(tableColMap);
+        for (let i = 0; i < cacheKeys.length; i++) {
+          for (let j = i + 1; j < cacheKeys.length; j++) {
+            const [dbA, nameA] = cacheKeys[i].split("::");
+            const [dbB, nameB] = cacheKeys[j].split("::");
+            for (const col of tableColMap[cacheKeys[i]]) {
+              if (col === "id" || col.endsWith("_id") || col.length <= 2) continue;
+              if (tableColMap[cacheKeys[j]].has(col)) {
+                addCrossLink(`C::${dbA}::${nameA}::${col}`, `C::${dbB}::${nameB}::${col}`, "shared", { colLabel: col });
+              }
+            }
+          }
+        }
+
+        return {
+          nodes: [...tableNodes, ...columnNodes],
+          links: [...parentLinks, ...crossLinks],
+        };
+      }
+
+      // Visualizador de grafo estilo "embedding projector": render en Canvas 2D
+      // con culling por viewport, etiquetas con nivel de detalle (LOD) y picking
+      // espacial. Escala a decenas de miles de nodos manteniendo zoom/pan fluidos.
+      function renderGraphModal(tables, dbColors) {
+        document.getElementById("catalogGraphModal")?.remove();
+
+        const dbListAll = Object.keys(dbColors);
+        const modal = document.createElement("div");
+        modal.id = "catalogGraphModal";
+        modal.className = "catalogGraphModal";
+        modal.setAttribute("tabindex", "-1");
+        modal.innerHTML = `
+          <div class="catalogGraphHeader">
+            <div>
+              <p class="eyebrow" style="margin:0">Catálogo · ${escapeHtml(state.catalogSelectedDb || "")}</p>
+              <h3 style="margin:4px 0 0;font-size:1rem;font-weight:700">Grafo de relaciones</h3>
+            </div>
+            <div class="catalogGraphLegend">
+              <span class="graphLegendFk">● Clave foránea</span>
+              <span class="graphLegendShared">● Columna compartida</span>
+              <span class="graphLegendHint2">Click = seleccionar · Shift+click = ver ruta · Click derecho = abrir tabla · Esc = cerrar</span>
+            </div>
+            <button class="iconTinyButton catalogGraphFitBtn" type="button" title="Centrar grafo" aria-label="Centrar grafo">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+                <path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+              </svg>
+            </button>
+            <button class="iconButton catalogGraphCloseBtn" type="button" aria-label="Cerrar">×</button>
+          </div>
+          <div class="catalogGraphToolbar">
+            <div class="catalogGraphSearchWrap">
+              <input type="search" class="catalogGraphSearch" placeholder="Buscar tabla o columna…" />
+              <div class="catalogGraphSearchResults" hidden></div>
+            </div>
+            <div class="catalogGraphFilterChips">
+              <button type="button" class="graphFilterChip graphFilterChipFk active" data-filter="fk">● Claves foráneas</button>
+              <button type="button" class="graphFilterChip graphFilterChipShared active" data-filter="shared">● Compartidas</button>
+            </div>
+            <select class="catalogGraphDbFilter" title="Filtrar por base de datos">
+              <option value="all">Todas las bases de datos</option>
+              ${dbListAll.map(db => `<option value="${escapeAttribute(db)}">${escapeHtml(db)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="catalogGraphBody">
+            <canvas id="catalogGraphCanvas" class="catalogGraphCanvas"></canvas>
+            <canvas id="catalogGraphMinimap" class="catalogGraphMinimap"></canvas>
+            <aside id="catalogGraphInspector" class="catalogGraphInspector" hidden></aside>
+          </div>
+          <div id="catalogGraphTooltip" class="catalogGraphTooltip" hidden></div>
+        `;
+
+        document.getElementById("app").appendChild(modal);
+        modal.focus();
+
+        const inspectorEl = modal.querySelector("#catalogGraphInspector");
+        const canvas = modal.querySelector("#catalogGraphCanvas");
+        const bodyEl = modal.querySelector(".catalogGraphBody");
+        const W = bodyEl.clientWidth || window.innerWidth;
+        const H = bodyEl.clientHeight || (window.innerHeight - 110);
+        const DPR = Math.min(2, window.devicePixelRatio || 1);
+        canvas.width = W * DPR;
+        canvas.height = H * DPR;
+        canvas.style.width = W + "px";
+        canvas.style.height = H + "px";
+        const ctx = canvas.getContext("2d");
+
+        const rootStyle = getComputedStyle(document.documentElement);
+        const cssVar = (name, fallback) => (rootStyle.getPropertyValue(name) || "").trim() || fallback;
+        const COLOR_TEXT  = cssVar("--text", "#1f2937");
+        const COLOR_PANEL = cssVar("--panel", "#ffffff");
+        const COLOR_BG    = cssVar("--bg", "#eef2f1");
+
+        // Lienzo virtual más amplio cuando hay muchas tablas (las esferas de
+        // columnas son compactas, así que el factor crece despacio)
+        const spread = Math.max(1, Math.sqrt(tables.length / 20));
+
+        // ── Datos del grafo ──────────────────────────────────────────────────
+        let { nodes, links } = buildCatalogGraphData(tables, dbColors);
+
+        const linkEndId = (end) => (typeof end === "object") ? end.id : end;
+        let nodeById = new Map(nodes.map(n => [n.id, n]));
+
+        let fkColumnIds = new Set();
+        let sharedColumnIds = new Set();
+        let relatedColumnIds = new Set();
+        function recomputeDerived() {
+          nodeById = new Map(nodes.map(n => [n.id, n]));
+          fkColumnIds = new Set();
+          sharedColumnIds = new Set();
+          links.forEach(l => {
+            const s = linkEndId(l.source), t = linkEndId(l.target);
+            if (l.type === "fk") { if (s.startsWith("C::")) fkColumnIds.add(s); if (t.startsWith("C::")) fkColumnIds.add(t); }
+            if (l.type === "shared") { if (s.startsWith("C::")) sharedColumnIds.add(s); if (t.startsWith("C::")) sharedColumnIds.add(t); }
+          });
+          relatedColumnIds = new Set([...fkColumnIds, ...sharedColumnIds]);
+        }
+        function resolveLinks() {
+          for (const l of links) {
+            l.source = nodeById.get(linkEndId(l.source)) || l.source;
+            l.target = nodeById.get(linkEndId(l.target)) || l.target;
+          }
+        }
+        recomputeDerived();
+        resolveLinks();
+
+        function lighten(hex, amt) {
+          const n = parseInt(hex.slice(1), 16);
+          const r = Math.min(255, (n >> 16) + amt);
+          const gC = Math.min(255, ((n >> 8) & 0xff) + amt);
+          const b = Math.min(255, (n & 0xff) + amt);
+          return `rgb(${r},${gC},${b})`;
+        }
+
+        // ── Posiciones: clusters por base de datos + anillos de columnas ───
+        const dbList = Object.keys(dbColors);
+        const clusterCols = Math.max(1, Math.ceil(Math.sqrt(dbList.length)));
+        const clusterRows = Math.max(1, Math.ceil(dbList.length / clusterCols));
+        const clusterCenters = {};
+        dbList.forEach((db, i) => {
+          clusterCenters[db] = {
+            x: W * spread * ((i % clusterCols) + 0.5) / clusterCols,
+            y: H * spread * (Math.floor(i / clusterCols) + 0.5) / clusterRows,
+          };
+        });
+
+        const tableR = d => Math.max(20, Math.sqrt(d.columnCount) * 3 + 16);
+        const colR   = d => 6 * (0.62 + (d.z + 1) * 0.32);
+
+        // Distribución esférica (espiral de Fibonacci): las columnas envuelven
+        // su tabla como una esfera 3D — mitad detrás, mitad delante — en vez de
+        // un anillo plano gigante. Compacta el layout ~5x y da profundidad real.
+        const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+        function sphereRadius(baseR, total) {
+          return Math.max(baseR + 16, 4.2 * Math.sqrt(Math.max(1, total)) + 10);
+        }
+        function computeRingSlots() {
+          for (const d of nodes) {
+            if (d.type !== "column") continue;
+            const total = Math.max(1, d.colTotal || 1);
+            const i = d.colIndex;
+            const zi = total === 1 ? 0 : 1 - (2 * (i + 0.5)) / total; // [-1, 1]
+            const rUnit = Math.sqrt(Math.max(0, 1 - zi * zi));
+            const phi = i * GOLDEN_ANGLE;
+            // Coordenadas base de la esfera (bx/by/bz) — la rotación se aplica
+            // sobre ellas sin perder la distribución original
+            d.bx = rUnit * Math.cos(phi);
+            d.by = rUnit * Math.sin(phi);
+            d.bz = zi;
+            d.sx = d.bx;
+            d.sy = d.by;
+            d.z = d.bz; // profundidad real de la esfera (no aleatoria)
+            d.ringA = Math.atan2(d.sy, d.sx);
+            const parent = nodeById.get(d.parentId);
+            const baseR = parent ? tableR(parent) : 24;
+            d.ringR = sphereRadius(baseR, total);
+          }
+        }
+        function ringOuter(d) {
+          const hasRing = state.catalogTableCache[`${d.db}::${d.label}`];
+          if (!hasRing) return tableR(d) + 6;
+          return sphereRadius(tableR(d), d.columnCount) + 16;
+        }
+        function assignPositions(oldById) {
+          for (const d of nodes) {
+            const old = oldById.get(d.id);
+            if (old) {
+              d.x = old.x; d.y = old.y; d.z = old.z;
+              d.vx = old.vx; d.vy = old.vy;
+              continue;
+            }
+            if (d.type === "table") {
+              const base = clusterCenters[d.db] || { x: W / 2, y: H / 2 };
+              d.x = base.x + (Math.random() - 0.5) * 160;
+              d.y = base.y + (Math.random() - 0.5) * 160;
+              d.z = Math.random() * 2 - 1;
+            }
+            // Las columnas conservan la z de la esfera (computeRingSlots)
+          }
+        }
+        function pinColumns() {
+          for (const d of nodes) {
+            if (d.type !== "column") continue;
+            const p = nodeById.get(d.parentId);
+            if (!p || p.x == null) continue;
+            d.x = p.x + d.sx * d.ringR;
+            d.y = p.y + d.sy * d.ringR;
+          }
+        }
+
+        computeRingSlots();
+        assignPositions(new Map());
+        pinColumns();
+
+        // ── Rotación 3D de la esfera bajo el cursor ─────────────────────────
+        // Gira sobre el eje vertical: las columnas traseras emergen por un lado
+        // y se ocultan por el otro, revelando toda la esfera sin hacer zoom
+        let hoverTableId = null;
+        function rotateSphere(tableNode) {
+          const theta = tableNode.rot || 0;
+          const cosT = Math.cos(theta), sinT = Math.sin(theta);
+          for (const d of nodes) {
+            if (d.type !== "column" || d.parentId !== tableNode.id) continue;
+            d.sx = d.bx * cosT + d.bz * sinT;
+            d.sy = d.by;
+            d.z  = -d.bx * sinT + d.bz * cosT;
+            d.ringA = Math.atan2(d.sy, d.sx);
+            d.x = tableNode.x + d.sx * d.ringR;
+            d.y = tableNode.y + d.sy * d.ringR;
+          }
+        }
+        const rotationTimer = d3.timer(() => {
+          if (!hoverTableId) return;
+          const p = nodeById.get(hoverTableId);
+          if (!p) return;
+          p.rot = (p.rot || 0) + 0.011;
+          rotateSphere(p);
+          qtDirty = true;
+          dirty = true;
+        });
+
+        // ── Física: solo las tablas se simulan (las columnas van ancladas) ──
+        let fitted = false;
+        const simulation = d3.forceSimulation(nodes.filter(d => d.type === "table"))
+          .force("charge", d3.forceManyBody().strength(-200))
+          .force("x", d3.forceX(d => (clusterCenters[d.db] || { x: W / 2 }).x).strength(0.06))
+          .force("y", d3.forceY(d => (clusterCenters[d.db] || { y: H / 2 }).y).strength(0.06))
+          .force("collision", d3.forceCollide().radius(d => ringOuter(d)))
+          .alphaDecay(0.028)
+          .velocityDecay(0.62)
+          .on("tick", () => {
+            pinColumns();
+            qtDirty = true;
+            dirty = true;
+            if (!fitted && simulation.alpha() < 0.05) { fitted = true; fitToView(true); }
+          });
+
+        // ── Cámara (d3-zoom sobre el canvas) ────────────────────────────────
+        let transform = d3.zoomIdentity;
+        const sel = d3.select(canvas);
+        const zoom = d3.zoom()
+          .scaleExtent([0.04, 8])
+          .filter(ev => ev.type === "wheel" || ev.button === 0 || ev.button === 1)
+          .on("zoom", (ev) => { transform = ev.transform; dirty = true; });
+        sel.call(zoom);
+        sel.on("wheel.zoom", null);
+        sel.on("dblclick.zoom", null);
+
+        // Parallax 2.5D transitorio del fondo (columnas) al desplazarse
+        let parX = 0, parY = 0, parTimer = null;
+        function kickParallax(dx, dy) {
+          const k = transform.k || 1;
+          parX = Math.max(-30, Math.min(30, parX + (dx * 0.16) / k));
+          parY = Math.max(-30, Math.min(30, parY + (dy * 0.16) / k));
+          dirty = true;
+          if (!parTimer) {
+            parTimer = d3.timer(() => {
+              parX *= 0.84; parY *= 0.84;
+              if (Math.abs(parX) < 0.05 && Math.abs(parY) < 0.05) {
+                parX = parY = 0;
+                parTimer.stop();
+                parTimer = null;
+              }
+              dirty = true;
+            });
+          }
+        }
+
+        // Scroll de dos dedos / rueda = pan · pellizco o Cmd/Ctrl+rueda = zoom
+        canvas.addEventListener("wheel", ev => {
+          ev.preventDefault();
+          if (ev.ctrlKey || ev.metaKey) {
+            const factor = Math.pow(2, -ev.deltaY * 0.0035);
+            zoom.scaleBy(sel, factor, d3.pointer(ev, canvas));
+          } else {
+            const k = transform.k || 1;
+            zoom.translateBy(sel, -ev.deltaX / k, -ev.deltaY / k);
+            kickParallax(ev.deltaX, ev.deltaY);
+          }
+        }, { passive: false });
+
+        // ── Estado de interacción ────────────────────────────────────────────
+        let selectedId = null;
+        let connected = null;
+        let pathNodeIds = null;
+        let pathLinkSet = null;
+        let searchMatches = new Set();
+        let hoverId = null;
+        const filterState = { fk: true, shared: true, db: "all" };
+
+        const focusActive = () => Boolean(selectedId || pathNodeIds || searchMatches.size);
+        const nodeDbVisible = d => filterState.db === "all" || d.db === filterState.db;
+        function linkTypeVisible(l) {
+          if (l.type === "fk" && !filterState.fk) return false;
+          if (l.type === "shared" && !filterState.shared) return false;
+          return true;
+        }
+
+        function updateConnected() {
+          if (!selectedId) { connected = null; return; }
+          connected = new Set([selectedId]);
+          links.forEach(l => {
+            const s = linkEndId(l.source), t = linkEndId(l.target);
+            if (s === selectedId) connected.add(t);
+            if (t === selectedId) connected.add(s);
+          });
+          for (const id of [...connected]) {
+            const n = nodeById.get(id);
+            if (n?.type === "column" && n.parentId) connected.add(n.parentId);
+          }
+        }
+
+        // ── Picking espacial (quadtree para columnas, lineal para tablas) ──
+        let quadtree = null;
+        let qtDirty = true;
+        function getQuadtree() {
+          if (qtDirty || !quadtree) {
+            quadtree = d3.quadtree(nodes.filter(d => d.type === "column"), d => d.x, d => d.y);
+            qtDirty = false;
+          }
+          return quadtree;
+        }
+        function pick(mx, my) {
+          const [wx, wy] = transform.invert([mx, my]);
+          const k = transform.k || 1;
+          if (k > colVisibleK()) {
+            const col = getQuadtree().find(wx, wy, Math.max(9, 12 / k));
+            if (col && nodeDbVisible(col)) {
+              // Ignora columnas del hemisferio trasero ocultas tras su tabla
+              const p = nodeById.get(col.parentId);
+              const hiddenBehind = col.z < 0 && p && Math.hypot(col.x - p.x, col.y - p.y) < tableR(p);
+              if (!hiddenBehind) return col;
+            }
+          }
+          let best = null, bestD = Infinity;
+          for (const d of nodes) {
+            if (d.type !== "table" || !nodeDbVisible(d)) continue;
+            const dx = wx - d.x, dy = wy - d.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= tableR(d) && dist < bestD) { best = d; bestD = dist; }
+          }
+          return best;
+        }
+
+        const colVisibleK = () => nodes.length > 20000 ? 0.7 : 0.4;
+
+        // ── Opacidades según estado (replica el modelo de resaltado) ────────
+        function nodeAlpha(d) {
+          if (!nodeDbVisible(d)) return 0.03;
+          if (pathNodeIds) return pathNodeIds.has(d.id) ? 1 : 0.06;
+          if (selectedId) return connected.has(d.id) ? 1 : 0.07;
+          if (searchMatches.size) return searchMatches.has(d.id) ? 1 : 0.1;
+          return 1;
+        }
+        function linkAlpha(l) {
+          if (!linkTypeVisible(l)) return 0;
+          if (!nodeDbVisible(l.source) || !nodeDbVisible(l.target)) return 0;
+          if (pathNodeIds) return pathLinkSet.has(l) ? 0.95 : 0.02;
+          if (selectedId) {
+            const on = connected.has(l.source.id) && connected.has(l.target.id);
+            return on ? (l.type === "parent" ? 0.45 : 0.95) : 0.02;
+          }
+          if (searchMatches.size) return l.type === "parent" ? 0.08 : 0.12;
+          return l.type === "parent" ? 0.18 : 0; // sin foco: uniones ocultas
+        }
+        const isLit = d => (pathNodeIds && pathNodeIds.has(d.id))
+          || (connected && connected.has(d.id))
+          || searchMatches.has(d.id)
+          || d.id === hoverId;
+
+        // ── Render (solo cuando hay cambios: dirty flag) ─────────────────────
+        let dirty = true;
+        const renderTimer = d3.timer(() => { if (dirty) { dirty = false; draw(); } });
+
+        function draw() {
+          const k = transform.k;
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+          ctx.clearRect(0, 0, W, H);
+          ctx.setTransform(DPR * k, 0, 0, DPR * k, DPR * transform.x, DPR * transform.y);
+
+          // Límites del viewport en coordenadas de mundo (con margen)
+          const m = 80 / k;
+          const x0 = -transform.x / k - m, y0 = -transform.y / k - m;
+          const x1 = (W - transform.x) / k + m, y1 = (H - transform.y) / k + m;
+          const inView = (x, y, r = 0) => x + r > x0 && x - r < x1 && y + r > y0 && y - r < y1;
+
+          const showCols = k > colVisibleK();
+          const focus = focusActive();
+          const colX = d => d.x + parX, colY = d => d.y + parY;
+          const px = d => d.type === "column" ? colX(d) : d.x;
+          const py = d => d.type === "column" ? colY(d) : d.y;
+
+          // ── Enlaces ──
+          ctx.lineCap = "round";
+          for (const l of links) {
+            if (l.type === "parent" && !showCols) continue;
+            const a = linkAlpha(l);
+            if (a <= 0.015) continue;
+            const sx = px(l.source), sy = py(l.source);
+            const tx = px(l.target), ty = py(l.target);
+            if (!inView(sx, sy) && !inView(tx, ty)) continue;
+            ctx.globalAlpha = a;
+            if (l.type === "fk") {
+              ctx.strokeStyle = "#1a7f6e"; ctx.lineWidth = 2 / k; ctx.setLineDash([]);
+            } else if (l.type === "shared") {
+              ctx.strokeStyle = "#6366f1"; ctx.lineWidth = 1.8 / k; ctx.setLineDash([6 / k, 3 / k]);
+            } else {
+              ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = 1 / k; ctx.setLineDash([]);
+            }
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(tx, ty);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+
+          // ── Columnas: dos pasadas 3D — detrás de la tabla (z<0) y delante ──
+          function drawColumnPass(front) {
+            for (const d of nodes) {
+              if (d.type !== "column") continue;
+              if (front ? d.z < 0 : d.z >= 0) continue;
+              const x = colX(d), y = colY(d);
+              if (!inView(x, y, 10)) continue;
+              const a = nodeAlpha(d);
+              if (a <= 0.04) continue;
+              const lit = focus && isLit(d);
+              const baseFill = lit ? 0.9 : 0.3 + (d.z + 1) * 0.15;
+              ctx.globalAlpha = a * baseFill;
+              ctx.fillStyle = dbColors[d.db] || "#1a7f6e";
+              ctx.beginPath();
+              ctx.arc(x, y, colR(d), 0, Math.PI * 2);
+              ctx.fill();
+              if (focus && lit && (fkColumnIds.has(d.id) || sharedColumnIds.has(d.id))) {
+                ctx.globalAlpha = a;
+                ctx.strokeStyle = fkColumnIds.has(d.id) ? "#1a7f6e" : "#6366f1";
+                ctx.lineWidth = 2 / k;
+                ctx.stroke();
+              }
+              if (d.id === hoverId) {
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = "#1a7f6e";
+                ctx.lineWidth = 2.5 / k;
+                ctx.stroke();
+              }
+            }
+          }
+          if (showCols) drawColumnPass(false);
+
+          // ── Tablas (halo + esfera con gradiente) ──
+          for (const d of nodes) {
+            if (d.type !== "table") continue;
+            const r = tableR(d);
+            if (!inView(d.x, d.y, r * 1.5)) continue;
+            const a = nodeAlpha(d);
+            const color = dbColors[d.db] || "#1a7f6e";
+            ctx.globalAlpha = a * 0.12;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(d.x, d.y, r * 1.4, 0, Math.PI * 2);
+            ctx.fill();
+
+            const grad = ctx.createRadialGradient(d.x - r * 0.3, d.y - r * 0.4, r * 0.1, d.x, d.y, r);
+            grad.addColorStop(0, lighten(color, 70));
+            grad.addColorStop(1, color);
+            ctx.globalAlpha = a * 0.92;
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (d.id === selectedId || d.isSelected || d.id === hoverId) {
+              ctx.globalAlpha = a;
+              ctx.strokeStyle = d.id === hoverId && d.id !== selectedId ? color : "#ffffff";
+              ctx.lineWidth = 2.5 / k;
+              ctx.stroke();
+            }
+          }
+
+          // Hemisferio frontal de columnas, por delante de las tablas (3D)
+          if (showCols) drawColumnPass(true);
+
+          // ── Etiquetas (espacio de pantalla, tamaño constante) ──
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+          const toScreen = (x, y) => [x * k + transform.x, y * k + transform.y];
+
+          if (k > 0.22) {
+            ctx.font = "700 11px system-ui, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = COLOR_PANEL;
+            for (const d of nodes) {
+              if (d.type !== "table") continue;
+              if (!inView(d.x, d.y, tableR(d))) continue;
+              const a = nodeAlpha(d);
+              if (a <= 0.05) continue;
+              const [sx, sy] = toScreen(d.x, d.y + tableR(d));
+              ctx.globalAlpha = Math.min(1, a);
+              ctx.strokeText(d.label, sx, sy + 6);
+              ctx.fillStyle = COLOR_TEXT;
+              ctx.fillText(d.label, sx, sy + 6);
+            }
+          }
+
+          // Etiquetas de columnas: radiales, solo en foco/hover o muy de cerca
+          if (showCols) {
+            const showAllColLabels = k > 1.5;
+            ctx.font = "600 9px system-ui, sans-serif";
+            ctx.textBaseline = "middle";
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = COLOR_PANEL;
+            let labelBudget = 500;
+            for (const d of nodes) {
+              if (d.type !== "column" || labelBudget <= 0) continue;
+              const lit = focus && isLit(d);
+              const hovered = d.id === hoverId;
+              if (!lit && !hovered && !showAllColLabels) continue;
+              if (d.z < -0.1 && !lit && !hovered) continue; // hemisferio trasero sin etiqueta
+              const x = colX(d), y = colY(d);
+              if (!inView(x, y)) continue;
+              const a = nodeAlpha(d);
+              if (!hovered && a <= 0.15) continue;
+              labelBudget--;
+              const [sx, sy] = toScreen(x, y);
+              const deg = d.ringA || 0;
+              const flip = Math.cos(deg) < 0;
+              const off = colR(d) * k + 5;
+              const text = d.label.length > 22 ? d.label.slice(0, 21) + "…" : d.label;
+              ctx.save();
+              ctx.translate(sx, sy);
+              ctx.rotate(flip ? deg + Math.PI : deg);
+              ctx.textAlign = flip ? "right" : "left";
+              ctx.globalAlpha = hovered ? 1 : Math.min(1, a);
+              ctx.strokeText(text, flip ? -off : off, 0);
+              ctx.fillStyle = fkColumnIds.has(d.id) ? "#0f5c4f" : sharedColumnIds.has(d.id) ? "#4338ca" : COLOR_TEXT;
+              ctx.fillText(text, flip ? -off : off, 0);
+              ctx.restore();
+            }
+          }
+
+          ctx.globalAlpha = 1;
+          drawMinimap();
+        }
+
+        // ── Minimapa ─────────────────────────────────────────────────────────
+        const mmEl = modal.querySelector("#catalogGraphMinimap");
+        const mmW = mmEl.clientWidth || 180, mmH = mmEl.clientHeight || 120;
+        mmEl.width = mmW * DPR;
+        mmEl.height = mmH * DPR;
+        const mmCtx = mmEl.getContext("2d");
+        const mmScaleX = mmW / (W * spread), mmScaleY = mmH / (H * spread);
+
+        function drawMinimap() {
+          mmCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+          mmCtx.clearRect(0, 0, mmW, mmH);
+          mmCtx.fillStyle = COLOR_PANEL;
+          mmCtx.fillRect(0, 0, mmW, mmH);
+          for (const d of nodes) {
+            if (d.type !== "table") continue;
+            mmCtx.fillStyle = dbColors[d.db] || "#1a7f6e";
+            mmCtx.beginPath();
+            mmCtx.arc(d.x * mmScaleX, d.y * mmScaleY, 2.2, 0, Math.PI * 2);
+            mmCtx.fill();
+          }
+          const t = transform;
+          mmCtx.strokeStyle = "#1a7f6e";
+          mmCtx.lineWidth = 1.5;
+          mmCtx.strokeRect((-t.x / t.k) * mmScaleX, (-t.y / t.k) * mmScaleY, (W / t.k) * mmScaleX, (H / t.k) * mmScaleY);
+        }
+
+        mmEl.addEventListener("click", ev => {
+          const rect = mmEl.getBoundingClientRect();
+          const gx = (ev.clientX - rect.left) / mmScaleX;
+          const gy = (ev.clientY - rect.top) / mmScaleY;
+          const k = transform.k || 1;
+          const t = d3.zoomIdentity.translate(W / 2 - gx * k, H / 2 - gy * k).scale(k);
+          sel.transition().duration(400).call(zoom.transform, t);
+        });
+
+        // ── Tooltip + hover + clicks ────────────────────────────────────────
+        const tooltip = document.getElementById("catalogGraphTooltip");
+
+        canvas.addEventListener("mousemove", ev => {
+          const rect = canvas.getBoundingClientRect();
+          const node = pick(ev.clientX - rect.left, ev.clientY - rect.top);
+          const newHover = node?.id || null;
+          if (newHover !== hoverId) { hoverId = newHover; dirty = true; }
+          // Solo gira mientras el cursor está sobre el núcleo de la tabla; al
+          // acercarse a una columna se congela para poder seleccionarla
+          hoverTableId = node?.type === "table" ? node.id : null;
+          canvas.style.cursor = node ? "pointer" : "grab";
+          if (!node) { tooltip.hidden = true; return; }
+          if (node.type === "table") {
+            tooltip.innerHTML = `<strong>${escapeHtml(node.label)}</strong><br><span>${escapeHtml(node.db)}</span><br>${node.columnCount} columnas${node.tableType ? ` · <code>${escapeHtml(node.tableType)}</code>` : ""}`;
+          } else {
+            tooltip.innerHTML = `<strong>${escapeHtml(node.label)}</strong><br><code>${escapeHtml(node.colType)}</code>${node.isPartition ? ` · <span class="catalogPartitionBadge">partición</span>` : ""}<br><span>↑ ${escapeHtml(node.parentLabel)}</span>`;
+          }
+          const r = modal.getBoundingClientRect();
+          tooltip.style.left = (ev.clientX - r.left + 14) + "px";
+          tooltip.style.top  = (ev.clientY - r.top  - 10) + "px";
+          tooltip.hidden = false;
+        });
+        canvas.addEventListener("mouseleave", () => { tooltip.hidden = true; hoverId = null; hoverTableId = null; dirty = true; });
+
+        canvas.addEventListener("click", ev => {
+          const rect = canvas.getBoundingClientRect();
+          const node = pick(ev.clientX - rect.left, ev.clientY - rect.top);
+          if (!node) { setSelection(null); return; }
+          if (ev.shiftKey && selectedId && selectedId !== node.id) {
+            const path = computePath(selectedId, node.id);
+            if (path) {
+              pathNodeIds = new Set(path.nodes);
+              pathLinkSet = new Set(path.linkPath);
+              dirty = true;
+              renderPathInspector(path);
+            } else {
+              window.alert("No se encontró una ruta de relaciones entre estos dos nodos.");
+            }
+            return;
+          }
+          setSelection(node.id);
+        });
+
+        canvas.addEventListener("contextmenu", ev => {
+          ev.preventDefault();
+          const rect = canvas.getBoundingClientRect();
+          const node = pick(ev.clientX - rect.left, ev.clientY - rect.top);
+          if (!node) return;
+          const tableLabel = node.type === "table" ? node.label : node.parentLabel;
+          closeModal();
+          selectCatalogTable(node.db, tableLabel);
+        });
+
+        // ── Selección + inspector ────────────────────────────────────────────
+        function relatedItems(id) {
+          const items = [];
+          links.forEach(l => {
+            const s = linkEndId(l.source), t = linkEndId(l.target);
+            if (s === id || t === id) {
+              const otherId = s === id ? t : s;
+              const other = nodeById.get(otherId);
+              if (other) items.push({ node: other, type: l.type });
+            }
+          });
+          return items;
+        }
+
+        function centerOn(d) {
+          const k = Math.max(transform.k, 1);
+          const t = d3.zoomIdentity.translate(W / 2 - d.x * k, H / 2 - d.y * k).scale(k);
+          sel.transition().duration(450).call(zoom.transform, t);
+        }
+
+        function setSelection(id) {
+          selectedId = (selectedId === id) ? null : id;
+          pathNodeIds = null;
+          pathLinkSet = null;
+          updateConnected();
+          dirty = true;
+          if (selectedId) renderInspector(nodeById.get(selectedId));
+          else inspectorEl.hidden = true;
+        }
+
+        function renderInspector(d) {
+          const items = relatedItems(d.id);
+          const fkItems     = items.filter(it => it.type === "fk");
+          const sharedItems = items.filter(it => it.type === "shared");
+          const colItems    = items.filter(it => it.type === "parent" && it.node.type === "column");
+          const parentItems = items.filter(it => it.type === "parent" && it.node.type === "table");
+
+          const renderList = (list, sub) => `<ul class="inspectorList">${list.map(it => `
+            <li data-id="${escapeAttribute(it.node.id)}">
+              <span class="inspectorItemName">${escapeHtml(it.node.label)}</span>
+              ${sub && it.node.parentLabel ? `<span class="inspectorSub">${escapeHtml(it.node.parentLabel)}</span>` : ""}
+              ${it.node.colType ? `<code>${escapeHtml(it.node.colType)}</code>` : ""}
+            </li>`).join("")}</ul>`;
+
+          let html = `
+            <div class="inspectorHeader">
+              <span class="inspectorDot" style="background:${dbColors[d.db] || "#1a7f6e"}"></span>
+              <div>
+                <strong>${escapeHtml(d.label)}</strong>
+                <div class="inspectorMeta">${d.type === "table"
+                  ? `${escapeHtml(d.db)} · ${d.columnCount} columnas${d.tableType ? ` · ${escapeHtml(d.tableType)}` : ""}`
+                  : `${escapeHtml(d.colType || "")} · columna`}</div>
+              </div>
+            </div>`;
+
+          if (d.type === "table") {
+            html += `<button type="button" class="tinyButton inspectorOpenBtn">Abrir tabla en catálogo →</button>`;
+            if (colItems.length) {
+              html += `<div class="inspectorSection"><p class="inspectorSectionTitle">Columnas (${colItems.length})</p>${renderList(colItems, false)}</div>`;
+            }
+          } else {
+            html += `<button type="button" class="tinyButton inspectorOpenBtn">Abrir tabla "${escapeHtml(d.parentLabel)}" →</button>`;
+            if (parentItems.length) {
+              html += `<div class="inspectorSection"><p class="inspectorSectionTitle">Pertenece a</p>${renderList(parentItems, false)}</div>`;
+            }
+          }
+
+          if (fkItems.length) {
+            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorFkTitle">● Clave foránea (${fkItems.length})</p>${renderList(fkItems, true)}</div>`;
+          }
+          if (sharedItems.length) {
+            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorSharedTitle">● Columna compartida (${sharedItems.length})</p>${renderList(sharedItems, true)}</div>`;
+          }
+          if (!fkItems.length && !sharedItems.length && d.type === "column") {
+            html += `<p class="inspectorEmpty">Sin relaciones detectadas con otras tablas.</p>`;
+          }
+
+          inspectorEl.innerHTML = html;
+          inspectorEl.hidden = false;
+
+          inspectorEl.querySelector(".inspectorOpenBtn")?.addEventListener("click", () => {
+            const tableLabel = d.type === "table" ? d.label : d.parentLabel;
+            closeModal();
+            selectCatalogTable(d.db, tableLabel);
+          });
+
+          inspectorEl.querySelectorAll("[data-id]").forEach(li => {
+            li.onclick = () => {
+              const target = nodeById.get(li.dataset.id);
+              if (target) { setSelection(target.id); centerOn(target); }
+            };
+          });
+        }
+
+        // BFS para la ruta de relaciones más corta entre dos nodos
+        function computePath(fromId, toId) {
+          const adj = new Map();
+          links.forEach(l => {
+            const s = linkEndId(l.source), t = linkEndId(l.target);
+            if (!adj.has(s)) adj.set(s, []);
+            if (!adj.has(t)) adj.set(t, []);
+            adj.get(s).push({ to: t, link: l });
+            adj.get(t).push({ to: s, link: l });
+          });
+          const visited = new Set([fromId]);
+          const queue = [[fromId, [], []]];
+          while (queue.length) {
+            const [cur, nodePath, linkPath] = queue.shift();
+            if (cur === toId) return { nodes: [...nodePath, cur], linkPath };
+            for (const { to, link } of (adj.get(cur) || [])) {
+              if (!visited.has(to)) {
+                visited.add(to);
+                queue.push([to, [...nodePath, cur], [...linkPath, link]]);
+              }
+            }
+          }
+          return null;
+        }
+
+        function renderPathInspector(path) {
+          let html = `
+            <div class="inspectorHeader">
+              <div>
+                <strong>Ruta de relaciones</strong>
+                <div class="inspectorMeta">${path.nodes.length} nodos conectados</div>
+              </div>
+            </div>
+            <ul class="inspectorList">${path.nodes.map((id, i) => {
+              const node = nodeById.get(id);
+              const link = path.linkPath[i];
+              const relLabel = link ? (link.type === "fk" ? "→ FK" : link.type === "shared" ? "↔ compartida" : "· columna de") : "";
+              return `<li class="pathItem" data-id="${escapeAttribute(id)}">
+                <span class="inspectorItemName">${i + 1}. ${escapeHtml(node.label)}</span>
+                ${relLabel ? `<span class="inspectorSub">${relLabel}</span>` : ""}
+              </li>`;
+            }).join("")}</ul>
+            <button type="button" class="tinyButton inspectorOpenBtn" id="clearPathBtn">Limpiar ruta</button>
+          `;
+          inspectorEl.innerHTML = html;
+          inspectorEl.hidden = false;
+          inspectorEl.querySelector("#clearPathBtn").onclick = () => {
+            pathNodeIds = null;
+            pathLinkSet = null;
+            dirty = true;
+            inspectorEl.hidden = true;
+          };
+          inspectorEl.querySelectorAll("[data-id]").forEach(li => {
+            li.onclick = () => {
+              const target = nodeById.get(li.dataset.id);
+              if (target) centerOn(target);
+            };
+          });
+        }
+
+        // ── Buscador ─────────────────────────────────────────────────────────
+        const searchInput = modal.querySelector(".catalogGraphSearch");
+        const searchResultsEl = modal.querySelector(".catalogGraphSearchResults");
+        searchInput.addEventListener("input", () => {
+          const q = searchInput.value.trim().toLowerCase();
+          if (!q) {
+            searchMatches = new Set();
+            searchResultsEl.hidden = true;
+            searchResultsEl.innerHTML = "";
+            dirty = true;
+            return;
+          }
+          const matches = nodes.filter(d => d.label.toLowerCase().includes(q));
+          searchMatches = new Set(matches.map(d => d.id));
+          searchResultsEl.innerHTML = matches.slice(0, 8).map(d => `
+            <div class="searchResultItem" data-id="${escapeAttribute(d.id)}">
+              <span class="inspectorDot" style="background:${dbColors[d.db] || "#1a7f6e"}"></span>
+              <span class="inspectorItemName">${escapeHtml(d.label)}</span>
+              <span class="inspectorSub">${escapeHtml(d.type === "table" ? d.db : (d.parentLabel || ""))}</span>
+            </div>`).join("");
+          searchResultsEl.hidden = matches.length === 0;
+          searchResultsEl.querySelectorAll("[data-id]").forEach(item => {
+            item.onclick = () => {
+              const target = nodeById.get(item.dataset.id);
+              if (target) {
+                searchResultsEl.hidden = true;
+                setSelection(target.id);
+                centerOn(target);
+              }
+            };
+          });
+          dirty = true;
+        });
+
+        // ── Filtros ──────────────────────────────────────────────────────────
+        modal.querySelectorAll(".graphFilterChip").forEach(chip => {
+          chip.addEventListener("click", () => {
+            const f = chip.dataset.filter;
+            filterState[f] = !filterState[f];
+            chip.classList.toggle("active", filterState[f]);
+            dirty = true;
+          });
+        });
+        modal.querySelector(".catalogGraphDbFilter").addEventListener("change", ev => {
+          filterState.db = ev.target.value;
+          dirty = true;
+        });
+
+        // ── Encuadre ─────────────────────────────────────────────────────────
+        function fitToView(animate) {
+          const ts = nodes.filter(d => d.type === "table");
+          const pool = ts.length ? ts : nodes;
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          for (const d of pool) {
+            if (d.x < minX) minX = d.x;
+            if (d.x > maxX) maxX = d.x;
+            if (d.y < minY) minY = d.y;
+            if (d.y > maxY) maxY = d.y;
+          }
+          const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
+          const scale = Math.min(2.5, 0.85 / Math.max(bw / W, bh / H, 0.001));
+          const tx = W / 2 - scale * (minX + maxX) / 2;
+          const ty = H / 2 - scale * (minY + maxY) / 2;
+          const t = d3.zoomIdentity.translate(tx, ty).scale(scale);
+          if (animate) sel.transition().duration(600).call(zoom.transform, t);
+          else sel.call(zoom.transform, t);
+        }
+
+        modal.querySelector(".catalogGraphFitBtn").onclick = () => fitToView(true);
+
+        // ── Cierre (libera timers y simulación) ─────────────────────────────
+        function closeModal() {
+          renderTimer.stop();
+          rotationTimer.stop();
+          parTimer?.stop();
+          simulation.stop();
+          modal.remove();
+        }
+        modal.querySelector(".catalogGraphCloseBtn").onclick = closeModal;
+        modal.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+        dirty = true;
       }
 
       // ─────────────────────────────────────────────────────────────────────────
@@ -4233,5 +5272,361 @@ const title = "Gestión de Proyectos";
       max-height: 40vh;
       overflow-y: auto;
     }
+  }
+
+  /* ── Grafo de relaciones ─────────────────────────────────────── */
+
+  .catalogMainHeaderTop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .catalogMainHeaderTop .eyebrow { margin: 0; flex: 1; }
+
+  .catalogGraphModal {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 20, 18, 0.72);
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .catalogGraphHeader {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+
+  .catalogGraphLegend {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    font-size: 0.76rem;
+  }
+
+  .graphLegendFk     { color: #1a7f6e; font-weight: 600; }
+  .graphLegendShared { color: #6366f1; font-weight: 600; }
+  .graphLegendParent { color: var(--muted); }
+
+  .graphLegendHint {
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .graphLegendHint2 { color: var(--muted); font-size: 0.72rem; }
+
+  .catalogGraphBody {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    position: relative;
+  }
+
+  .catalogGraphSvg {
+    flex: 1;
+    background: var(--bg);
+    cursor: grab;
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .catalogGraphSvg:active { cursor: grabbing; }
+
+  .catalogGraphCanvas {
+    flex: 1;
+    background: var(--bg);
+    cursor: grab;
+    display: block;
+    min-width: 0;
+  }
+
+  .catalogGraphCanvas:active { cursor: grabbing; }
+
+  /* Zoom semántico: lejos solo se leen nombres de tabla */
+  .catalogGraphSvg.zoomFar .graphColumnLabel {
+    opacity: 0 !important;
+    transition: opacity 0.2s ease;
+  }
+  .graphColumnLabel { transition: opacity 0.2s ease; }
+
+  /* Grafos grandes: culling real al alejarse (las columnas y sus enlaces
+     salen del render) y sin efectos de blur, para zoom/pan fluidos */
+  .catalogGraphSvg.bigGraph.zoomFar .graphNode-column,
+  .catalogGraphSvg.bigGraph.zoomFar .graphLink-parent {
+    display: none;
+  }
+  .catalogGraphSvg.bigGraph .graphNode-column {
+    filter: none !important;
+    transition: none;
+  }
+
+  /* Profundidad 2.5D: las columnas del fondo se ven difusas y desaturadas;
+     al seleccionarse o coincidir en búsqueda (.lit) emergen nítidas */
+  .graphNode-column[data-depth="1"] { filter: blur(0.5px) saturate(0.75); }
+  .graphNode-column[data-depth="2"] { filter: blur(1.2px) saturate(0.5); }
+  .graphNode-column.lit,
+  .graphNode-column:hover { filter: none !important; }
+  .graphNode-column { transition: filter 0.25s ease; }
+
+  /* Vista general sin foco: columnas neutras, sin aros de relación */
+  .catalogGraphSvg:not(.hasFocus) .graphNode-column .graphNodeCircle {
+    stroke: none !important;
+  }
+
+  /* Realce al pasar el cursor sobre una columna */
+  .graphNode-column:hover .graphNodeCircle {
+    stroke: var(--accent, #1a7f6e);
+    stroke-width: 2.5;
+    fill-opacity: 1;
+  }
+  .graphNode-column:hover .graphColumnLabel { opacity: 1 !important; }
+
+  .catalogGraphTooltip {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+    max-width: 240px;
+    z-index: 10;
+    color: var(--text);
+  }
+
+  .catalogGraphToolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .catalogGraphSearchWrap {
+    position: relative;
+    min-width: 220px;
+  }
+
+  .catalogGraphSearch {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .catalogGraphSearchResults {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    z-index: 20;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .searchResultItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
+  .searchResultItem:hover { background: var(--accent-soft); }
+
+  .searchResultItem .inspectorItemName {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .catalogGraphFilterChips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .graphFilterChip {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .graphFilterChip.active.graphFilterChipFk { color: #1a7f6e; border-color: #1a7f6e; background: rgba(26,127,110,0.08); }
+  .graphFilterChip.active.graphFilterChipShared { color: #6366f1; border-color: #6366f1; background: rgba(99,102,241,0.08); }
+  .graphFilterChip:not(.active) { opacity: 0.5; text-decoration: line-through; }
+
+  .catalogGraphDbFilter {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+  }
+
+  .catalogGraphMinimap {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    width: 180px;
+    height: 120px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    cursor: pointer;
+    background: var(--panel);
+  }
+
+  @media (max-width: 900px) {
+    .catalogGraphMinimap { display: none; }
+  }
+
+  .pathItem .inspectorSub { color: var(--accent); font-weight: 600; }
+
+  .catalogGraphInspector {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    padding: 16px;
+    overflow-y: auto;
+    box-shadow: -6px 0 16px rgba(0, 0, 0, 0.08);
+  }
+
+  .inspectorHeader {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .inspectorDot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+
+  .inspectorHeader strong {
+    font-size: 0.95rem;
+    word-break: break-word;
+  }
+
+  .inspectorMeta {
+    color: var(--muted);
+    font-size: 0.74rem;
+    margin-top: 2px;
+  }
+
+  .inspectorOpenBtn {
+    width: 100%;
+    margin-top: 12px;
+    text-align: left;
+    font-size: 0.78rem;
+  }
+
+  .inspectorSection {
+    margin-top: 14px;
+  }
+
+  .inspectorSectionTitle {
+    margin: 0 0 6px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .inspectorFkTitle     { color: #1a7f6e; }
+  .inspectorSharedTitle { color: #6366f1; }
+
+  .inspectorList {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .inspectorList li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .inspectorList li:hover { background: var(--accent-soft); }
+
+  .inspectorItemName {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .inspectorSub {
+    color: var(--muted);
+    font-size: 0.7rem;
+    flex-shrink: 0;
+  }
+
+  .inspectorList code {
+    font-size: 0.68rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .inspectorEmpty {
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  @media (max-width: 900px) {
+    .catalogGraphInspector { display: none; }
   }
 </style>

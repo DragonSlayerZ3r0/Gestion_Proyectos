@@ -22,6 +22,10 @@ Primer entregable implementado y desplegado en `dev`:
 - Repositorio DynamoDB para perfil funcional y módulos de usuario.
 - Infraestructura AWS CDK TypeScript para `dev`.
 - Seed automático en CDK para usuario inicial y módulos base.
+- Módulo `Catálogo Data Lake` implementado y desplegado: backend con `GlueRepository` y `CatalogService` (listado de bases/tablas, detalle de tabla, sync por tabla, por base y global), cache de metadata en DynamoDB, sync global asíncrono por auto-invocación de la Lambda (`action: catalog_sync_all`), y contexto funcional editable por tabla y columna.
+- Frontend de catálogo publicado: búsqueda con filtros de alcance (bases/tablas/columnas), detalle de tabla con columnas y contexto funcional, y grafo de relaciones D3.js con carga de columnas bajo demanda y exclusión de columnas de partición en las relaciones.
+- Migración del workspace a `pnpm` (`pnpm-workspace.yaml`); el build de frontend se ejecuta con `pnpm build` dentro de `frontend/`.
+- Branding actualizado en la portada de login con logo propio (`icono_gp.png`).
 
 ## Recursos desplegados
 
@@ -203,10 +207,31 @@ El archivo runtime `/config.json` debe contener solamente valores públicos del 
 - Invalidation CloudFront `I7777H87J0FYK53QIAO4W1VUCG` terminó en `Completed` para publicar la búsqueda con alcance de proyectos/tareas y búsqueda independiente de personas.
 - Verificación publicada de búsqueda: CloudFront devuelve `HTTP/2 200`, `/config.json` conserva valores runtime reales de `dev` y `CacheControl: no-store`; con sesión de prueba, buscar `rec` muestra `Proyecto Recuperación de cartera`, mantiene visibles las dos personas registradas y conserva opciones disponibles en `Agregar persona`; apagar `Proyectos` deja activo `Tareas` y no permite apagar ambos alcances; `Buscar persona` filtra solo la franja de personas y no oculta proyectos.
 
+## Publicación frontend vigente (2026-06)
+
+Tras la migración a `pnpm`, el flujo de publicación de frontend usado en la práctica es:
+
+```bash
+cd frontend
+pnpm build
+cp /tmp/config-prod.json dist/config.json
+aws s3 sync dist/ s3://gestion-proyectos-dev-frontend-186281981036 --delete --profile gestion-proyectos-dev --exclude config.json
+aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*" --profile gestion-proyectos-dev
+```
+
+`/tmp/config-prod.json` contiene los valores runtime públicos de `dev` (no versionado). El `--exclude config.json` evita que el sync borre el config publicado.
+
+## Catálogo Data Lake: visibilidad pendiente
+
+La Lambda `gestion-proyectos-dev-api` (rol `GestionProyectosDevStack-ApiFunctionServiceRole52B9-1KQydkECjG1U`) solo ve las bases Glue locales en modo legado `IAM_ALLOWED_PRINCIPALS` (`arc_dev`, `arc_sandbox_desa`, `default`). Las bases del data lake hub (cuenta `396913696127`) requieren, pendiente de ejecutar:
+
+1. Lado hub (perfil `bdr-fed`): grants Lake Formation `DESCRIBE` (base + `ALL_TABLES`) hacia la cuenta `186281981036` por cada base compartida.
+2. Lado consumidor (CDK): resource links por base compartida y grant `DESCRIBE` sobre cada link únicamente al rol de la Lambda, sin abrir visibilidad a otros usuarios o aplicaciones.
+
 ## Siguiente paso operativo
 
-1. Probar con sesión real la pantalla `Proyectos y tareas`: seleccionar persona, proyecto y tarea, editar desde el panel lateral y confirmar persistencia.
-2. Agregar comentarios simples a tareas si el flujo de edición queda aprobado.
-3. Iniciar integración de Catálogo Data Lake solo cuando la mesa operativa quede validada.
+1. Ejecutar los grants Lake Formation del lado hub y completar los resource links por CDK para que el catálogo vea todas las bases del data lake.
+2. Validar con sesión real el módulo de catálogo completo: búsqueda, detalle, grafo de relaciones y edición de contexto funcional.
+3. Agregar comentarios simples a tareas si el flujo de edición queda aprobado.
 
 Usuario inicial para prueba: `usr041100@banrural.com.gt`.

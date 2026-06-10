@@ -128,16 +128,17 @@ No colocar secretos, tokens temporales ni credenciales AWS en `config.json`.
 
 ## Desarrollo local
 
-Instalar dependencias:
+El workspace usa `pnpm` (`pnpm-workspace.yaml`). Instalar dependencias:
 
 ```bash
-npm install
+pnpm install
 ```
 
 Levantar frontend:
 
 ```bash
-npm run dev
+cd frontend
+pnpm dev
 ```
 
 Abrir:
@@ -202,28 +203,31 @@ curl -i https://63ibnl13da.execute-api.us-east-1.amazonaws.com/health
 
 ## Publicación de frontend
 
-Construir:
+Flujo vigente (con `pnpm` y config runtime en `/tmp/config-prod.json`, no versionado):
 
 ```bash
-npm run build -w frontend
-```
-
-Sincronizar build estático:
-
-```bash
-aws s3 sync frontend/dist/ s3://gestion-proyectos-dev-frontend-186281981036/ \
+cd frontend
+pnpm build
+cp /tmp/config-prod.json dist/config.json
+aws s3 sync dist/ s3://gestion-proyectos-dev-frontend-186281981036 \
   --delete \
   --profile gestion-proyectos-dev \
-  --region us-east-1
+  --exclude config.json
+aws cloudfront create-invalidation \
+  --distribution-id E2K3CA110228B1 \
+  --paths "/*" \
+  --profile gestion-proyectos-dev
 ```
 
-Restaurar `/config.json` real del ambiente con `no-store`:
+El `--exclude config.json` evita que el sync sobrescriba o borre el config publicado. Si `/tmp/config-prod.json` no existe, recrearlo con los valores públicos de `dev` documentados en `docs/15_estado_implementacion.md`.
+
+Alternativa para restaurar solo `/config.json` con `no-store`:
 
 ```bash
 aws s3api put-object \
   --bucket gestion-proyectos-dev-frontend-186281981036 \
   --key config.json \
-  --body /private/tmp/gestion-proyectos-public-config/config.json \
+  --body /tmp/config-prod.json \
   --cache-control no-store \
   --content-type application/json \
   --profile gestion-proyectos-dev \

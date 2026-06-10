@@ -26,6 +26,7 @@ Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_per
 - Para AWS, trabajar con el perfil SSO `gestion-proyectos-dev` salvo instrucción contraria.
 - Antes de ejecutar acciones AWS relevantes, validar que la sesión siga vigente con STS; si SSO falla por expiración, solicitar al usuario ejecutar `aws sso login --sso-session bdr-fed`.
 - No pedir ni pegar `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` ni `AWS_SESSION_TOKEN` para el flujo normal del proyecto.
+- El workspace usa `pnpm`. El flujo vigente de publicación de frontend está en `docs/17_desarrollo_local_publicacion.md` (build con `pnpm build`, `config.json` desde `/tmp/config-prod.json`, sync a S3 con `--exclude config.json` e invalidación CloudFront).
 
 ## Documentos por tema
 
