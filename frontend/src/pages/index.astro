@@ -1888,7 +1888,7 @@ const title = "Gestión de Datos";
         const scopes = catalogSearchScope; // array
         const filteredTables = catalogTables.filter(t => {
           if (!q) return true;
-          const cols = state.catalogSelectedTable?.columns || [];
+          const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
           return (
             (scopes.includes("table")   && t.name.toLowerCase().includes(q)) ||
             (scopes.includes("context") && (t.description || "").toLowerCase().includes(q)) ||
@@ -2088,7 +2088,7 @@ const title = "Gestión de Datos";
             const scopes = state.catalogSearchScope;
             const tables = state.catalogTables.filter(t => {
               if (!q) return true;
-              const cols = state.catalogSelectedTable?.columns || [];
+              const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
               return (
                 (scopes.includes("table")   && t.name.toLowerCase().includes(q)) ||
                 (scopes.includes("context") && (t.description || "").toLowerCase().includes(q)) ||
@@ -2099,7 +2099,22 @@ const title = "Gestión de Datos";
                 ))
               );
             });
-            panel.querySelector(".catalogTableList").innerHTML = tables.length
+            // Buscar por columna requiere el detalle de todas las tablas: se
+            // precargan en segundo plano y la lista se refina conforme llegan
+            const needsCols = q && (scopes.includes("column") || scopes.includes("colDesc"));
+            if (needsCols && !state.catalogColsPreloading) {
+              const missing = state.catalogTables.some(t => !state.catalogTableCache[`${t.database}::${t.name}`]);
+              if (missing) {
+                state.catalogColsPreloading = true;
+                ensureCatalogTableDetails(state.catalogTables, () => applySearch())
+                  .finally(() => { state.catalogColsPreloading = false; applySearch(); });
+              }
+            }
+            const loadingNote = needsCols && state.catalogColsPreloading
+              ? `<p class="catalogEmpty">Cargando columnas de todas las tablas…</p>`
+              : "";
+
+            panel.querySelector(".catalogTableList").innerHTML = loadingNote + (tables.length
               ? tables.map(t => {
                   const selected = state.catalogSelectedTable && state.catalogSelectedTable.name === t.name;
                   return `<button class="catalogTableCard${selected ? " active" : ""}" data-db="${escapeAttribute(t.database)}" data-table="${escapeAttribute(t.name)}" type="button">
@@ -2108,7 +2123,7 @@ const title = "Gestión de Datos";
                     ${t.description ? `<span class="catalogTableDesc">${escapeHtml(t.description)}</span>` : ""}
                   </button>`;
                 }).join("")
-              : `<p class="catalogEmpty">Sin resultados para "${escapeHtml(state.catalogSearch)}".</p>`;
+              : (state.catalogColsPreloading && needsCols ? "" : `<p class="catalogEmpty">Sin resultados para "${escapeHtml(state.catalogSearch)}".</p>`));
             panel.querySelectorAll(".catalogTableCard").forEach(btn => {
               btn.onclick = () => selectCatalogTable(btn.dataset.db, btn.dataset.table);
             });
@@ -2213,6 +2228,29 @@ const title = "Gestión de Datos";
         });
       }
 
+      // Precarga el detalle (columnas) de las tablas que falten en caché, con
+      // concurrencia limitada. onProgress se invoca conforme llegan resultados.
+      async function ensureCatalogTableDetails(tables, onProgress) {
+        const pending = tables.filter(t => !state.catalogTableCache[`${t.database}::${t.name}`]);
+        if (!pending.length) return;
+        const queue = [...pending];
+        let done = 0;
+        const workers = Array.from({ length: Math.min(6, queue.length) }, async () => {
+          while (queue.length) {
+            const t = queue.shift();
+            try {
+              const payload = await apiRequest(`api/catalog/${encodeURIComponent(t.database)}/${encodeURIComponent(t.name)}`);
+              state.catalogTableCache[`${t.database}::${t.name}`] = payload.data;
+            } catch {
+              // Tabla sin detalle disponible: se omite
+            }
+            done++;
+            if (onProgress && (done % 4 === 0 || !queue.length)) onProgress();
+          }
+        });
+        await Promise.all(workers);
+      }
+
       async function openCatalogGraph() {
         const btn = elements.contentPanel.querySelector(".catalogGraphBtn");
         if (btn) { btn.disabled = true; btn.style.opacity = "0.5"; }
@@ -2228,24 +2266,9 @@ const title = "Gestión de Datos";
           return;
         }
 
-        // Precarga las columnas de todas las tablas (con concurrencia limitada)
-        // para que el grafo abra completo, con relaciones ya detectadas
-        const pending = tables.filter(t => !state.catalogTableCache[`${t.database}::${t.name}`]);
-        if (pending.length) {
-          const queue = [...pending];
-          const workers = Array.from({ length: Math.min(6, queue.length) }, async () => {
-            while (queue.length) {
-              const t = queue.shift();
-              try {
-                const payload = await apiRequest(`api/catalog/${encodeURIComponent(t.database)}/${encodeURIComponent(t.name)}`);
-                state.catalogTableCache[`${t.database}::${t.name}`] = payload.data;
-              } catch {
-                // Tabla sin detalle: se muestra sin subnodos
-              }
-            }
-          });
-          await Promise.all(workers);
-        }
+        // Precarga las columnas de todas las tablas para que el grafo abra
+        // completo, con relaciones ya detectadas
+        await ensureCatalogTableDetails(tables);
         if (btn) { btn.disabled = false; btn.style.opacity = ""; }
 
         const palette = ["#1a7f6e","#2563eb","#9333ea","#ea580c","#0891b2","#16a34a","#db2777","#ca8a04"];
