@@ -28,6 +28,17 @@ Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_per
 - No pedir ni pegar `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` ni `AWS_SESSION_TOKEN` para el flujo normal del proyecto.
 - El workspace usa `pnpm`. El flujo vigente de publicación de frontend está en `docs/17_desarrollo_local_publicacion.md` (build con `pnpm build`, `config.json` desde `/tmp/config-prod.json`, sync a S3 con `--exclude config.json` e invalidación CloudFront).
 
+## Stack técnico (resumen para agentes)
+
+- **Frontend**: Astro 6 estático con una sola página, `frontend/src/pages/index.astro` (HTML + un `<script>` cliente con toda la SPA + CSS en el mismo archivo). No hay framework de componentes ni router; la navegación entre módulos es por estado en memoria (`state.activeModule`) renderizado imperativamente con `innerHTML` y listeners re-enlazados en cada render. Verificar cambios con `pnpm build` dentro de `frontend/` (incluye `astro check`).
+- **Dependencias frontend**: `@aws-sdk/client-cognito-identity-provider` (login directo contra Cognito: flujo `USER_PASSWORD_AUTH` + challenge `NEW_PASSWORD_REQUIRED`). D3 v7 no está en `package.json`: se carga bajo demanda desde `unpkg.com/d3@7` solo al abrir el grafo del catálogo.
+- **Sesión**: tokens Cognito en `sessionStorage` (`gestionProyectosAuth`); módulo activo persistido en `gestionProyectosModule`. Configuración runtime en `/config.json` (se obtiene con `fetch` al arrancar; no forma parte del bundle).
+- **Backend**: Lambda Python en `backend/app/` (handler + repositorios + servicios, sin framework web), expuesta vía API Gateway. Validar sintaxis con `npm run check:python` desde la raíz.
+- **Infra**: CDK TypeScript en `infra/` (stack único `infra/lib/gestion-proyectos-stack.ts`); deploy con `npm run infra:deploy` (perfil SSO `gestion-proyectos-dev`).
+- **Datos**: DynamoDB single-table (autorización funcional, datos operativos y caché del catálogo) + Glue Catalog (metadata técnica, sincronizada a DynamoDB).
+- **Grafo del catálogo**: render en Canvas 2D con culling por viewport, LOD de etiquetas y picking por quadtree para escalar a miles de nodos (detalle en `docs/07_catalogo_datalake.md`). No reintroducir render SVG por nodo: se descartó por rendimiento con catálogos grandes.
+- **Verificación completa**: `npm run check` en la raíz (build frontend + sintaxis Python + synth de CDK).
+
 ## Documentos por tema
 
 - Arquitectura: `docs/01_arquitectura_aws.md`
