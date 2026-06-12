@@ -2391,8 +2391,22 @@ const title = "Gestión de Datos";
               <h3 style="margin:4px 0 0;font-size:1rem;font-weight:700">Grafo de relaciones</h3>
             </div>
             <div class="catalogGraphLegend">
-              <span class="graphLegendFk">● Clave foránea</span>
-              <span class="graphLegendShared">● Columna compartida</span>
+              <span class="graphLegendFk">● Columna en común</span>
+              <span class="graphLegendShared">● Relación inferida</span>
+              <span class="graphLegendInfoWrap">
+                <button type="button" class="graphLegendInfoBtn" aria-label="Acerca de las relaciones" aria-expanded="false" title="Acerca de las relaciones">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+                  </svg>
+                </button>
+                <div class="graphLegendInfoPopover" hidden>
+                  <p class="graphLegendInfoTitle">Relaciones heurísticas</p>
+                  <p>Estas conexiones se calculan automáticamente comparando los nombres de las columnas entre tablas. Son una guía para explorar posibles relaciones, no relaciones reales definidas en los datos.</p>
+                  <p><span class="graphLegendFk">● Columna en común</span><br/>Una columna termina en <code>_id</code> y existe una tabla cuyo nombre coincide con esa raíz (ej. <code>cliente_id</code> → tabla <code>clientes</code>). Funciona como una posible clave foránea.</p>
+                  <p><span class="graphLegendShared">● Relación inferida</span><br/>Dos tablas tienen una columna con exactamente el mismo nombre. Es una señal débil: no implica relación real.</p>
+                  <p class="graphLegendInfoNote">Las columnas de partición se excluyen para evitar relaciones falsas.</p>
+                </div>
+              </span>
               <span class="graphLegendHint2">Click = seleccionar · Shift+click = ver ruta · Click derecho = abrir tabla · Esc = cerrar</span>
             </div>
             <button class="iconTinyButton catalogGraphFitBtn" type="button" title="Centrar grafo" aria-label="Centrar grafo">
@@ -2409,8 +2423,8 @@ const title = "Gestión de Datos";
               <div class="catalogGraphSearchResults" hidden></div>
             </div>
             <div class="catalogGraphFilterChips">
-              <button type="button" class="graphFilterChip graphFilterChipFk active" data-filter="fk">● Claves foráneas</button>
-              <button type="button" class="graphFilterChip graphFilterChipShared active" data-filter="shared">● Compartidas</button>
+              <button type="button" class="graphFilterChip graphFilterChipFk active" data-filter="fk" title="Columnas _id que apuntan a otra tabla">● Columnas en común</button>
+              <button type="button" class="graphFilterChip graphFilterChipShared active" data-filter="shared" title="Columnas con el mismo nombre">● Relaciones inferidas</button>
             </div>
             <select class="catalogGraphDbFilter" title="Filtrar por base de datos">
               <option value="all">Todas las bases de datos</option>
@@ -3218,10 +3232,10 @@ const title = "Gestión de Datos";
           }
 
           if (fkItems.length) {
-            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorFkTitle">● Clave foránea (${fkItems.length})</p>${renderList(fkItems, true)}</div>`;
+            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorFkTitle">● Columna en común (${fkItems.length})</p>${renderList(fkItems, true)}</div>`;
           }
           if (sharedItems.length) {
-            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorSharedTitle">● Columna compartida (${sharedItems.length})</p>${renderList(sharedItems, true)}</div>`;
+            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorSharedTitle">● Relación inferida (${sharedItems.length})</p>${renderList(sharedItems, true)}</div>`;
           }
           if (!fkItems.length && !sharedItems.length && d.type === "column") {
             html += `<p class="inspectorEmpty">Sin relaciones detectadas con otras tablas.</p>`;
@@ -3378,6 +3392,21 @@ const title = "Gestión de Datos";
         }
 
         modal.querySelector(".catalogGraphFitBtn").onclick = () => fitToView(true);
+
+        const legendInfoBtn = modal.querySelector(".graphLegendInfoBtn");
+        const legendInfoPopover = modal.querySelector(".graphLegendInfoPopover");
+        legendInfoBtn.onclick = (event) => {
+          event.stopPropagation();
+          const open = legendInfoPopover.hidden;
+          legendInfoPopover.hidden = !open;
+          legendInfoBtn.setAttribute("aria-expanded", String(open));
+        };
+        modal.addEventListener("click", (event) => {
+          if (!legendInfoPopover.hidden && !legendInfoPopover.contains(event.target) && event.target !== legendInfoBtn) {
+            legendInfoPopover.hidden = true;
+            legendInfoBtn.setAttribute("aria-expanded", "false");
+          }
+        });
 
         // ── Cierre (libera timers y simulación) ─────────────────────────────
         function closeModal() {
@@ -5500,6 +5529,70 @@ const title = "Gestión de Datos";
   }
 
   .graphLegendHint2 { color: var(--muted); font-size: 0.72rem; }
+
+  .graphLegendInfoWrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .graphLegendInfoBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .graphLegendInfoBtn:hover,
+  .graphLegendInfoBtn[aria-expanded="true"] {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .graphLegendInfoPopover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 40;
+    width: 320px;
+    max-width: 80vw;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface, #fff);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+    font-size: 0.76rem;
+    line-height: 1.45;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .graphLegendInfoPopover p { margin: 0 0 8px; }
+  .graphLegendInfoPopover p:last-child { margin-bottom: 0; }
+  .graphLegendInfoPopover code {
+    font-size: 0.72rem;
+    background: var(--accent-soft);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  .graphLegendInfoTitle {
+    font-weight: 700;
+    font-size: 0.8rem;
+  }
+
+  .graphLegendInfoNote {
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
 
   .catalogGraphBody {
     flex: 1;
