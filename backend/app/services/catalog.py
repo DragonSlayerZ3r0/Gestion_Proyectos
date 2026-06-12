@@ -69,16 +69,38 @@ class CatalogService:
 
     def sync_database(self, database: str) -> dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
-        raw_tables = self._glue.list_tables(database)
-        for raw in raw_tables:
-            item = _build_table_cache_item(database, raw, now)
-            self._db.put_catalog_table(item)
-        self._db.put_catalog_database(database, len(raw_tables), now)
+        result = self._sync_database_tables(database, now)
         return {
             "database": database,
-            "tableCount": len(raw_tables),
+            "tableCount": result["tableCount"],
+            "updated": result["updated"],
+            "removed": result["removed"],
             "syncedAt": now,
         }
+
+    def _sync_database_tables(self, database: str, now: str, description: str = "") -> dict[str, Any]:
+        """Sync diferencial: escribe solo tablas nuevas o con cambios en Glue
+        (comparando UpdateTime) y elimina del caché las que ya no existen
+        (huérfanas). Diseñado para data lakes grandes en crecimiento."""
+        raw_tables = self._glue.list_tables(database)
+        cached_by_name = {
+            (c.get("name") or c.get("SK", "").removeprefix("TABLE#")): c
+            for c in self._db.list_catalog_tables(database)
+        }
+        updated = 0
+        for raw in raw_tables:
+            cached = cached_by_name.pop(raw["Name"], None)
+            glue_updated_at = _glue_updated_at(raw)
+            if cached and glue_updated_at and cached.get("glueUpdatedAt") == glue_updated_at:
+                continue  # sin cambios en Glue: no se reescribe
+            self._db.put_catalog_table(_build_table_cache_item(database, raw, now))
+            updated += 1
+        # Lo que quedó en cached_by_name ya no existe en Glue: huérfanas
+        for orphan_name in cached_by_name:
+            if orphan_name:
+                self._db.delete_catalog_table(database, orphan_name)
+        self._db.put_catalog_database(database, len(raw_tables), now, description)
+        return {"tableCount": len(raw_tables), "updated": updated, "removed": len(cached_by_name)}
 
     # ── Sync global (invoca Lambda de forma asíncrona) ────────────────────────
 
@@ -101,11 +123,7 @@ class CatalogService:
             db_name = db["Name"]
             description = db.get("Description", "")
             try:
-                raw_tables = self._glue.list_tables(db_name)
-                for raw in raw_tables:
-                    item = _build_table_cache_item(db_name, raw, now)
-                    self._db.put_catalog_table(item)
-                self._db.put_catalog_database(db_name, len(raw_tables), now, description)
+                self._sync_database_tables(db_name, now, description)
             except Exception:
                 pass
         self._db.put_catalog_sync_meta(now, "ok")
@@ -149,6 +167,14 @@ class CatalogService:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _glue_updated_at(raw: dict[str, Any]) -> str:
+    """UpdateTime de Glue como ISO string (Glue lo entrega como datetime)."""
+    value = raw.get("UpdateTime")
+    if value is None:
+        return ""
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 def _build_table_cache_item(database: str, raw: dict[str, Any], synced_at: str) -> dict[str, Any]:
     storage = raw.get("StorageDescriptor", {})
     columns = [
@@ -170,6 +196,7 @@ def _build_table_cache_item(database: str, raw: dict[str, Any], synced_at: str) 
         "columnCount": len(columns),
         "columns": columns,
         "syncedAt": synced_at,
+        "glueUpdatedAt": _glue_updated_at(raw),
     }
 
 

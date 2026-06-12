@@ -26,7 +26,10 @@ Primer entregable implementado y desplegado en `dev`:
 - Frontend de catálogo publicado: búsqueda con filtros de alcance (bases/tablas/columnas), detalle de tabla con columnas y contexto funcional, y grafo de relaciones D3.js con carga de columnas bajo demanda y exclusión de columnas de partición en las relaciones.
 - Migración del workspace a `pnpm` (`pnpm-workspace.yaml`); el build de frontend se ejecuta con `pnpm build` dentro de `frontend/`.
 - Branding actualizado en la portada de login con logo propio (`icono_gp.png`).
-- Pendiente de publicar (en local, rama `catalogo_datos`, junio 2026): persistencia del módulo activo al recargar (`sessionStorage`), reescritura del grafo del catálogo a Canvas 2D (esferas de Fibonacci 3D proyectado, culling, LOD, quadtree, rotación por hover, pan con dos dedos y zoom con pellizco, uniones visibles solo con foco, precarga de columnas al abrir) y corrección de la búsqueda por `Columna`/`Desc. columna` para evaluar todas las tablas con precarga en segundo plano. Detalle en `docs/07_catalogo_datalake.md`.
+- Pendiente de publicar (en local, rama `catalogo_datos`, junio 2026):
+  - Frontend: persistencia del módulo activo al recargar (`sessionStorage`); reescritura del grafo del catálogo a Canvas 2D (esferas de Fibonacci 3D proyectado, culling, LOD, quadtree, pan con dos dedos y zoom con pellizco, uniones visibles solo con foco, precarga de columnas al abrir, rotación trackball de 2 ejes con clic sostenido, doble clic para reorientar, "traer al frente" desde inspector/buscador); corrección de la búsqueda por `Columna`/`Desc. columna` para evaluar todas las tablas con precarga en segundo plano.
+  - Backend: sync de catálogo diferencial por `glueUpdatedAt` (`UpdateTime` de Glue, verificado en dev) con eliminación de tablas huérfanas; endpoints de sync devuelven `updated` y `removed`. Requiere publicar la Lambda. Primer sync tras publicar reescribe todo una vez (el caché previo no tiene `glueUpdatedAt`); desde el segundo es diferencial.
+  - Detalle en `docs/07_catalogo_datalake.md` y `docs/18_servicios_y_runtime.md`.
 
 ## Recursos desplegados
 

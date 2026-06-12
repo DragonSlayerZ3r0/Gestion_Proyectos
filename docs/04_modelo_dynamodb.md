@@ -79,7 +79,21 @@ SK = COLUMN#<columnName>
 AUDIT_EVENT
 PK = AUDIT#<date>
 SK = <timestamp>#<eventId>
+
+CATALOG_DB (caché de Glue)
+PK = CATALOG#DB
+SK = <database>
+
+CATALOG_TABLE (caché de Glue, incluye columnas y glueUpdatedAt)
+PK = CATALOG#<database>
+SK = TABLE#<table>
+
+CATALOG_SYNC (estado del sync global)
+PK = CATALOG#SYNC
+SK = META
 ```
+
+Los items `CATALOG_*` son caché de metadata técnica: el sync diferencial los escribe/elimina comparando `glueUpdatedAt` contra el `UpdateTime` de Glue. `TABLE_CONTEXT` y `COLUMN_CONTEXT` son contenido funcional escrito por usuarios y el sync nunca los toca, aunque la tabla desaparezca de Glue.
 
 ## Patrones de consulta
 

@@ -169,7 +169,7 @@ class MainTableRepository:
     def list_catalog_tables(self, database: str) -> list[dict[str, Any]]:
         response = self._table.query(
             KeyConditionExpression=Key("PK").eq(f"CATALOG#{database}") & Key("SK").begins_with("TABLE#"),
-            ProjectionExpression="#n, #db, tableType, description, columnCount, syncedAt, SK",
+            ProjectionExpression="#n, #db, tableType, description, columnCount, syncedAt, glueUpdatedAt, SK",
             ExpressionAttributeNames={"#n": "name", "#db": "database"},
         )
         return response.get("Items", [])
@@ -182,6 +182,11 @@ class MainTableRepository:
 
     def put_catalog_table(self, item: dict[str, Any]) -> None:
         self._table.put_item(Item=item)
+
+    def delete_catalog_table(self, database: str, table: str) -> None:
+        self._table.delete_item(
+            Key={"PK": f"CATALOG#{database}", "SK": f"TABLE#{table}"}
+        )
 
     # ── Contexto funcional ───────────────────────────────────────────────────────
 
