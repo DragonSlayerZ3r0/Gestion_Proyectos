@@ -56,3 +56,5 @@ Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_per
 - Permisos AWS actuales: `docs/14_permisos_aws_actuales.md`
 - Estado de implementación: `docs/15_estado_implementacion.md`
 - Credenciales AWS SSO: `docs/16_credenciales_aws_sso.md`
+- Servicios AWS en contexto y comportamiento runtime: `docs/18_servicios_y_runtime.md`
+- Paso a producción: `docs/19_paso_a_produccion.md`
