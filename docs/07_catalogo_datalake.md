@@ -84,6 +84,7 @@ Todas requieren el módulo `catalog` habilitado para el usuario.
 - Búsqueda con chips de alcance combinables: `Tabla`, `Contexto`, `Columna`, `Desc. columna`. Coincidencia parcial, insensible a mayúsculas.
 - Buscar por `Columna` o `Desc. columna` evalúa las columnas de cada tabla usando la caché de detalles (`state.catalogTableCache`). Como Glue solo entrega columnas por tabla, al activar esos alcances se precargan en segundo plano los detalles faltantes (helper `ensureCatalogTableDetails`, 6 peticiones en paralelo) y la lista se refina conforme llegan, con aviso "Cargando columnas…".
 - Detalle de tabla con columnas, tipos y contexto funcional editable.
+- El contexto de columnas (descripción/notas) se edita con guardado masivo: en vez de un botón por columna, una barra fija al pie del detalle muestra "Guardar N cambios" y guarda en paralelo solo las columnas modificadas (cada una con su `PUT` de contexto). Las columnas con cambios sin guardar se marcan con un punto; al cambiar de tabla con cambios pendientes se pide confirmación. Los textarea crecen con el contenido.
 
 #### Grafo de relaciones (Canvas 2D)
 

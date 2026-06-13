@@ -1820,7 +1820,18 @@ const title = "Gestión de Datos";
         paintCatalog();
       }
 
+      function hasUnsavedColumnChanges() {
+        return [...elements.contentPanel.querySelectorAll(".catalogColumn")].some(colDiv => {
+          const desc = colDiv.querySelector("[name=description]")?.value;
+          const notes = colDiv.querySelector("[name=notes]")?.value;
+          return desc !== (colDiv.dataset.desc || "") || notes !== (colDiv.dataset.notes || "");
+        });
+      }
+
       async function selectCatalogTable(dbName, tableName) {
+        if (hasUnsavedColumnChanges() && !window.confirm("Tienes cambios de columnas sin guardar. ¿Descartarlos y cambiar de tabla?")) {
+          return;
+        }
         state.catalogSelectedTable = { name: tableName, database: dbName, loading: true, columns: [], context: {} };
         paintCatalog();
         try {
@@ -1867,12 +1878,12 @@ const title = "Gestión de Datos";
 
       async function syncCatalogTable(dbName, tableName) {
         const btn = elements.contentPanel.querySelector(".syncTableBtn");
-        if (btn) { btn.disabled = true; btn.textContent = "Actualizando…"; }
+        if (btn) { btn.disabled = true; btn.textContent = "…"; }
         try {
           await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}/sync`, { method: "POST" });
           await selectCatalogTable(dbName, tableName);
         } catch (err) {
-          if (btn) { btn.disabled = false; btn.textContent = "↻ Actualizar tabla"; }
+          if (btn) { btn.disabled = false; btn.textContent = "↻"; }
           alert(err.message || "Error al actualizar la tabla.");
         }
       }
@@ -1941,6 +1952,10 @@ const title = "Gestión de Datos";
 
         const detailHtml = renderCatalogDetail(catalogSelectedTable);
 
+        // Conserva el scroll de la lista de tablas entre repintados (paintCatalog
+        // reconstruye el panel completo y reiniciaría el scroll al seleccionar)
+        const prevTableScroll = elements.contentPanel.querySelector(".catalogTableList")?.scrollTop || 0;
+
         elements.contentPanel.innerHTML = `
           <div class="catalogSidebar">
             <div class="catalogSidebarHeader">
@@ -1985,6 +2000,15 @@ const title = "Gestión de Datos";
           <div class="catalogDetail">${detailHtml}</div>
         `;
 
+        // Restaura el scroll de la lista de tablas (el detalle arranca arriba).
+        // Se hace tras el reflow (rAF) porque justo después de innerHTML el
+        // contenido aún no tiene altura y scrollTop se quedaría en 0.
+        const tableListEl = elements.contentPanel.querySelector(".catalogTableList");
+        if (tableListEl && prevTableScroll > 0) {
+          tableListEl.scrollTop = prevTableScroll;
+          requestAnimationFrame(() => { tableListEl.scrollTop = prevTableScroll; });
+        }
+
         bindCatalogEvents();
       }
 
@@ -2011,18 +2035,17 @@ const title = "Gestión de Datos";
           const colCtx = col.context || {};
           const hasDesc = colCtx.description || colCtx.notes;
           return `
-            <div class="catalogColumn" data-column="${escapeAttribute(col.name)}">
+            <div class="catalogColumn" data-column="${escapeAttribute(col.name)}" data-desc="${escapeAttribute(colCtx.description || "")}" data-notes="${escapeAttribute(colCtx.notes || "")}">
               <div class="catalogColumnHeader">
                 <strong>${escapeHtml(col.name)}</strong>
                 <code class="catalogColumnType">${escapeHtml(col.type)}</code>
                 ${col.isPartition ? `<span class="catalogPartitionBadge">partición</span>` : ""}
+                <span class="catalogColDirtyDot" title="Cambios sin guardar" hidden>●</span>
               </div>
               ${col.comment ? `<p class="catalogColumnComment">${escapeHtml(col.comment)}</p>` : ""}
               <div class="catalogColumnCtx${hasDesc ? " hasCtx" : ""}">
                 <textarea class="catalogColumnDesc" name="description" placeholder="Descripción funcional…" rows="2">${escapeHtml(colCtx.description || "")}</textarea>
                 <textarea class="catalogColumnNotes" name="notes" placeholder="Notas internas…" rows="1">${escapeHtml(colCtx.notes || "")}</textarea>
-                <button class="tinyButton saveColumnCtxBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}" data-column="${escapeAttribute(col.name)}">Guardar</button>
-                <span class="catalogColSaveNotice" hidden></span>
               </div>
             </div>
           `;
@@ -2038,7 +2061,7 @@ const title = "Gestión de Datos";
                 ${table.location ? `<p class="catalogLocation">${escapeHtml(table.location)}</p>` : ""}
                 ${table.syncedAt ? `<p class="catalogLocation">Sync: ${catalogSyncedLabel(table.syncedAt)}</p>` : ""}
               </div>
-              <button class="tinyButton syncTableBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}">↻ Actualizar</button>
+              <button class="iconTinyButton syncTableBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}" title="Actualizar tabla desde Glue" aria-label="Actualizar tabla desde Glue">↻</button>
             </div>
           </div>
           <div class="catalogTableCtxForm">
@@ -2055,6 +2078,10 @@ const title = "Gestión de Datos";
           <div class="catalogColumnSection">
             <p class="catalogSectionLabel">${(table.columns || []).length} columnas</p>
             <div class="catalogColumnList">${columnsHtml}</div>
+          </div>
+          <div class="catalogColSaveBar" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}" hidden>
+            <span class="catalogColSaveBarMsg"></span>
+            <button class="primaryButton saveAllColsBtn" type="button" disabled>Guardar cambios</button>
           </div>
         `;
       }
@@ -2184,35 +2211,75 @@ const title = "Gestión de Datos";
           ta.addEventListener("input", autoResize);
         });
 
-        panel.querySelectorAll(".saveColumnCtxBtn").forEach(btn => {
-          btn.onclick = async () => {
-            const { db, table, column } = btn.dataset;
-            const colDiv = btn.closest(".catalogColumn");
-            const notice = colDiv.querySelector(".catalogColSaveNotice");
-            const body = {
-              description: colDiv.querySelector("[name=description]").value,
-              notes: colDiv.querySelector("[name=notes]").value,
-            };
-            btn.disabled = true;
-            try {
+        // ── Guardado masivo de contexto de columnas con seguimiento de cambios ──
+        const saveBar = panel.querySelector(".catalogColSaveBar");
+        if (saveBar) {
+          const saveBtn = saveBar.querySelector(".saveAllColsBtn");
+          const barMsg = saveBar.querySelector(".catalogColSaveBarMsg");
+
+          // Una columna está "sucia" si su descripción o notas difieren de lo
+          // guardado (data-desc/data-notes, actualizados tras cada guardado)
+          const dirtyColumns = () => [...panel.querySelectorAll(".catalogColumn")].filter(colDiv => {
+            const desc = colDiv.querySelector("[name=description]").value;
+            const notes = colDiv.querySelector("[name=notes]").value;
+            return desc !== (colDiv.dataset.desc || "") || notes !== (colDiv.dataset.notes || "");
+          });
+
+          const refreshSaveBar = () => {
+            const dirty = dirtyColumns();
+            panel.querySelectorAll(".catalogColumn").forEach(colDiv => {
+              const isDirty = dirty.includes(colDiv);
+              colDiv.classList.toggle("dirty", isDirty);
+              const dot = colDiv.querySelector(".catalogColDirtyDot");
+              if (dot) dot.hidden = !isDirty;
+            });
+            const n = dirty.length;
+            saveBar.hidden = n === 0;
+            saveBtn.disabled = n === 0;
+            saveBtn.textContent = n > 0 ? `Guardar ${n} ${n === 1 ? "cambio" : "cambios"}` : "Guardar cambios";
+            barMsg.textContent = "";
+          };
+
+          panel.querySelectorAll(".catalogColumnDesc, .catalogColumnNotes").forEach(ta => {
+            ta.addEventListener("input", refreshSaveBar);
+          });
+
+          saveBtn.onclick = async () => {
+            const { db, table } = saveBar.dataset;
+            const dirty = dirtyColumns();
+            if (!dirty.length) return;
+            saveBtn.disabled = true;
+            barMsg.textContent = "Guardando…";
+            const results = await Promise.allSettled(dirty.map(async colDiv => {
+              const column = colDiv.dataset.column;
+              const body = {
+                description: colDiv.querySelector("[name=description]").value,
+                notes: colDiv.querySelector("[name=notes]").value,
+              };
               await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}/context`, {
                 method: "PUT",
                 body: JSON.stringify(body),
               });
+              // Persistir en estado/caché y marcar como base lo recién guardado
               const col = (state.catalogSelectedTable?.columns || []).find(c => c.name === column);
               if (col) col.context = body;
-              colDiv.classList.add("hasCtx");
-              notice.textContent = "Guardado.";
-              notice.hidden = false;
-              setTimeout(() => { notice.hidden = true; }, 2500);
-            } catch (err) {
-              notice.textContent = err.message || "Error al guardar.";
-              notice.hidden = false;
-            } finally {
-              btn.disabled = false;
+              colDiv.dataset.desc = body.description;
+              colDiv.dataset.notes = body.notes;
+              colDiv.classList.toggle("hasCtx", Boolean(body.description || body.notes));
+            }));
+            const failed = results.filter(r => r.status === "rejected").length;
+            refreshSaveBar();
+            if (failed) {
+              barMsg.textContent = `${failed} no se pudo${failed === 1 ? "" : "n"} guardar. Reintenta.`;
+              saveBar.hidden = false;
+            } else {
+              barMsg.textContent = "Cambios guardados.";
+              setTimeout(() => { if (!dirtyColumns().length) barMsg.textContent = ""; }, 2500);
             }
           };
-        });
+
+          refreshSaveBar();
+        }
       }
 
       // ── Grafo de relaciones ─────────────────────────────────────────────────
@@ -3727,10 +3794,24 @@ const title = "Gestión de Datos";
     line-height: 1.1;
   }
 
+  /* Colapsado: la barra es estrecha (72px), así que el logo y el botón se
+     apilan centrados en columna para que el logo no se salga a la izquierda */
+  .shell.sidebarCollapsed .sidebar {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
   .shell.sidebarCollapsed .brand {
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
     padding-left: 0;
     padding-right: 0;
+  }
+
+  .shell.sidebarCollapsed .brandMark {
+    width: 32px;
+    height: 32px;
   }
 
   .shell.sidebarCollapsed .brand div,
@@ -5125,6 +5206,22 @@ const title = "Gestión de Datos";
     overflow: hidden;
   }
 
+  /* La altura fija de arriba es un fallback; en escritorio el catálogo se ajusta
+     al espacio real (topbar variable) con flex, para que la barra de guardado
+     fija nunca quede fuera del viewport */
+  @media (min-width: 901px) {
+    .main:has(.catalogLayout) {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .catalogLayout {
+      flex: 1;
+      min-height: 0;
+      height: auto;
+    }
+  }
+
   .catalogSidebar {
     border-right: 1px solid var(--line);
     padding: 14px 0 18px 14px;
@@ -5433,6 +5530,42 @@ const title = "Gestión de Datos";
     color: var(--muted);
     margin: 0 0 6px;
   }
+
+  .catalogColDirtyDot {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
+  .catalogColumn.dirty {
+    border-color: var(--accent);
+  }
+
+  /* Barra fija de guardado de columnas: siempre visible al pie del detalle */
+  .catalogColSaveBar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
+  }
+
+  .catalogColSaveBar .saveAllColsBtn { flex: 1 1 auto; }
+
+  .catalogColSaveBarMsg {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .catalogColSaveBar .saveAllColsBtn { white-space: nowrap; }
 
   .catalogColumnCtx {
     display: flex;
