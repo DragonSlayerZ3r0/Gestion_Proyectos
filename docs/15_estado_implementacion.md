@@ -29,6 +29,8 @@ Primer entregable implementado y desplegado en `dev`:
 - Pendiente de publicar (en local, rama `catalogo_datos`, junio 2026):
   - Frontend: persistencia del módulo activo al recargar (`sessionStorage`); reescritura del grafo del catálogo a Canvas 2D (esferas de Fibonacci 3D proyectado, culling, LOD, quadtree, pan con dos dedos y zoom con pellizco, uniones visibles solo con foco, precarga de columnas al abrir, rotación trackball de 2 ejes con clic sostenido, doble clic para reorientar, "traer al frente" desde inspector/buscador); corrección de la búsqueda por `Columna`/`Desc. columna` para evaluar todas las tablas con precarga en segundo plano.
   - Backend: sync de catálogo diferencial por `glueUpdatedAt` (`UpdateTime` de Glue, verificado en dev) con eliminación de tablas huérfanas; endpoints de sync devuelven `updated` y `removed`. Requiere publicar la Lambda. Primer sync tras publicar reescribe todo una vez (el caché previo no tiene `glueUpdatedAt`); desde el segundo es diferencial.
+  - Infra: se agregaron al stack CDK las 8 rutas de `/api/catalog/*` con `jwtAuthorizer` (antes existían solo en API Gateway por configuración manual = config drift; verificado que en vivo responden 401 sin token, pero no estaban versionadas). Requiere `npm run infra:deploy`. Sin esto, un `cdk deploy` podía borrarlas y el paso a producción no las habría creado.
+  - Frontend: separación de responsabilidades — `index.astro` (cascarón), `src/scripts/app.ts` (SPA), `src/styles/app.css` (estilos).
   - Detalle en `docs/07_catalogo_datalake.md` y `docs/18_servicios_y_runtime.md`.
 
 ## Recursos desplegados

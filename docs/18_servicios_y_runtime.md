@@ -64,7 +64,8 @@ Cognito identifica; DynamoDB autoriza; Lambda aplica. Son tres responsabilidades
 
 ### Frontend: una sola página, render imperativo
 
-- Toda la SPA vive en `frontend/src/pages/index.astro`: estado global en el objeto `state`, render por módulo con `innerHTML` y re-enlace de listeners en cada render. No hay router: "navegar" es mutar `state.activeModule` y re-renderizar.
+- Separación de responsabilidades por archivo: `frontend/src/pages/index.astro` es el cascarón HTML; la SPA vive en `frontend/src/scripts/app.ts`; los estilos globales en `frontend/src/styles/app.css`. Estado global en el objeto `state`, render por módulo con `innerHTML` y re-enlace de listeners en cada render. No hay router: "navegar" es mutar `state.activeModule` y re-renderizar.
+- `app.ts` todavía es un módulo único (con `@ts-nocheck`). Próximo paso de robustez: dividirlo por dominio (auth, catálogo, grafo, workspace) con un módulo de estado compartido; hacerlo incremental y verificando con `pnpm build` en cada extracción, idealmente con prueba en navegador, porque esbuild no falla ante referencias no importadas (serían errores en runtime).
 - Implicación al desarrollar: cualquier render reemplaza el DOM de su zona; un listener agregado a mano se pierde en el siguiente render si no se registra dentro de la función `bind*` o `applySearch` correspondiente.
 - D3 v7 se carga bajo demanda desde `unpkg.com/d3@7` al abrir el grafo (requiere salida a internet desde el navegador; no está en `package.json`).
 

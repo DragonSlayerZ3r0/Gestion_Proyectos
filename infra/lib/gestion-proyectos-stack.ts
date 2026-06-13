@@ -17,6 +17,14 @@ export interface GestionProyectosStackProps extends StackProps {
   appName: string;
   envName: string;
   initialUserEmail: string;
+  /**
+   * ARN de un rol de ejecución pre-creado para la Lambda. En cuentas gobernadas
+   * (producción), donde la identidad de despliegue no puede gestionar IAM, el
+   * admin crea el rol con privilegios mínimos (DynamoDB de la app + logs +
+   * Glue de solo lectura) y se pasa aquí; el stack lo consume sin tocar IAM.
+   * Si se omite (dev), el stack crea el rol como siempre.
+   */
+  apiRoleArn?: string;
 }
 
 const MODULES = ["home", "projects", "tasks", "catalog", "admin"];
@@ -186,6 +194,13 @@ export class GestionProyectosStack extends Stack {
       installLatestAwsSdk: false
     });
 
+    // Rol pre-creado por el admin (cuentas gobernadas) o creado por el stack (dev).
+    // Cuando es importado, CDK no intenta modificar sus políticas: el deploy no
+    // necesita permisos de IAM y se respeta que solo el admin gobierna IAM.
+    const importedRole = props.apiRoleArn
+      ? iam.Role.fromRoleArn(this, "ApiFunctionRole", props.apiRoleArn, { mutable: false })
+      : undefined;
+
     const apiFunction = new lambda.Function(this, "ApiFunction", {
       functionName: `${resourcePrefix}-api`,
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -194,17 +209,23 @@ export class GestionProyectosStack extends Stack {
       timeout: Duration.seconds(10),
       memorySize: 256,
       logRetention: logs.RetentionDays.ONE_MONTH,
+      ...(importedRole ? { role: importedRole } : {}),
       environment: {
         ENV_NAME: props.envName,
         MAIN_TABLE_NAME: table.tableName,
         DEFAULT_MODULES: MODULES.join(",")
       }
     });
-    table.grantReadWriteData(apiFunction);
-    apiFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
-      resources: ["*"]
-    }));
+
+    // Solo cuando el stack es dueño del rol (dev) adjunta permisos. Con rol
+    // importado (prod), estos permisos los provee el admin en el rol pre-creado.
+    if (!importedRole) {
+      table.grantReadWriteData(apiFunction);
+      apiFunction.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+        resources: ["*"]
+      }));
+    }
 
     const httpApi = new apigwv2.HttpApi(this, "HttpApi", {
       apiName: `${resourcePrefix}-api`,
@@ -293,6 +314,58 @@ export class GestionProyectosStack extends Stack {
     httpApi.addRoutes({
       path: "/api/projects/{projectId}/tasks/{taskId}",
       methods: [apigwv2.HttpMethod.PATCH],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+
+    // ── Catálogo Data Lake ──────────────────────────────────────────────────
+    // Todas requieren el módulo `catalog` habilitado (validado en la Lambda) y
+    // van protegidas por el JWT Authorizer, igual que el resto de /api.
+    httpApi.addRoutes({
+      path: "/api/catalog",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/catalog/sync",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/catalog/{database}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/catalog/{database}/sync",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/catalog/{database}/{table}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/catalog/{database}/{table}/sync",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/catalog/{database}/{table}/context",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/catalog/{database}/{table}/columns/{column}/context",
+      methods: [apigwv2.HttpMethod.PUT],
       integration,
       authorizer: jwtAuthorizer
     });
