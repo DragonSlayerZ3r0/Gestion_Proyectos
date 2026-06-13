@@ -2353,12 +2353,14 @@
   .pathItem .inspectorSub { color: var(--accent); font-weight: 600; }
 
   .catalogGraphInspector {
-    width: 280px;
+    width: 300px;
+    max-width: 86vw;
     flex-shrink: 0;
     background: var(--panel);
     border-left: 1px solid var(--line);
     padding: 16px;
     overflow-y: auto;
+    overflow-x: hidden;
     box-shadow: -6px 0 16px rgba(0, 0, 0, 0.08);
   }
 
@@ -2394,6 +2396,9 @@
     margin-top: 12px;
     text-align: left;
     font-size: 0.78rem;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   .inspectorSection {
@@ -2423,9 +2428,9 @@
 
   .inspectorList li {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
     padding: 6px 8px;
     border-radius: 6px;
     font-size: 0.78rem;
@@ -2435,23 +2440,30 @@
 
   .inspectorList li:hover { background: var(--accent-soft); }
 
+  /* El nombre de columna ocupa su propia línea: siempre visible, sin que el
+     nombre de tabla (largo) lo aplaste. Tabla y tipo bajan a la 2ª línea. */
   .inspectorItemName {
+    flex: 1 1 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
+    font-weight: 600;
   }
 
   .inspectorSub {
     color: var(--muted);
     font-size: 0.7rem;
-    flex-shrink: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .inspectorList code {
     font-size: 0.68rem;
     color: var(--muted);
-    flex-shrink: 0;
+    flex: 0 0 auto;
   }
 
   .inspectorEmpty {

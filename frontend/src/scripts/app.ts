@@ -1840,9 +1840,10 @@
 
         const detailHtml = renderCatalogDetail(catalogSelectedTable);
 
-        // Conserva el scroll de la lista de tablas entre repintados (paintCatalog
-        // reconstruye el panel completo y reiniciaría el scroll al seleccionar)
+        // Conserva el scroll de la lista de tablas y del sidebar de bases entre
+        // repintados (paintCatalog reconstruye el panel y reiniciaría el scroll)
         const prevTableScroll = elements.contentPanel.querySelector(".catalogTableList")?.scrollTop || 0;
+        const prevSidebarScroll = elements.contentPanel.querySelector(".catalogSidebar")?.scrollTop || 0;
 
         elements.contentPanel.innerHTML = `
           <div class="catalogSidebar">
@@ -1895,6 +1896,11 @@
         if (tableListEl && prevTableScroll > 0) {
           tableListEl.scrollTop = prevTableScroll;
           requestAnimationFrame(() => { tableListEl.scrollTop = prevTableScroll; });
+        }
+        const sidebarEl = elements.contentPanel.querySelector(".catalogSidebar");
+        if (sidebarEl && prevSidebarScroll > 0) {
+          sidebarEl.scrollTop = prevSidebarScroll;
+          requestAnimationFrame(() => { sidebarEl.scrollTop = prevSidebarScroll; });
         }
 
         bindCatalogEvents();
@@ -2346,8 +2352,8 @@
               <h3 style="margin:4px 0 0;font-size:1rem;font-weight:700">Grafo de relaciones</h3>
             </div>
             <div class="catalogGraphLegend">
-              <span class="graphLegendFk">● Columna en común</span>
-              <span class="graphLegendShared">● Relación inferida</span>
+              <span class="graphLegendFk">● Relación inferida</span>
+              <span class="graphLegendShared">● Columna en común</span>
               <span class="graphLegendInfoWrap">
                 <button type="button" class="graphLegendInfoBtn" aria-label="Acerca de las relaciones" aria-expanded="false" title="Acerca de las relaciones">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2357,8 +2363,8 @@
                 <div class="graphLegendInfoPopover" hidden>
                   <p class="graphLegendInfoTitle">Relaciones heurísticas</p>
                   <p>Estas conexiones se calculan automáticamente comparando los nombres de las columnas entre tablas. Son una guía para explorar posibles relaciones, no relaciones reales definidas en los datos.</p>
-                  <p><span class="graphLegendFk">● Columna en común</span><br/>Una columna termina en <code>_id</code> y existe una tabla cuyo nombre coincide con esa raíz (ej. <code>cliente_id</code> → tabla <code>clientes</code>). Funciona como una posible clave foránea.</p>
-                  <p><span class="graphLegendShared">● Relación inferida</span><br/>Dos tablas tienen una columna con exactamente el mismo nombre. Es una señal débil: no implica relación real.</p>
+                  <p><span class="graphLegendFk">● Relación inferida</span><br/>Una columna termina en <code>_id</code> y existe una tabla cuyo nombre coincide con esa raíz (ej. <code>cliente_id</code> → tabla <code>clientes</code>). Funciona como una posible clave foránea.</p>
+                  <p><span class="graphLegendShared">● Columna en común</span><br/>Dos tablas tienen una columna con exactamente el mismo nombre. Es una señal débil: no implica relación real.</p>
                   <p class="graphLegendInfoNote">Las columnas de partición se excluyen para evitar relaciones falsas.</p>
                 </div>
               </span>
@@ -2378,8 +2384,8 @@
               <div class="catalogGraphSearchResults" hidden></div>
             </div>
             <div class="catalogGraphFilterChips">
-              <button type="button" class="graphFilterChip graphFilterChipFk active" data-filter="fk" title="Columnas _id que apuntan a otra tabla">● Columnas en común</button>
-              <button type="button" class="graphFilterChip graphFilterChipShared active" data-filter="shared" title="Columnas con el mismo nombre">● Relaciones inferidas</button>
+              <button type="button" class="graphFilterChip graphFilterChipFk active" data-filter="fk" title="Mostrar/ocultar relaciones inferidas (columnas _id que apuntan a otra tabla)">● Relaciones inferidas</button>
+              <button type="button" class="graphFilterChip graphFilterChipShared active" data-filter="shared" title="Mostrar/ocultar columnas en común (mismo nombre en distintas tablas)">● Columnas en común</button>
             </div>
             <select class="catalogGraphDbFilter" title="Filtrar por base de datos">
               <option value="all">Todas las bases de datos</option>
@@ -2803,7 +2809,13 @@
             const on = connected.has(l.source.id) && connected.has(l.target.id);
             return on ? (l.type === "parent" ? 0.45 : 0.95) : 0.02;
           }
-          if (searchMatches.size) return l.type === "parent" ? 0.08 : 0.12;
+          if (searchMatches.size) {
+            // En búsqueda, resalta las relaciones que tocan un nodo encontrado
+            // (respetando el filtro de tipo); el resto queda muy tenue
+            const touch = searchMatches.has(l.source.id) || searchMatches.has(l.target.id);
+            if (l.type === "parent") return touch ? 0.4 : 0.05;
+            return touch ? 0.9 : 0.06;
+          }
           return l.type === "parent" ? 0.18 : 0; // sin foco: uniones ocultas
         }
         const isLit = d => (pathNodeIds && pathNodeIds.has(d.id))
@@ -3187,10 +3199,10 @@
           }
 
           if (fkItems.length) {
-            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorFkTitle">● Columna en común (${fkItems.length})</p>${renderList(fkItems, true)}</div>`;
+            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorFkTitle">● Relación inferida (${fkItems.length})</p>${renderList(fkItems, true)}</div>`;
           }
           if (sharedItems.length) {
-            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorSharedTitle">● Relación inferida (${sharedItems.length})</p>${renderList(sharedItems, true)}</div>`;
+            html += `<div class="inspectorSection"><p class="inspectorSectionTitle inspectorSharedTitle">● Columna en común (${sharedItems.length})</p>${renderList(sharedItems, true)}</div>`;
           }
           if (!fkItems.length && !sharedItems.length && d.type === "column") {
             html += `<p class="inspectorEmpty">Sin relaciones detectadas con otras tablas.</p>`;
