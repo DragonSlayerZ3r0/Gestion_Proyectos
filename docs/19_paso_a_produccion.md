@@ -73,7 +73,7 @@ El frontend lee su configuración en runtime desde `/config.json` (no viaja en e
 
 ### 2.1 Estrategia de IAM en cuenta de producción gobernada
 
-En la cuenta de producción (donde vive el data lake y hay SCPs/permission boundaries), la identidad de despliegue normalmente **no puede gestionar IAM**. Por eso, en dev, los permisos de Glue y la auto-invocación se agregaron a mano (config drift). En prod el patrón correcto es: **el admin pre-crea el rol de ejecución** de la Lambda y se pasa su ARN por contexto (`--context apiRoleArn=...`); el stack lo consume sin crear ni modificar políticas IAM.
+En dev, el stack crea el rol de ejecución con nombre estable (`gestion-proyectos-dev-api-role`) y todos sus permisos en código (DynamoDB RW, logs, Glue read-only, auto-invocación) — ya no hay drift. En la cuenta de producción (donde vive el data lake y hay SCPs/permission boundaries), la identidad de despliegue normalmente **no puede gestionar IAM**, así que el patrón es: **el admin pre-crea el rol de ejecución** con esa misma política y se pasa su ARN por contexto (`--context apiRoleArn=...`); el stack lo consume sin crear ni modificar IAM.
 
 **Política mínima (solo lectura sobre el data lake) que el admin debe asignar a ese rol:**
 
@@ -113,6 +113,10 @@ En la cuenta de producción (donde vive el data lake y hay SCPs/permission bound
 - `lambda:InvokeFunction` sobre sí misma: la usa el sync global asíncrono (`POST /api/catalog/sync` se auto-invoca).
 - Si Lake Formation está *enforced* sobre esas bases, además hay que otorgar al rol grants `DESCRIBE`/`SELECT` de lectura desde Lake Formation (no basta la política IAM).
 - El rol debe confiar en `lambda.amazonaws.com` (trust policy) y respetar el permission boundary que exija la organización.
+
+**Acceso S3 al data lake (para tamaño/frescura de tablas):** requiere DOS lados, porque los buckets del lake viven en la cuenta hub `396913696127` (cross-account):
+- *Lado app (cuenta del rol):* `s3:ListBucket` + `s3:GetBucketLocation` sobre los buckets del lake. **En dev ya está en CDK** (constante `DATA_LAKE_BUCKETS` en el rol del stack; aplica tras `infra:deploy`). En prod, el admin lo incluye en el rol pre-creado.
+- *Lado hub (dueño del bucket):* fusionar una sentencia de solo lectura en la *bucket policy* (NO sobrescribir). Script: `scripts/grant-datalake-s3.sh <bucket> <role_arn> [perfil]`, o el comando manual equivalente. Debe correrse **después** de que el rol exista (S3 rechaza principals inexistentes) con un perfil admin del hub. Nota: `admin_dl` es un rol/usuario IAM dentro de `396913696127`, no un perfil de CLI; el perfil de CLI para esa cuenta es `bdr-fed`.
 
 **Nota — otros roles que el stack crea (CDK helpers):** además del rol de la Lambda, CDK provisiona roles para `logRetention` y para el custom resource del seed inicial. En una cuenta muy bloqueada estos también podrían requerir que el admin permita su creación, o reemplazarlos (LogGroup explícito en vez de `logRetention`; correr el seed manualmente). Validar con el equipo de plataforma antes del primer deploy.
 

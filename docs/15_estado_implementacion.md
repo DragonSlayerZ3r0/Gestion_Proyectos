@@ -30,6 +30,7 @@ Primer entregable implementado y desplegado en `dev`:
   - Frontend: persistencia del módulo activo al recargar (`sessionStorage`); reescritura del grafo del catálogo a Canvas 2D (esferas de Fibonacci 3D proyectado, culling, LOD, quadtree, pan con dos dedos y zoom con pellizco, uniones visibles solo con foco, precarga de columnas al abrir, rotación trackball de 2 ejes con clic sostenido, doble clic para reorientar, "traer al frente" desde inspector/buscador); corrección de la búsqueda por `Columna`/`Desc. columna` para evaluar todas las tablas con precarga en segundo plano.
   - Backend: sync de catálogo diferencial por `glueUpdatedAt` (`UpdateTime` de Glue, verificado en dev) con eliminación de tablas huérfanas; endpoints de sync devuelven `updated` y `removed`. Requiere publicar la Lambda. Primer sync tras publicar reescribe todo una vez (el caché previo no tiene `glueUpdatedAt`); desde el segundo es diferencial.
   - Infra: se agregaron al stack CDK las 8 rutas de `/api/catalog/*` con `jwtAuthorizer` (antes existían solo en API Gateway por configuración manual = config drift; verificado que en vivo responden 401 sin token, pero no estaban versionadas). Requiere `npm run infra:deploy`. Sin esto, un `cdk deploy` podía borrarlas y el paso a producción no las habría creado.
+  - Infra: el rol de ejecución de la Lambda ahora se define explícito en CDK con nombre estable (`gestion-proyectos-dev-api-role`) y todos sus permisos en código (DynamoDB RW, logs, Glue read-only, auto-invocación) — elimina el drift de permisos puestos a mano y da ARN estable para grants externos (bucket policies cross-account, Lake Formation). En prod se sigue importando vía `apiRoleArn`. **Ojo al desplegar:** el `cdk deploy` reemplaza el rol autogenerado anterior por el nombrado; el permiso de Glue manual del rol viejo se pierde pero queda cubierto por el código. Cualquier grant externo apuntando al rol viejo debe repuntarse al nuevo ARN (última vez que cambia).
   - Frontend: separación de responsabilidades — `index.astro` (cascarón), `src/scripts/app.ts` (SPA), `src/styles/app.css` (estilos).
   - Detalle en `docs/07_catalogo_datalake.md` y `docs/18_servicios_y_runtime.md`.
 
@@ -46,6 +47,9 @@ Primer entregable implementado y desplegado en `dev`:
 | Cognito App Client | `uhquk1hakj8nifgi3j6hv8dbh` |
 | Cognito domain prefix | `gestion-proyectos-dev-186281981036` |
 | DynamoDB table | `gestion-proyectos-dev-main` |
+| Lambda API | `gestion-proyectos-dev-api` |
+| Rol de ejecución Lambda | `gestion-proyectos-dev-api-role` (ARN `arn:aws:iam::186281981036:role/gestion-proyectos-dev-api-role`) — nombre estable definido en CDK, **efectivo tras el próximo `infra:deploy`** (hoy en AWS sigue el rol autogenerado); usar este ARN para grants externos (S3 cross-account, Lake Formation) |
+| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) |
 | Usuario inicial | `usr041100@banrural.com.gt` |
 
 ## Recursos definidos por CDK
@@ -229,7 +233,7 @@ aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*"
 
 ## Catálogo Data Lake: visibilidad pendiente
 
-La Lambda `gestion-proyectos-dev-api` (rol `GestionProyectosDevStack-ApiFunctionServiceRole52B9-1KQydkECjG1U`) solo ve las bases Glue locales en modo legado `IAM_ALLOWED_PRINCIPALS` (`arc_dev`, `arc_sandbox_desa`, `default`). Las bases del data lake hub (cuenta `396913696127`) requieren, pendiente de ejecutar:
+La Lambda `gestion-proyectos-dev-api` (rol `gestion-proyectos-dev-api-role` tras `infra:deploy`; antes el autogenerado por CDK) solo ve las bases Glue locales en modo legado `IAM_ALLOWED_PRINCIPALS` (`arc_dev`, `arc_sandbox_desa`, `default`). Las bases del data lake hub (cuenta `396913696127`) requieren, pendiente de ejecutar:
 
 1. Lado hub (perfil `bdr-fed`): grants Lake Formation `DESCRIBE` (base + `ALL_TABLES`) hacia la cuenta `186281981036` por cada base compartida.
 2. Lado consumidor (CDK): resource links por base compartida y grant `DESCRIBE` sobre cada link únicamente al rol de la Lambda, sin abrir visibilidad a otros usuarios o aplicaciones.

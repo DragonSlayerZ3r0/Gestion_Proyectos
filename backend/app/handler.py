@@ -310,7 +310,12 @@ def route_catalog_database_tables(event: dict[str, Any], method: str, path_param
         identity = get_user_identity(event)
         ensure_module_access(identity, ["catalog"])
         database = path_parameters.get("database") or ""
-        data = CatalogService().list_tables(database)
+        qs = event.get("queryStringParameters") or {}
+        include_stats = qs.get("stats") == "1"
+        if include_stats:
+            data = CatalogService().get_database_info(database, include_stats=True)
+        else:
+            data = CatalogService().list_tables(database)
         return success(data)
     except ValueError as exc:
         return error("UNAUTHORIZED", str(exc), 401)
@@ -328,7 +333,8 @@ def route_catalog_table(event: dict[str, Any], method: str, path_parameters: dic
         ensure_module_access(identity, ["catalog"])
         database = path_parameters.get("database") or ""
         table = path_parameters.get("table") or ""
-        data = CatalogService().get_table(database, table)
+        include_stats = (event.get("queryStringParameters") or {}).get("stats") == "1"
+        data = CatalogService().get_table(database, table, include_stats=include_stats)
         return success(data)
     except ValueError as exc:
         return error("NOT_FOUND", str(exc), 404)

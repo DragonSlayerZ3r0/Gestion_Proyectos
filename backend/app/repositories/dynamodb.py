@@ -158,19 +158,33 @@ class MainTableRepository:
         )
         return response.get("Items", [])
 
-    def put_catalog_database(self, database: str, table_count: int, synced_at: str, description: str = "") -> None:
-        self._table.put_item(Item={
+    def put_catalog_database(self, database: str, table_count: int, synced_at: str, description: str = "", location: str = "", stats: dict[str, Any] | None = None) -> None:
+        item = {
             "PK": "CATALOG#DB", "SK": database,
             "entityType": "CATALOG_DB",
             "database": database, "description": description,
             "tableCount": table_count, "syncedAt": synced_at,
-        })
+            "location": location,
+        }
+        if stats is not None:
+            item["stats"] = stats
+        self._table.put_item(Item=item)
+
+    def update_catalog_table_stats(self, database: str, table: str, stats: dict[str, Any]) -> None:
+        """Actualiza solo las stats S3 de una tabla sin reescribir el resto del
+        item (preserva el sync diferencial de la metadata de Glue)."""
+        self._table.update_item(
+            Key={"PK": f"CATALOG#{database}", "SK": f"TABLE#{table}"},
+            UpdateExpression="SET #st = :st",
+            ExpressionAttributeNames={"#st": "stats"},
+            ExpressionAttributeValues={":st": stats},
+        )
 
     def list_catalog_tables(self, database: str) -> list[dict[str, Any]]:
         response = self._table.query(
             KeyConditionExpression=Key("PK").eq(f"CATALOG#{database}") & Key("SK").begins_with("TABLE#"),
-            ProjectionExpression="#n, #db, tableType, description, columnCount, syncedAt, glueUpdatedAt, SK",
-            ExpressionAttributeNames={"#n": "name", "#db": "database"},
+            ProjectionExpression="#n, #db, tableType, description, columnCount, syncedAt, glueUpdatedAt, #loc, SK",
+            ExpressionAttributeNames={"#n": "name", "#db": "database", "#loc": "location"},
         )
         return response.get("Items", [])
 

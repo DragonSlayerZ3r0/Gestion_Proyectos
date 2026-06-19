@@ -1701,13 +1701,75 @@
 
   .catalogDbRow {
     display: flex;
-    align-items: center;
-    gap: 2px;
+    flex-direction: column;
     border-radius: 6px;
   }
 
   .catalogDbRow.active { background: var(--accent-soft); }
   .catalogDbRow:hover { background: var(--line); }
+
+  .catalogDbItemWrap {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .catalogDbFichaWrap {
+    padding: 0 10px 8px 10px;
+    border-top: 1px solid var(--line);
+    margin-top: 2px;
+  }
+
+  .catalogDbFichaWrap > summary {
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--accent);
+    user-select: none;
+    padding-top: 6px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .catalogDbFichaWrap > summary::-webkit-details-marker { display: none; }
+
+  .catalogDbFichaWrap > summary::before {
+    content: "▸";
+    font-size: 0.65rem;
+    transition: transform 0.15s ease;
+  }
+
+  .catalogDbFichaWrap[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .catalogDbFichaWrap .catalogFicha {
+    font-size: 0.72rem;
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: var(--accent-soft);
+    border-radius: 5px;
+  }
+
+  .catalogDbFichaWrap .catalogFicha b {
+    color: var(--accent-strong);
+  }
+
+  .catalogFichaFullRow {
+    flex: 1 1 100%;
+    word-break: break-all;
+  }
+
+  .catalogLocationCode {
+    font-family: monospace;
+    font-size: 0.9em;
+    word-break: break-all;
+    color: var(--text);
+  }
 
   .catalogDbItem {
     display: flex;
@@ -1736,7 +1798,7 @@
 
   .catalogDbRow:hover .catalogSyncDbBtn { opacity: 1; }
 
-  .catalogDbName { font-size: 0.83rem; word-break: break-all; }
+  .catalogDbName { font-size: 0.9rem; font-weight: 500; word-break: break-all; }
   .catalogDbMeta { font-size: 0.72rem; color: var(--muted); }
 
   .catalogMain {
@@ -1865,6 +1927,52 @@
     word-break: break-all;
   }
 
+  /* Ficha técnica: metadata automática de Glue + tamaño/frescura de S3.
+     Colapsable (details) — oculta por defecto, se despliega hacia abajo. */
+  .catalogFichaWrap {
+    margin-top: 8px;
+  }
+
+  .catalogFichaWrap > summary {
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--accent);
+    user-select: none;
+  }
+
+  .catalogFichaWrap > summary::-webkit-details-marker { display: none; }
+
+  .catalogFichaWrap > summary::before {
+    content: "▸";
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+  }
+
+  .catalogFichaWrap[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .catalogFicha {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 8px;
+    font-size: 0.76rem;
+    color: var(--text);
+  }
+
+  .catalogFicha b {
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .catalogFicha .muted { color: var(--muted); font-style: italic; }
+
   .catalogTableCtxForm {
     padding: 14px 20px;
     border-bottom: 1px solid var(--line);
@@ -1975,6 +2083,96 @@
 
   .catalogColumn.dirty {
     border-color: var(--accent);
+  }
+
+  .catalogKeyBadge {
+    font-size: 0.72rem;
+    background: #ede9fe;
+    color: #5b21b6;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid #c4b5fd;
+  }
+
+  /* Fila sensibilidad + ejemplo dentro del contexto de columna */
+  .catalogColumnRow {
+    display: flex;
+    gap: 6px;
+  }
+
+  .catalogColumnSens {
+    flex: 0 0 auto;
+    max-width: 48%;
+  }
+
+  .catalogColumnSample {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .catalogColumnSens,
+  .catalogColumnSample {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-size: 0.78rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+
+  /* Cabecera de columnas: progreso + filtros */
+  .catalogColumnSectionHead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .catalogColProgress {
+    font-size: 0.74rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .catalogColProgressBar {
+    height: 4px;
+    background: var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 6px 0 10px;
+  }
+
+  .catalogColProgressBar span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.25s ease;
+  }
+
+  .catalogColFilters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .catalogColFilterChip {
+    font-size: 0.74rem;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .catalogColFilterChip.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
   }
 
   /* Barra fija de guardado de columnas: siempre visible al pie del detalle */

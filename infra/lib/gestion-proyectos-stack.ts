@@ -29,6 +29,24 @@ export interface GestionProyectosStackProps extends StackProps {
 
 const MODULES = ["home", "projects", "tasks", "catalog", "admin"];
 
+// Buckets del data lake que el catálogo lista (solo lectura) para calcular
+// tamaño/frescura. Los que viven en la cuenta hub 396913696127 requieren ADEMÁS
+// una bucket policy del lado del hub (cross-account); ver scripts/grant-datalake-s3.sh.
+// En cuenta APP (186): analytics-datafoundry-dev, arc-sandbox-desa.
+// En cuenta HUB (396): el resto.
+const DATA_LAKE_BUCKETS = [
+  "arc-enterprise-data",
+  "analytics-datafoundry-dev",
+  "arc-sandbox-desa",
+  "da-sandboxenv",
+  "arc-sandbox-dev",
+  "arc-archtest-tokenized",
+  "da-data-geolocation",
+  "arc-ingestioncontrol",
+  "arc-enterprise-data-security",
+  "aws-bdr-s3-datasync-destino",
+];
+
 export class GestionProyectosStack extends Stack {
   constructor(scope: Construct, id: string, props: GestionProyectosStackProps) {
     super(scope, id, props);
@@ -194,22 +212,69 @@ export class GestionProyectosStack extends Stack {
       installLatestAwsSdk: false
     });
 
-    // Rol pre-creado por el admin (cuentas gobernadas) o creado por el stack (dev).
-    // Cuando es importado, CDK no intenta modificar sus políticas: el deploy no
-    // necesita permisos de IAM y se respeta que solo el admin gobierna IAM.
+    // Rol de ejecución de la Lambda. Dos modos:
+    //  - prod (cuenta gobernada): se importa un rol pre-creado por el admin vía
+    //    `apiRoleArn`; CDK no toca IAM (el deploy no necesita permisos de IAM).
+    //  - dev: el stack crea el rol con NOMBRE ESTABLE y todos sus permisos en
+    //    código (DynamoDB, logs, Glue read-only, auto-invocación). El nombre fijo
+    //    da un ARN estable para grants externos (bucket policies, Lake Formation)
+    //    y elimina la deriva de configuración (permisos puestos a mano).
+    const functionName = `${resourcePrefix}-api`;
+    const functionArn = `arn:aws:lambda:${this.region}:${this.account}:function:${functionName}`;
     const importedRole = props.apiRoleArn
       ? iam.Role.fromRoleArn(this, "ApiFunctionRole", props.apiRoleArn, { mutable: false })
       : undefined;
 
+    const ownedRole = importedRole
+      ? undefined
+      : new iam.Role(this, "ApiFunctionRole", {
+          roleName: `${resourcePrefix}-api-role`,
+          assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com"),
+          description: "Rol de ejecución de la API de Gestión de Proyectos",
+        });
+
+    if (ownedRole) {
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "Logs",
+        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+        resources: ["*"],
+      }));
+      // Glue de SOLO LECTURA (metadata del data lake): nunca escribe ni borra.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "GlueReadOnly",
+        actions: ["glue:GetDatabases", "glue:GetDatabase", "glue:GetTables", "glue:GetTable", "glue:GetPartitions"],
+        resources: ["*"],
+      }));
+      // Auto-invocación asíncrona para el sync global del catálogo.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "SelfInvokeAsyncSync",
+        actions: ["lambda:InvokeFunction"],
+        resources: [functionArn],
+      }));
+      // S3 de SOLO LECTURA sobre los buckets del data lake (tamaño/frescura).
+      // Lado app del acceso cross-account: el lado hub (bucket policy) lo aplica
+      // el dueño del bucket en la cuenta 396913696127.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "DataLakeS3ReadOnly",
+        actions: ["s3:ListBucket", "s3:GetBucketLocation"],
+        resources: DATA_LAKE_BUCKETS.map(b => `arn:aws:s3:::${b}`),
+      }));
+    }
+
     const apiFunction = new lambda.Function(this, "ApiFunction", {
-      functionName: `${resourcePrefix}-api`,
+      functionName,
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: "handler.handler",
       code: lambda.Code.fromAsset("../backend/app"),
-      timeout: Duration.seconds(10),
-      memorySize: 256,
+      // 10s basta para las llamadas síncronas de la API (API Gateway corta a 29s
+      // de todos modos), pero el sync global se auto-invoca async en esta misma
+      // función y ahora lista S3 para calcular tamaño/frescura de cada tabla:
+      // necesita un presupuesto amplio o se mata a media ejecución y deja el
+      // estado en "syncing" sin escribir stats. 300s cubre data lakes grandes.
+      timeout: Duration.seconds(300),
+      memorySize: 512,
       logRetention: logs.RetentionDays.ONE_MONTH,
-      ...(importedRole ? { role: importedRole } : {}),
+      role: importedRole ?? ownedRole,
       environment: {
         ENV_NAME: props.envName,
         MAIN_TABLE_NAME: table.tableName,
@@ -217,14 +282,10 @@ export class GestionProyectosStack extends Stack {
       }
     });
 
-    // Solo cuando el stack es dueño del rol (dev) adjunta permisos. Con rol
-    // importado (prod), estos permisos los provee el admin en el rol pre-creado.
-    if (!importedRole) {
-      table.grantReadWriteData(apiFunction);
-      apiFunction.addToRolePolicy(new iam.PolicyStatement({
-        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
-        resources: ["*"]
-      }));
+    // DynamoDB de la app: RW solo cuando el stack es dueño del rol (dev). Con rol
+    // importado (prod) este permiso lo provee el admin en el rol pre-creado.
+    if (ownedRole) {
+      table.grantReadWriteData(ownedRole);
     }
 
     const httpApi = new apigwv2.HttpApi(this, "HttpApi", {

@@ -91,6 +91,7 @@
         catalogSaving: false,
         catalogSyncedAt: null,
         catalogSyncStatus: null,
+        catalogSyncPoller: null,
         catalogTableCache: {},
         needsNewPassword: false,
         loginBusy: false
@@ -1666,6 +1667,22 @@
         return `Hace ${Math.floor(diffH / 24)} días`;
       }
 
+      function catalogDateLabel(iso) {
+        if (!iso) return "—";
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return "—";
+        return d.toLocaleDateString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit" });
+      }
+
+      function formatBytes(n) {
+        if (!n || n < 0) return "0 B";
+        const u = ["B", "KB", "MB", "GB", "TB", "PB"];
+        let i = 0;
+        let v = n;
+        while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+        return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+      }
+
       async function renderCatalog() {
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
@@ -1681,6 +1698,8 @@
             state.catalogSyncedAt = payload.data.syncedAt;
             state.catalogSyncStatus = payload.data.syncStatus;
             state.catalogLoading = false;
+            // Si se entra con un sync en curso, sondear hasta que termine.
+            if (state.catalogSyncStatus === "syncing") startCatalogSyncPolling();
             if (state.catalogDatabases.length && !state.catalogSelectedDb) {
               await selectCatalogDb(state.catalogDatabases[0].name);
               return;
@@ -1708,11 +1727,31 @@
         paintCatalog();
       }
 
+      // Reúne los valores ya usados en el catálogo (de la caché en memoria) para
+      // sugerirlos en los datalist de dominio/sensibilidad/estado/sensibilidad-col.
+      function collectCatalogContextValues() {
+        const domains = new Set(), tableSens = new Set(), statuses = new Set(), colSens = new Set();
+        for (const t of Object.values(state.catalogTableCache || {})) {
+          const c = t.context || {};
+          if (c.domain) domains.add(c.domain);
+          if (c.sensitivity) tableSens.add(c.sensitivity);
+          if (c.status) statuses.add(c.status);
+          for (const col of (t.columns || [])) {
+            const cc = col.context || {};
+            if (cc.sensitivity) colSens.add(cc.sensitivity);
+          }
+        }
+        return { domains, tableSens, statuses, colSens };
+      }
+
       function hasUnsavedColumnChanges() {
         return [...elements.contentPanel.querySelectorAll(".catalogColumn")].some(colDiv => {
           const desc = colDiv.querySelector("[name=description]")?.value;
           const notes = colDiv.querySelector("[name=notes]")?.value;
-          return desc !== (colDiv.dataset.desc || "") || notes !== (colDiv.dataset.notes || "");
+          const sens = colDiv.querySelector("[name=sensitivity]")?.value;
+          const sample = colDiv.querySelector("[name=sampleValue]")?.value;
+          return desc !== (colDiv.dataset.desc || "") || notes !== (colDiv.dataset.notes || "")
+            || sens !== (colDiv.dataset.sens || "") || sample !== (colDiv.dataset.sample || "");
         });
       }
 
@@ -1740,13 +1779,58 @@
           state.catalogSyncStatus = "syncing";
           state.catalogDatabases = [];
           state.catalogTables = [];
+          state.catalogSelectedDb = null;
           state.catalogSelectedTable = null;
           if (btn) btn.disabled = false;
           paintCatalog();
+          // El sync es asíncrono en backend: sondeamos hasta que termine y
+          // refrescamos solo (las bases aparecen conforme se van sincronizando).
+          startCatalogSyncPolling();
         } catch (err) {
           if (btn) btn.disabled = false;
           alert(err.message || "Error al iniciar sincronización.");
         }
+      }
+
+      function stopCatalogSyncPolling() {
+        if (state.catalogSyncPoller) {
+          clearInterval(state.catalogSyncPoller);
+          state.catalogSyncPoller = null;
+        }
+      }
+
+      function startCatalogSyncPolling() {
+        stopCatalogSyncPolling();
+        let attempts = 0;
+        const maxAttempts = 90; // ~6 min con intervalo de 4s (cubre el timeout de 300s)
+        state.catalogSyncPoller = window.setInterval(async () => {
+          attempts++;
+          // Si el usuario salió del catálogo, dejar de sondear.
+          if (state.activeModule !== "catalog") { stopCatalogSyncPolling(); return; }
+          if (attempts > maxAttempts) { stopCatalogSyncPolling(); return; }
+          try {
+            const payload = await apiRequest("api/catalog");
+            const dbs = payload.data.databases || [];
+            const status = payload.data.syncStatus;
+            const countChanged = dbs.length !== state.catalogDatabases.length;
+            const statusChanged = status !== state.catalogSyncStatus;
+            state.catalogDatabases = dbs;
+            state.catalogSyncedAt = payload.data.syncedAt;
+            state.catalogSyncStatus = status;
+            if (status !== "syncing") {
+              // Terminó: refrescar y auto-seleccionar la primera base.
+              stopCatalogSyncPolling();
+              if (dbs.length && !state.catalogSelectedDb) {
+                await selectCatalogDb(dbs[0].name);
+                return;
+              }
+              paintCatalog();
+            } else if (countChanged || statusChanged) {
+              // Sigue sincronizando: repintar solo si cambió algo (evita parpadeo).
+              paintCatalog();
+            }
+          } catch { /* reintentar en el próximo tick */ }
+        }, 4000);
       }
 
       async function syncCatalogDb(dbName) {
@@ -1803,18 +1887,31 @@
           ? `<p class="catalogEmpty">Cargando…</p>`
           : noCache
           ? `<p class="catalogEmpty">Sin datos. Sincroniza para importar desde Glue.</p>`
-          : catalogDatabases.map(db => `
+          : catalogDatabases.map(db => {
+              const dbFichaItems = [];
+              if (db.location) dbFichaItems.push(`<span class="catalogFichaFullRow"><b>Ruta:</b> <code class="catalogLocationCode">${escapeHtml(db.location)}</code></span>`);
+              if (db.description) dbFichaItems.push(`<span class="catalogFichaFullRow"><b>Descripción:</b> ${escapeHtml(db.description)}</span>`);
+              dbFichaItems.push(`<span><b>Tablas:</b> ${db.tableCount || 0}</span>`);
+              if (db.syncedAt) dbFichaItems.push(`<span><b>Último sync:</b> ${catalogSyncedLabel(db.syncedAt)}</span>`);
+              dbFichaItems.push(`<span class="catalogDbFichaStats" data-db="${escapeAttribute(db.name)}"><b>Tamaño total:</b> <span class="catalogDbFichaStatsValue">—</span></span>`);
+              return `
               <div class="catalogDbRow${db.name === catalogSelectedDb ? " active" : ""}">
-                <button class="catalogDbItem" data-db="${escapeAttribute(db.name)}" type="button">
-                  <span class="catalogDbName">${escapeHtml(db.name)}</span>
-                  <span class="catalogDbMeta">${db.tableCount || 0} tablas · ${db.syncedAt ? catalogSyncedLabel(db.syncedAt) : "sin sync"}</span>
-                </button>
-                <button class="catalogSyncDbBtn iconTinyButton" type="button" data-sync-db="${escapeAttribute(db.name)}" title="Actualizar ${escapeAttribute(db.name)}">↻</button>
-              </div>
-            `).join("");
+                <div class="catalogDbItemWrap">
+                  <button class="catalogDbItem" data-db="${escapeAttribute(db.name)}" type="button">
+                    <span class="catalogDbName">${escapeHtml(db.name)}</span>
+                    <span class="catalogDbMeta">${db.tableCount || 0} tablas · ${db.syncedAt ? catalogSyncedLabel(db.syncedAt) : "sin sync"}</span>
+                  </button>
+                  <button class="catalogSyncDbBtn iconTinyButton" type="button" data-sync-db="${escapeAttribute(db.name)}" title="Actualizar ${escapeAttribute(db.name)}">↻</button>
+                </div>
+                <details class="catalogDbFichaWrap">
+                  <summary>Ficha técnica</summary>
+                  <div class="catalogFicha">${dbFichaItems.join("")}</div>
+                </details>
+              </div>`;
+            }).join("");
 
-        const syncBadge = (syncStatus === "syncing" && !catalogDatabases.length)
-          ? `<span class="catalogSyncBadge syncing">Sincronizando en background… Vuelve a entrar al catálogo en unos momentos.</span>`
+        const syncBadge = (syncStatus === "syncing")
+          ? `<span class="catalogSyncBadge syncing">Sincronizando… ${catalogDatabases.length ? `${catalogDatabases.length} base${catalogDatabases.length === 1 ? "" : "s"} hasta ahora` : "esto puede tardar"}</span>`
           : syncedAt
           ? `<span class="catalogSyncBadge">Última sync: ${catalogSyncedLabel(syncedAt)}</span>`
           : `<span class="catalogSyncBadge none">Sin sincronizar</span>`;
@@ -1921,29 +2018,72 @@
         }
 
         const ctx = table.context || {};
-        const sensitivityOptions = ["", "alta", "media", "baja"].map(v =>
-          `<option value="${v}"${ctx.sensitivity === v ? " selected" : ""}>${v === "" ? "Sin clasificar" : v.charAt(0).toUpperCase() + v.slice(1)}</option>`
-        ).join("");
 
+        // Valores recomendados (solo sugerencias) + los que ya existen guardados
+        // en el catálogo, combinados en un <datalist>. El campo es texto libre:
+        // se puede tomar una sugerencia o escribir un valor nuevo.
+        const used = collectCatalogContextValues();
+        const domainRec = ["Comercial", "Riesgo", "Finanzas", "Operaciones", "Canales", "Clientes", "Datos / TI"];
+        const sensRec = ["Interna", "Confidencial", "PII", "Financiera", "Restringida"];
+        const statusRec = ["Borrador", "Pendiente revisión", "Aprobado"];
+        const buildDatalist = (id, recommended, existing) => {
+          const seen = new Set(recommended.map(s => s.toLowerCase()));
+          const extras = [...existing].filter(v => v && !seen.has(v.toLowerCase()));
+          return `<datalist id="${id}">${[...recommended, ...extras].map(v => `<option value="${escapeAttribute(v)}"></option>`).join("")}</datalist>`;
+        };
+        const datalists =
+          buildDatalist("dlTableDomain", domainRec, used.domains) +
+          buildDatalist("dlTableSens", sensRec, used.tableSens) +
+          buildDatalist("dlTableStatus", statusRec, used.statuses) +
+          buildDatalist("dlColSens", sensRec, used.colSens);
+
+        // Una sensibilidad cuenta como "sensible" si no está vacía y no es interna
+        const isSensitive = (v) => { const s = (v || "").trim().toLowerCase(); return !!s && s !== "interna" && s !== "interno"; };
+
+        const isKey = (name) => name === "id" || name.endsWith("_id");
         const columnsHtml = (table.columns || []).map(col => {
           const colCtx = col.context || {};
-          const hasDesc = colCtx.description || colCtx.notes;
+          const documented = !!colCtx.description;
+          const sensitive = isSensitive(colCtx.sensitivity || ctx.sensitivity);
           return `
-            <div class="catalogColumn" data-column="${escapeAttribute(col.name)}" data-desc="${escapeAttribute(colCtx.description || "")}" data-notes="${escapeAttribute(colCtx.notes || "")}">
+            <div class="catalogColumn" data-column="${escapeAttribute(col.name)}"
+                 data-desc="${escapeAttribute(colCtx.description || "")}" data-notes="${escapeAttribute(colCtx.notes || "")}"
+                 data-sens="${escapeAttribute(colCtx.sensitivity || "")}" data-sample="${escapeAttribute(colCtx.sampleValue || "")}"
+                 data-documented="${documented ? "1" : "0"}" data-sensitive="${sensitive ? "1" : "0"}" data-key="${isKey(col.name) ? "1" : "0"}">
               <div class="catalogColumnHeader">
                 <strong>${escapeHtml(col.name)}</strong>
                 <code class="catalogColumnType">${escapeHtml(col.type)}</code>
                 ${col.isPartition ? `<span class="catalogPartitionBadge">partición</span>` : ""}
+                ${isKey(col.name) ? `<span class="catalogKeyBadge">llave</span>` : ""}
                 <span class="catalogColDirtyDot" title="Cambios sin guardar" hidden>●</span>
               </div>
               ${col.comment ? `<p class="catalogColumnComment">${escapeHtml(col.comment)}</p>` : ""}
-              <div class="catalogColumnCtx${hasDesc ? " hasCtx" : ""}">
+              <div class="catalogColumnCtx${documented || colCtx.notes ? " hasCtx" : ""}">
                 <textarea class="catalogColumnDesc" name="description" placeholder="Descripción funcional…" rows="2">${escapeHtml(colCtx.description || "")}</textarea>
-                <textarea class="catalogColumnNotes" name="notes" placeholder="Notas internas…" rows="1">${escapeHtml(colCtx.notes || "")}</textarea>
+                <div class="catalogColumnRow">
+                  <input class="catalogColumnSens" name="sensitivity" list="dlColSens" placeholder="Sensibilidad (hereda)" value="${escapeAttribute(colCtx.sensitivity || "")}" />
+                  <input class="catalogColumnSample" name="sampleValue" type="text" placeholder="Ejemplo de valor" value="${escapeAttribute(colCtx.sampleValue || "")}" />
+                </div>
+                <textarea class="catalogColumnNotes" name="notes" placeholder="Notas internas / reglas…" rows="1">${escapeHtml(colCtx.notes || "")}</textarea>
               </div>
             </div>
           `;
         }).join("");
+
+        const cols = table.columns || [];
+        const documentedCount = cols.filter(c => c.context?.description).length;
+
+        // Ficha técnica (metadata automática de Glue + tamaño/frescura de S3)
+        const fichaItems = [];
+        if (table.format) fichaItems.push(`<span><b>Formato:</b> ${escapeHtml(table.format)}</span>`);
+        if ((table.partitionKeys || []).length) fichaItems.push(`<span><b>Particionada por:</b> ${escapeHtml(table.partitionKeys.join(", "))}</span>`);
+        fichaItems.push(`<span><b>Columnas:</b> ${cols.length}</span>`);
+        if (table.glueCreatedAt) fichaItems.push(`<span><b>Creada:</b> ${catalogDateLabel(table.glueCreatedAt)}</span>`);
+        if (table.glueUpdatedAt) fichaItems.push(`<span><b>Actualizada (esquema):</b> ${catalogDateLabel(table.glueUpdatedAt)}</span>`);
+        if (table.location) fichaItems.push(`<span class="catalogFichaFullRow"><b>Ruta S3:</b> <code class="catalogLocationCode">${escapeHtml(table.location)}</code></span>`);
+        if (table.syncedAt) fichaItems.push(`<span><b>Último sync:</b> ${catalogSyncedLabel(table.syncedAt)}</span>`);
+        // El tamaño/archivos/frescura se rellena bajo demanda (lazy) desde S3
+        fichaItems.push(`<span class="catalogFichaStats" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}"><b>Tamaño:</b> <span class="catalogFichaStatsValue">calculando…</span></span>`);
 
         return `
           <div class="catalogDetailHeader">
@@ -1952,25 +2092,43 @@
                 <p class="eyebrow">${escapeHtml(table.database)}</p>
                 <h3>${escapeHtml(table.name)}</h3>
                 ${table.tableType ? `<p class="catalogTableTypeLine">${escapeHtml(table.tableType)}</p>` : ""}
-                ${table.location ? `<p class="catalogLocation">${escapeHtml(table.location)}</p>` : ""}
-                ${table.syncedAt ? `<p class="catalogLocation">Sync: ${catalogSyncedLabel(table.syncedAt)}</p>` : ""}
+                <details class="catalogFichaWrap">
+                  <summary>Ficha técnica</summary>
+                  <div class="catalogFicha">${fichaItems.join("")}</div>
+                </details>
               </div>
               <button class="iconTinyButton syncTableBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}" title="Actualizar tabla desde Glue" aria-label="Actualizar tabla desde Glue">↻</button>
             </div>
           </div>
           <div class="catalogTableCtxForm">
             <p class="catalogSectionLabel">Contexto de tabla</p>
-            <textarea class="catalogCtxInput" name="tableDescription" placeholder="Descripción funcional de la tabla…" rows="3">${escapeHtml(ctx.description || "")}</textarea>
+            <textarea class="catalogCtxInput" name="tableDescription" placeholder="Descripción funcional: qué representa la tabla…" rows="2">${escapeHtml(ctx.description || "")}</textarea>
+            <textarea class="catalogCtxInput" name="tableUsagePrimary" placeholder="Uso principal: ¿para qué se usa? (ej. analizar mora a 90 días por cosecha)" rows="2">${escapeHtml(ctx.usagePrimary || "")}</textarea>
             <div class="catalogCtxRow">
               <input class="catalogCtxInput" name="tableResponsible" type="text" placeholder="Responsable funcional" value="${escapeAttribute(ctx.responsible || "")}" />
-              <select class="catalogCtxInput" name="tableSensitivity">${sensitivityOptions}</select>
+              <input class="catalogCtxInput" name="tableDomain" list="dlTableDomain" placeholder="Dominio" value="${escapeAttribute(ctx.domain || "")}" />
             </div>
-            <textarea class="catalogCtxInput" name="tableUsageNotes" placeholder="Reglas de uso o notas…" rows="2">${escapeHtml(ctx.usageNotes || "")}</textarea>
+            <div class="catalogCtxRow">
+              <input class="catalogCtxInput" name="tableSensitivity" list="dlTableSens" placeholder="Sensibilidad" value="${escapeAttribute(ctx.sensitivity || "")}" />
+              <input class="catalogCtxInput" name="tableStatus" list="dlTableStatus" placeholder="Estado (borrador/aprobado)" value="${escapeAttribute(ctx.status || "")}" />
+            </div>
+            <textarea class="catalogCtxInput" name="tableUsageNotes" placeholder="Reglas de uso / limitaciones…" rows="2">${escapeHtml(ctx.usageNotes || "")}</textarea>
             <button class="tinyButton saveTableCtxBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}">Guardar contexto</button>
             <span class="catalogTableSaveNotice" hidden></span>
           </div>
+          ${datalists}
           <div class="catalogColumnSection">
-            <p class="catalogSectionLabel">${(table.columns || []).length} columnas</p>
+            <div class="catalogColumnSectionHead">
+              <p class="catalogSectionLabel">${cols.length} columnas</p>
+              <span class="catalogColProgress">${documentedCount} de ${cols.length} documentadas</span>
+            </div>
+            <div class="catalogColProgressBar"><span style="width:${cols.length ? Math.round(documentedCount / cols.length * 100) : 0}%"></span></div>
+            <div class="catalogColFilters" role="group" aria-label="Filtrar columnas">
+              <button class="catalogColFilterChip active" type="button" data-col-filter="all">Todas</button>
+              <button class="catalogColFilterChip" type="button" data-col-filter="undocumented">Sin descripción</button>
+              <button class="catalogColFilterChip" type="button" data-col-filter="sensitive">Sensibles</button>
+              <button class="catalogColFilterChip" type="button" data-col-filter="key">Llaves</button>
+            </div>
             <div class="catalogColumnList">${columnsHtml}</div>
           </div>
           <div class="catalogColSaveBar" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}" hidden>
@@ -1980,11 +2138,74 @@
         `;
       }
 
+      async function loadCatalogFichaStats(panel) {
+        const el = panel.querySelector(".catalogFichaStats");
+        if (!el) return;
+        const valueEl = el.querySelector(".catalogFichaStatsValue");
+        const { db, table } = el.dataset;
+        try {
+          const payload = await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}?stats=1`);
+          const s = payload.data?.stats;
+          if (!s || !s.available) {
+            valueEl.textContent = s?.reason || "no disponible";
+            valueEl.classList.add("muted");
+            return;
+          }
+          const parts = [`${formatBytes(s.sizeBytes)}`, `${s.objectCount} archivo${s.objectCount === 1 ? "" : "s"}`];
+          if (s.truncated) parts[0] = "≥ " + parts[0];
+          let html = `${parts.join(" · ")}`;
+          if (s.lastModified) html += ` · <b>Datos hasta:</b> ${catalogDateLabel(s.lastModified)}`;
+          valueEl.innerHTML = html;
+        } catch {
+          valueEl.textContent = "no disponible";
+          valueEl.classList.add("muted");
+        }
+      }
+
+      async function loadCatalogDbFichaStats(dbName: string, container: Element) {
+        const el = container.querySelector(".catalogDbFichaStats");
+        if (!el) return;
+        const valueEl = el.querySelector(".catalogDbFichaStatsValue");
+        if (!valueEl || valueEl.textContent !== "—") return; // ya cargado
+        valueEl.textContent = "calculando…";
+        try {
+          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}?stats=1`);
+          const s = payload.data?.stats;
+          if (!s || !s.available) {
+            valueEl.textContent = s?.reason || "no disponible";
+            valueEl.classList.add("muted");
+            return;
+          }
+          const parts = [`${formatBytes(s.sizeBytes)}`, `${s.objectCount} archivo${s.objectCount === 1 ? "" : "s"}`];
+          if (s.truncated) parts[0] = "≥ " + parts[0];
+          let html = parts.join(" · ");
+          if (s.lastModified) html += ` · <b>Datos hasta:</b> ${catalogDateLabel(s.lastModified)}`;
+          valueEl.innerHTML = html;
+        } catch {
+          valueEl.textContent = "no disponible";
+          valueEl.classList.add("muted");
+        }
+      }
+
       function bindCatalogEvents() {
         const panel = elements.contentPanel;
 
         panel.querySelector(".syncAllBtn")?.addEventListener("click", syncCatalogAll);
         panel.querySelector(".catalogGraphBtn")?.addEventListener("click", openCatalogGraph);
+
+        // Carga perezosa del tamaño/archivos/frescura (S3) para no demorar la
+        // apertura del detalle ni las precargas masivas.
+        loadCatalogFichaStats(panel);
+
+        // Carga perezosa de stats de BD al abrir su ficha técnica
+        panel.querySelectorAll(".catalogDbFichaWrap").forEach(details => {
+          details.addEventListener("toggle", () => {
+            if ((details as HTMLDetailsElement).open) {
+              const dbName = (details.closest(".catalogDbRow") as HTMLElement)?.querySelector<HTMLElement>(".catalogDbItem")?.dataset.db || "";
+              loadCatalogDbFichaStats(dbName, details);
+            }
+          });
+        });
 
         panel.querySelectorAll(".catalogDbItem").forEach(btn => {
           btn.onclick = () => selectCatalogDb(btn.dataset.db);
@@ -2076,8 +2297,11 @@
             const notice = form.querySelector(".catalogTableSaveNotice");
             const body = {
               description: form.querySelector("[name=tableDescription]").value,
+              usagePrimary: form.querySelector("[name=tableUsagePrimary]").value,
               responsible: form.querySelector("[name=tableResponsible]").value,
+              domain: form.querySelector("[name=tableDomain]").value,
               sensitivity: form.querySelector("[name=tableSensitivity]").value,
+              status: form.querySelector("[name=tableStatus]").value,
               usageNotes: form.querySelector("[name=tableUsageNotes]").value,
             };
             btn.disabled = true;
@@ -2111,13 +2335,31 @@
           const saveBtn = saveBar.querySelector(".saveAllColsBtn");
           const barMsg = saveBar.querySelector(".catalogColSaveBarMsg");
 
-          // Una columna está "sucia" si su descripción o notas difieren de lo
-          // guardado (data-desc/data-notes, actualizados tras cada guardado)
-          const dirtyColumns = () => [...panel.querySelectorAll(".catalogColumn")].filter(colDiv => {
-            const desc = colDiv.querySelector("[name=description]").value;
-            const notes = colDiv.querySelector("[name=notes]").value;
-            return desc !== (colDiv.dataset.desc || "") || notes !== (colDiv.dataset.notes || "");
+          // Una columna está "sucia" si alguno de sus campos (descripción,
+          // sensibilidad, ejemplo, notas) difiere de lo guardado (data-*)
+          const colValues = (colDiv) => ({
+            description: colDiv.querySelector("[name=description]").value,
+            sensitivity: colDiv.querySelector("[name=sensitivity]").value,
+            sampleValue: colDiv.querySelector("[name=sampleValue]").value,
+            notes: colDiv.querySelector("[name=notes]").value,
           });
+          const dirtyColumns = () => [...panel.querySelectorAll(".catalogColumn")].filter(colDiv => {
+            const v = colValues(colDiv);
+            return v.description !== (colDiv.dataset.desc || "")
+              || v.notes !== (colDiv.dataset.notes || "")
+              || v.sensitivity !== (colDiv.dataset.sens || "")
+              || v.sampleValue !== (colDiv.dataset.sample || "");
+          });
+
+          // Actualiza el contador y la barra de progreso de documentación
+          const progressEl = panel.querySelector(".catalogColProgress");
+          const progressBar = panel.querySelector(".catalogColProgressBar span");
+          const updateProgress = () => {
+            const all = [...panel.querySelectorAll(".catalogColumn")];
+            const done = all.filter(c => c.querySelector("[name=description]").value.trim()).length;
+            if (progressEl) progressEl.textContent = `${done} de ${all.length} documentadas`;
+            if (progressBar) progressBar.style.width = (all.length ? Math.round(done / all.length * 100) : 0) + "%";
+          };
 
           const refreshSaveBar = () => {
             const dirty = dirtyColumns();
@@ -2134,8 +2376,11 @@
             barMsg.textContent = "";
           };
 
-          panel.querySelectorAll(".catalogColumnDesc, .catalogColumnNotes").forEach(ta => {
-            ta.addEventListener("input", refreshSaveBar);
+          panel.querySelectorAll(".catalogColumnDesc, .catalogColumnNotes, .catalogColumnSample, .catalogColumnSens").forEach(el => {
+            el.addEventListener("input", refreshSaveBar);
+          });
+          panel.querySelectorAll(".catalogColumnDesc").forEach(el => {
+            el.addEventListener("input", updateProgress);
           });
 
           saveBtn.onclick = async () => {
@@ -2146,10 +2391,7 @@
             barMsg.textContent = "Guardando…";
             const results = await Promise.allSettled(dirty.map(async colDiv => {
               const column = colDiv.dataset.column;
-              const body = {
-                description: colDiv.querySelector("[name=description]").value,
-                notes: colDiv.querySelector("[name=notes]").value,
-              };
+              const body = colValues(colDiv);
               await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}/context`, {
                 method: "PUT",
                 body: JSON.stringify(body),
@@ -2159,10 +2401,16 @@
               if (col) col.context = body;
               colDiv.dataset.desc = body.description;
               colDiv.dataset.notes = body.notes;
-              colDiv.classList.toggle("hasCtx", Boolean(body.description || body.notes));
+              colDiv.dataset.sens = body.sensitivity;
+              colDiv.dataset.sample = body.sampleValue;
+              colDiv.dataset.documented = body.description ? "1" : "0";
+              const sv = (body.sensitivity || "").trim().toLowerCase();
+              colDiv.dataset.sensitive = (sv && sv !== "interna" && sv !== "interno") ? "1" : "0";
+              colDiv.classList.toggle("hasCtx", Boolean(body.description || body.notes || body.sensitivity || body.sampleValue));
             }));
             const failed = results.filter(r => r.status === "rejected").length;
             refreshSaveBar();
+            updateProgress();
             if (failed) {
               barMsg.textContent = `${failed} no se pudo${failed === 1 ? "" : "n"} guardar. Reintenta.`;
               saveBar.hidden = false;
@@ -2173,6 +2421,27 @@
           };
 
           refreshSaveBar();
+        }
+
+        // ── Filtros de columnas (Todas / Sin descripción / Sensibles / Llaves) ──
+        const colFilterChips = panel.querySelectorAll(".catalogColFilterChip");
+        if (colFilterChips.length) {
+          const applyColFilter = (filter) => {
+            panel.querySelectorAll(".catalogColumn").forEach(colDiv => {
+              const show =
+                filter === "all" ||
+                (filter === "undocumented" && colDiv.dataset.documented === "0") ||
+                (filter === "sensitive" && colDiv.dataset.sensitive === "1") ||
+                (filter === "key" && colDiv.dataset.key === "1");
+              colDiv.hidden = !show;
+            });
+          };
+          colFilterChips.forEach(chip => {
+            chip.onclick = () => {
+              colFilterChips.forEach(c => c.classList.toggle("active", c === chip));
+              applyColFilter(chip.dataset.colFilter);
+            };
+          });
         }
       }
 

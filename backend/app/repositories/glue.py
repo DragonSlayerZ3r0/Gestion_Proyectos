@@ -30,6 +30,13 @@ class GlueRepository:
             kwargs["NextToken"] = next_token
         return tables
 
+    def get_database(self, database: str) -> dict[str, Any] | None:
+        try:
+            response = self._client.get_database(Name=database)
+            return response.get("Database")
+        except self._client.exceptions.EntityNotFoundException:
+            return None
+
     def get_table(self, database: str, table: str) -> dict[str, Any] | None:
         try:
             response = self._client.get_table(DatabaseName=database, Name=table)

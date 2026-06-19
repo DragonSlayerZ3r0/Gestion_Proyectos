@@ -23,14 +23,22 @@ Athena = preview o consulta controlada
 
 ## Información guardada en DynamoDB
 
-- Descripción funcional de tabla.
-- Responsable funcional.
-- Proyecto asociado.
-- Nivel de sensibilidad.
-- Reglas de uso.
-- Descripción funcional de columnas.
-- Notas internas.
-- Estado de documentación.
+Contexto de tabla (item `TABLE#db#tabla / CONTEXT`):
+- `description` — descripción funcional (qué representa).
+- `usagePrimary` — uso principal (para qué se usa); alimenta RAG y onboarding.
+- `domain` — dominio de negocio. **Texto libre con sugerencias**: un `<datalist>` combina valores recomendados (Comercial, Riesgo, Finanzas, Operaciones, Canales, Clientes, Datos/TI) con los que ya se hayan guardado en el catálogo; el analista puede elegir uno o escribir uno nuevo.
+- `responsible` — responsable funcional.
+- `sensitivity` — sensibilidad. Texto libre con sugerencias (Interna, Confidencial, PII, Financiera, Restringida + valores ya usados).
+- `status` — estado del contexto. Texto libre con sugerencias (Borrador, Pendiente revisión, Aprobado + valores ya usados); evita que RAG consuma lo no validado.
+- `usageNotes` — reglas de uso / limitaciones.
+
+Contexto de columna (item `TABLE#db#tabla / COLUMN#col`):
+- `description` — descripción funcional.
+- `sensitivity` — sensibilidad por columna (vacío = hereda de la tabla); texto libre con las mismas sugerencias que la tabla. Una tabla "interna" puede tener columnas PII.
+- `sampleValue` — ejemplo de valor (texto libre que escribe el analista; NO se auto-extrae para no exponer PII real).
+- `notes` — notas internas / reglas.
+
+Los campos `obligatorio` de la propuesta V1 no se imponen por bloqueo en frontend (evita fricción); el progreso de documentación invita a completarlos. La obligatoriedad real corresponde a un futuro flujo "Enviar a revisión".
 
 ## Relación tabla-proyecto
 
@@ -84,7 +92,15 @@ Todas requieren el módulo `catalog` habilitado para el usuario.
 - Búsqueda con chips de alcance combinables: `Tabla`, `Contexto`, `Columna`, `Desc. columna`. Coincidencia parcial, insensible a mayúsculas.
 - Buscar por `Columna` o `Desc. columna` evalúa las columnas de cada tabla usando la caché de detalles (`state.catalogTableCache`). Como Glue solo entrega columnas por tabla, al activar esos alcances se precargan en segundo plano los detalles faltantes (helper `ensureCatalogTableDetails`, 6 peticiones en paralelo) y la lista se refina conforme llegan, con aviso "Cargando columnas…".
 - Detalle de tabla con columnas, tipos y contexto funcional editable.
-- El contexto de columnas (descripción/notas) se edita con guardado masivo: en vez de un botón por columna, una barra fija al pie del detalle muestra "Guardar N cambios" y guarda en paralelo solo las columnas modificadas (cada una con su `PUT` de contexto). Las columnas con cambios sin guardar se marcan con un punto; al cambiar de tabla con cambios pendientes se pide confirmación. Los textarea crecen con el contenido.
+- El contexto de columnas (descripción, sensibilidad, ejemplo de valor, notas) se edita con guardado masivo: en vez de un botón por columna, una barra fija al pie del detalle muestra "Guardar N cambios" y guarda en paralelo solo las columnas modificadas (cada una con su `PUT` de contexto). Las columnas con cambios sin guardar se marcan con un punto; al cambiar de tabla con cambios pendientes se pide confirmación. Los textarea crecen con el contenido.
+- Sobre la lista de columnas hay un indicador de progreso ("X de N documentadas" con barra) y filtros: Todas / Sin descripción / Sensibles / Llaves (`id`/`_id`). El progreso se actualiza en vivo al escribir/guardar.
+
+#### Ficha técnica (tabla y base de datos)
+
+En el detalle de tabla y en cada base de datos del sidebar se muestra una ficha automática (solo lectura, colapsable) con metadata de Glue y de S3:
+- **Glue** (cacheada en el sync, solo tabla): formato físico (`format`, derivado de `classification` o el SerDe), particionada por (`partitionKeys`), fecha de creación (`glueCreatedAt`), última actualización de esquema (`glueUpdatedAt`), número de columnas, ruta S3 (`location`).
+- **S3** (calculada en el sync y guardada en DynamoDB): tamaño total, número de archivos y frescura ("Datos hasta:" = última modificación de objetos). **Se calcula durante el sync, no en cada consulta** — la ficha lee del caché y abre instantánea (los datos reflejan el último sync). Importante: el tamaño/frescura **NO** puede atarse a la condición diferencial de Glue, porque el `UpdateTime` de Glue solo cambia con la definición (esquema/ubicación) y NO con las cargas diarias de datos; si se atara, una tabla con carga diaria pero sin cambio de esquema nunca actualizaría su tamaño y la frescura sería incorrecta. Por eso las stats se recalculan en cada sync. El cálculo (`_compute_database_stats`) es un **listado dirigido por tabla** (cada tabla lista solo su prefijo, lee únicamente sus objetos → exacto, sin truncarse por objetos ajenos del bucket) ejecutado **en paralelo con hilos** (`ThreadPoolExecutor`, 12 workers; el cliente boto3 es thread-safe). El agregado de la BD es la suma de las stats de sus tablas. Las stats por tabla se guardan en el item con `update_catalog_table_stats` (no reescribe la metadata Glue, preserva el sync diferencial de Glue); el agregado de la BD se guarda en el item `CATALOG#DB`.
+- Lectura: `GET /api/catalog/{db}/{table}?stats=1` (tabla) y `GET /api/catalog/{db}?stats=1` (agregado de la BD) devuelven las stats desde el caché. Requiere que el rol de la Lambda tenga `s3:ListBucket` sobre el bucket (lado app) y, para buckets cross-account del hub, una bucket policy que liste el rol (ver `docs/19_paso_a_produccion.md`). Si un bucket no es accesible, la ficha muestra "no disponible" sin romper el resto. Antes del primer sync con esta función, las stats aparecen como "Aún no calculado. Sincroniza…".
 
 #### Grafo de relaciones (Canvas 2D)
 
