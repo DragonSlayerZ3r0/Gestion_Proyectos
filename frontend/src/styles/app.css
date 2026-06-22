@@ -493,11 +493,24 @@
   }
 
   .statusPanel {
-    display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr);
-    gap: 24px;
-    max-width: 980px;
-    padding: 28px;
+    display: block;
+    max-width: 560px;
+    padding: 32px;
+  }
+
+  .statusPending {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .statusPendingHint {
+    font-size: 0.9rem;
+  }
+
+  .statusPending #statusBackButton {
+    margin-top: 10px;
   }
 
   .panel {
@@ -978,6 +991,30 @@
     display: flex;
     justify-content: flex-end;
     padding: 0 12px 12px;
+  }
+
+  .detailDanger {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .dangerButton {
+    border: 1px solid #e0b4b4;
+    background: #fbe9e9;
+    color: #8f2020;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .dangerButton:hover {
+    background: #f6dada;
+    color: #7a1a1a;
   }
 
   .personCard strong,
@@ -1888,6 +1925,77 @@
   .catalogTableDesc { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .catalogEmpty { color: var(--muted); font-size: 0.85rem; padding: 12px 0; }
+  .catalogEmptyError { color: var(--danger, #c0392b); line-height: 1.4; }
+
+  /* ── Administración de usuarios ── */
+  .adminGrid { grid-template-columns: 1.6fr 1fr; align-items: start; gap: 18px; }
+  .adminUserList { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+  .adminUserCard { border: 1px solid var(--border, #e2e6ea); border-radius: 10px; padding: 14px; background: var(--surface, #fff); }
+  .adminUserHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .adminUserHead strong { display: block; font-size: 0.95rem; }
+  .adminUserEmail { font-size: 0.78rem; color: var(--muted); }
+  .adminStatusBadge { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+  .adminStatusBadge.on { background: #e6f4ea; color: #1e7a3c; }
+  .adminStatusBadge.off { background: #f4e6e6; color: #b03030; }
+  .adminUserControls { display: flex; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+  .adminUserControls label, .adminCreateForm label { display: flex; flex-direction: column; font-size: 0.74rem; color: var(--muted); gap: 4px; }
+  .adminUserControls select, .adminCreateForm select, .adminCreateForm input { padding: 6px 8px; border: 1px solid var(--border, #d7dce1); border-radius: 7px; font-size: 0.85rem; }
+  .adminModules { display: flex; flex-wrap: wrap; gap: 8px 14px; border: none; padding: 4px 0; margin: 6px 0; }
+  .adminModules legend { font-size: 0.74rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
+  .adminModuleChk { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82rem; }
+  .adminUserActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .adminCreateForm { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+  .adminHint, .adminFormMsg { font-size: 0.78rem; color: var(--muted); }
+  .adminFormMsg.error { color: var(--danger, #c0392b); }
+
+  /* ── Inicio (dashboard) ── */
+  .homeGrid { grid-template-columns: 1fr; gap: 18px; }
+  .homeTabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .homeTab {
+    border: none; background: transparent; color: var(--muted);
+    padding: 10px 18px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .homeTab:hover { color: var(--text); }
+  .homeTab.active { color: var(--accent-strong, #1f6f64); border-bottom-color: var(--accent-strong, #1f6f64); }
+  .homePanel h2 { margin: 2px 0 12px; }
+  .homePanel h3 { font-size: 0.85rem; margin: 0 0 8px; color: var(--text); }
+  .homeStatsRow { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+  .homeStatCard {
+    flex: 1 1 130px; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; background: var(--panel-soft, #f7f9fa);
+  }
+  .homeStatCard strong { display: block; font-size: 1.5rem; line-height: 1.1; color: var(--accent-strong, #1f6f64); }
+  .homeStatCard span { font-size: 0.78rem; color: var(--muted); }
+  .homeStatCard.homeNet { background: #eef6f4; border-color: #b8dad5; }
+  .homeStatCard.homeNet strong { color: #15564d; }
+  .homeStatCard.homeCreditCard strong { color: #1e7a3c; }
+  .homeChartsRow { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .homeChartBox { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .homeChartBox canvas { width: 100% !important; height: 240px !important; }
+  .homeTopList { margin-top: 16px; }
+  .homeTopRow { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.86rem; }
+  .homeTopMeta { color: var(--muted); }
+  .homeCredit { color: #1e7a3c; font-weight: 600; }
+  .homeCostHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .homeCostControls { display: flex; gap: 12px; flex-wrap: wrap; }
+  .homeCostControls label { display: flex; flex-direction: column; font-size: 0.74rem; color: var(--muted); gap: 4px; }
+  .homeCostControls select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 0.85rem; }
+  .homeCostHint { font-size: 0.76rem; color: var(--muted); margin: 4px 0 14px; }
+  .homeCostFreshness {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    flex-wrap: wrap; margin: 6px 0 14px; padding: 8px 12px;
+    background: var(--panel-soft, #f7f9fa); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .homeCostUpdated { font-size: 0.82rem; color: var(--text); }
+  .homeCostAgo { color: var(--muted); }
+  .homeViewToggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; align-self: flex-end; height: 33px; }
+  .homeViewBtn { border: none; background: var(--panel, #fff); color: var(--muted); padding: 0 14px; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+  .homeViewBtn.active { background: var(--accent-strong, #1f6f64); color: #fff; }
+
+  @media (max-width: 860px) {
+    .homeChartsRow { grid-template-columns: 1fr; }
+  }
 
   .catalogDetail {
     overflow-y: auto;

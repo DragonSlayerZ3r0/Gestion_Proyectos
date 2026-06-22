@@ -16,13 +16,20 @@ flowchart LR
   athena -.-> datalake["S3 Data Lake"]
 ```
 
-La estructura no es MVC clásico. El patrón actual es serverless por capas:
+La estructura no es MVC clásico. El patrón actual es serverless por capas, con
+**módulos enchufables** tanto en backend como en frontend:
 
-- Capa de presentación: Astro en `frontend/`.
-- Capa de entrada HTTP: API Gateway y `backend/app/handler.py`.
-- Capa de identidad: Cognito, JWT Authorizer y `backend/app/auth.py`.
+- Capa de presentación: Astro en `frontend/`. El shell vive en `scripts/app.ts` y cada
+  módulo de UI en `scripts/modules/` (`home`, `workspace`, `catalog`, `admin`), creado
+  por inyección de dependencias (`createXModule(ctx)`).
+- Capa de entrada HTTP: API Gateway y `backend/app/handler.py` (delgado) + `core/router.py`
+  (router por registro). Cada módulo declara sus rutas en `modules/<x>_routes.py` y se
+  autodescubre; agregar un módulo no toca el núcleo.
+- Capa de identidad: Cognito, JWT Authorizer y `backend/app/auth.py`. Autorización
+  declarativa en `core/guards.py` (`ensure_module_access`, `ensure_admin`).
 - Capa funcional: servicios en `backend/app/services/`.
-- Capa de datos: repositorios en `backend/app/repositories/`.
+- Capa de datos: **un repositorio por dominio** en `backend/app/repositories/`
+  (`users`, `workspace`, `catalog`, `home`, `glue`) sobre `base.py`; sin god-class.
 - Capa de infraestructura: CDK TypeScript en `infra/`.
 
 El detalle operativo de puertos, desarrollo local y publicación está en `docs/17_desarrollo_local_publicacion.md`.

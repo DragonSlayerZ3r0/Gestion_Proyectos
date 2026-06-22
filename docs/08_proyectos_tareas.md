@@ -1,5 +1,7 @@
 # Proyectos y tareas
 
+> **Naturaleza de este documento:** describe el **diseño objetivo** (especificación funcional/UX) del módulo. Para el **estado realmente implementado y desplegado**, ver [`docs/15_estado_implementacion.md`](15_estado_implementacion.md).
+
 ## Experiencia objetivo
 
 La gestión de proyectos y tareas debe concentrarse en una pantalla de trabajo simple. El usuario debe poder crear una persona, crear un proyecto, agregar personas al proyecto y crear tareas sin navegar por varias pantallas.

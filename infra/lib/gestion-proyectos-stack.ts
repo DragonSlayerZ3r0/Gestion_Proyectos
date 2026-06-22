@@ -259,6 +259,19 @@ export class GestionProyectosStack extends Stack {
         actions: ["s3:ListBucket", "s3:GetBucketLocation"],
         resources: DATA_LAKE_BUCKETS.map(b => `arn:aws:s3:::${b}`),
       }));
+      // Cost Explorer de la cuenta app (solo lectura) para el dashboard de Inicio.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "CostExplorerReadOnly",
+        actions: ["ce:GetCostAndUsage", "ce:GetCostForecast", "ce:GetDimensionValues"],
+        resources: ["*"],
+      }));
+      // AssumeRole al rol del hub (396913696127) para leer SU Cost Explorer.
+      // El rol del hub lo crea scripts/grant-hub-cost-explorer.sh.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "AssumeHubCostRole",
+        actions: ["sts:AssumeRole"],
+        resources: ["arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader"],
+      }));
     }
 
     const apiFunction = new lambda.Function(this, "ApiFunction", {
@@ -278,7 +291,10 @@ export class GestionProyectosStack extends Stack {
       environment: {
         ENV_NAME: props.envName,
         MAIN_TABLE_NAME: table.tableName,
-        DEFAULT_MODULES: MODULES.join(",")
+        DEFAULT_MODULES: MODULES.join(","),
+        APP_ACCOUNT_ID: this.account,
+        HUB_ACCOUNT_ID: "396913696127",
+        HUB_COST_ROLE_ARN: "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader"
       }
     });
 
@@ -338,7 +354,7 @@ export class GestionProyectosStack extends Stack {
     });
     httpApi.addRoutes({
       path: "/api/people/{personId}",
-      methods: [apigwv2.HttpMethod.PATCH],
+      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
       integration,
       authorizer: jwtAuthorizer
     });
@@ -350,7 +366,7 @@ export class GestionProyectosStack extends Stack {
     });
     httpApi.addRoutes({
       path: "/api/projects/{projectId}",
-      methods: [apigwv2.HttpMethod.PATCH],
+      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
       integration,
       authorizer: jwtAuthorizer
     });
@@ -374,7 +390,7 @@ export class GestionProyectosStack extends Stack {
     });
     httpApi.addRoutes({
       path: "/api/projects/{projectId}/tasks/{taskId}",
-      methods: [apigwv2.HttpMethod.PATCH],
+      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
       integration,
       authorizer: jwtAuthorizer
     });
@@ -427,6 +443,35 @@ export class GestionProyectosStack extends Stack {
     httpApi.addRoutes({
       path: "/api/catalog/{database}/{table}/columns/{column}/context",
       methods: [apigwv2.HttpMethod.PUT],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+
+    // ── Inicio (dashboard) ──────────────────────────────────────────────────
+    httpApi.addRoutes({
+      path: "/api/home/summary",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/home/costs",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+
+    // ── Administración de usuarios ──────────────────────────────────────────
+    // Requieren rol `admin` (validado en la Lambda) además del JWT Authorizer.
+    httpApi.addRoutes({
+      path: "/api/admin/users",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/admin/users/{email}",
+      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
       integration,
       authorizer: jwtAuthorizer
     });

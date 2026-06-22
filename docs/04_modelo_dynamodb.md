@@ -91,9 +91,15 @@ SK = TABLE#<table>
 CATALOG_SYNC (estado del sync global)
 PK = CATALOG#SYNC
 SK = META
+
+HOME_COSTS (caché de costos AWS por cuenta y periodo)
+PK = HOME#COSTS
+SK = <accountId>#<inicio>#<fin>
 ```
 
 Los items `CATALOG_*` son caché de metadata técnica: el sync diferencial los escribe/elimina comparando `glueUpdatedAt` contra el `UpdateTime` de Glue. `TABLE_CONTEXT` y `COLUMN_CONTEXT` son contenido funcional escrito por usuarios y el sync nunca los toca, aunque la tabla desaparezca de Glue.
+
+`CATALOG_DB` incluye además `stats` (tamaño/objetos/frescura S3 agregados de la base, calculados en el sync). `HOME_COSTS` cachea el resultado de Cost Explorer con `fetchedAt`; TTL diferenciado (mes en curso 8 h, meses cerrados 30 días) y las cifras viajan como string (DynamoDB no acepta float). Ver `docs/02_modulos_funcionales.md`.
 
 ## Patrones de consulta
 

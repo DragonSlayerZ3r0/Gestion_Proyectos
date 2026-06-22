@@ -66,7 +66,7 @@ No todos los usuarios deben ver todo el catálogo. La visibilidad debe depender 
 
 - `backend/app/repositories/glue.py`: `GlueRepository` lee bases, tablas y detalle de tabla con `boto3.client("glue")` sobre el catálogo de la cuenta local.
 - `backend/app/services/catalog.py`: `CatalogService` con `list_databases`, `list_tables`, `get_table`, `sync_table`, `sync_database`, `start_sync_all`, `run_sync_all`, `save_table_context` y `save_column_context`.
-- La metadata sincronizada se guarda como cache en DynamoDB (`MainTableRepository.put_catalog_database/put_catalog_table/put_catalog_sync_meta`); el frontend lee desde el cache, no desde Glue en línea.
+- La metadata sincronizada se guarda como cache en DynamoDB (`CatalogRepository.put_catalog_database/put_catalog_table/put_catalog_sync_meta`); el frontend lee desde el cache, no desde Glue en línea.
 - El sync es **diferencial**: cada tabla de Glue se compara por `UpdateTime` (guardado como `glueUpdatedAt` en el item de caché) y solo se reescriben las tablas nuevas o modificadas — diseñado para data lakes grandes en crecimiento. Las tablas que ya no existen en Glue (**huérfanas**) se eliminan del caché al final del sync de cada base. El contexto funcional vive en items separados (`TABLE#db#tabla / CONTEXT|COLUMN#...`) y nunca es tocado por el sync. Los endpoints de sync devuelven `updated` y `removed` además de `tableCount`.
 - El sync global es asíncrono: `POST /api/catalog/sync` auto-invoca la Lambda con `InvocationType=Event` y payload `{"action": "catalog_sync_all"}`. No hay regla de EventBridge (pendiente acordado); `handler.py` acepta `source == "aws.events"` como entrada futura.
 

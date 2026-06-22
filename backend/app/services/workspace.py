@@ -2,7 +2,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from repositories.dynamodb import MainTableRepository
+from core.errors import ValidationError  # re-exportado para compatibilidad
+from repositories.workspace import WorkspaceRepository
 
 
 TASK_STATUSES = ["pending", "in_progress", "review", "done"]
@@ -12,14 +13,13 @@ PERSON_STATUSES = ["active", "inactive"]
 PROJECT_MEMBER_ROLES = ["owner", "member", "reader"]
 TASK_AUDIT_FIELDS = ["status", "priority", "assigneePersonId"]
 
-
-class ValidationError(Exception):
-    pass
+__all__ = ["WorkspaceService", "ValidationError", "TASK_STATUSES", "TASK_PRIORITIES",
+           "PROJECT_STATUSES", "PERSON_STATUSES", "PROJECT_MEMBER_ROLES"]
 
 
 class WorkspaceService:
-    def __init__(self, repository: MainTableRepository | None = None) -> None:
-        self._repository = repository or MainTableRepository()
+    def __init__(self, repository: WorkspaceRepository | None = None) -> None:
+        self._repository = repository or WorkspaceRepository()
 
     def get_workspace(self) -> dict[str, Any]:
         people = [self._normalize_person(item) for item in self._repository.list_people()]
@@ -184,6 +184,33 @@ class WorkspaceService:
             "personId": person_id,
             "removed": True
         }
+
+    def delete_person(self, person_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        person_id = self._required_text({"personId": person_id}, "personId", "Persona")
+        # Quitar a la persona de todos los proyectos donde sea miembro u owner.
+        for member in self._repository.list_member_projects(person_id):
+            project_id = member.get("projectId") or str(member.get("PK", "")).split("PROJECT#", 1)[-1]
+            project = self._repository.get_project(project_id) or {}
+            if project.get("ownerPersonId") == person_id:
+                self._repository.update_project(project_id, {
+                    "ownerPersonId": "",
+                    "updatedAt": self._now(),
+                    "updatedBy": identity["userId"],
+                })
+            self._repository.delete_project_member(project_id, person_id)
+        self._repository.delete_person(person_id)
+        return {"personId": person_id, "removed": True}
+
+    def delete_project(self, project_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        project_id = self._required_text({"projectId": project_id}, "projectId", "Proyecto")
+        self._repository.delete_project(project_id)
+        return {"projectId": project_id, "removed": True}
+
+    def delete_task(self, project_id: str, task_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        project_id = self._required_text({"projectId": project_id}, "projectId", "Proyecto")
+        task_id = self._required_text({"taskId": task_id}, "taskId", "Tarea")
+        self._repository.delete_task(project_id, task_id)
+        return {"projectId": project_id, "taskId": task_id, "removed": True}
 
     def create_task(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         title = self._required_text(payload, "title", "Título de la tarea")

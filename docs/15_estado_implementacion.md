@@ -1,5 +1,15 @@
 # Estado de implementación
 
+## Últimos avances (refactor a arquitectura modular + módulos nuevos)
+
+- **Módulo Inicio (dashboard)** implementado: pestañas Resumen (proyectos/tareas/personas + catálogo, con gráficas Chart.js) y Facturación (costos AWS, solo admin). Costos vía Cost Explorer con selector de cuenta **186281981036 (app)** y **396913696127 (hub, vía rol cross-account `gestion-proyectos-cost-reader` + AssumeRole)**, toggle bruto/neto, caché en DynamoDB (`HOME#COSTS`) con TTL diferenciado y botón "Actualizar ahora". Ver `docs/02_modulos_funcionales.md`.
+- **Módulo Administración funcional**: alta/edición/eliminación de usuarios (perfil + módulos + rol + estado) desde la UI; solo Cognito sigue manual. Guard de rol admin en backend. Ver `docs/09_admin_accesos.md`.
+- **Borrado** de proyectos, tareas, personas (dentro del panel de edición) y de usuarios (admin), con cascada y confirmación.
+- **Refactor SOLID (sin cambiar el contrato HTTP):**
+  - Backend: `handler.py` delgado + `core/router.py` (router por registro, autodescubrimiento de `modules/*_routes.py`), guards y errores centralizados, **un repositorio por dominio** (se eliminó la god-class `MainTableRepository`).
+  - Frontend: `app.ts` partido (4,328 → ~700 líneas) en módulos `scripts/modules/` (`home`, `workspace`, `catalog`, `admin`) por inyección de dependencias.
+  - Objetivo: agregar módulos desde una fuente independiente sin tocar el núcleo.
+
 ## Corte actual
 
 Primer entregable implementado y desplegado en `dev`:

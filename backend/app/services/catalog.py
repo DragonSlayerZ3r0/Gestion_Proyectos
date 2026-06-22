@@ -6,14 +6,14 @@ from typing import Any
 
 import boto3
 
-from repositories.dynamodb import MainTableRepository
+from repositories.catalog import CatalogRepository
 from repositories.glue import GlueRepository
 
 
 class CatalogService:
     def __init__(self) -> None:
         self._glue = GlueRepository()
-        self._db = MainTableRepository()
+        self._db = CatalogRepository()
         self._s3 = boto3.client("s3")
 
     # ── Lectura desde caché DynamoDB (siempre rápida) ────────────────────────
@@ -291,7 +291,7 @@ class CatalogService:
             "createdAt": existing.get("createdAt", now) if existing else now,
             "createdBy": existing.get("createdBy", identity["userId"]) if existing else identity["userId"],
         }
-        self._db.put_item(item)
+        self._db.put_context(item)
         return _format_table_context(item)
 
     def save_column_context(self, database: str, table_name: str, column_name: str, body: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
@@ -309,7 +309,7 @@ class CatalogService:
             "createdAt": existing.get("createdAt", now) if existing else now,
             "createdBy": existing.get("createdBy", identity["userId"]) if existing else identity["userId"],
         }
-        self._db.put_item(item)
+        self._db.put_context(item)
         return _format_column_context(item)
 
 

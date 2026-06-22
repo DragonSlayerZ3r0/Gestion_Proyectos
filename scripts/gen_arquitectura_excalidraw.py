@@ -97,18 +97,18 @@ txt(580, 325, "S3 Privado + Astro SPA  ·  gestion-proyectos-dev-frontend-186281
 # API Gateway
 rect(220, 390, 680, 78, "#fcd34d", "#b45309", sw=2)
 txt(560, 416, "API Gateway HTTP API  ·  JWT Authorizer (Cognito)  ·  CORS habilitado", size=13, color="#78350f", w=665)
-txt(560, 455, "GET /health  ·  GET /api/me  ·  GET /api/workspace  ·  POST|PATCH /api/people  ·  POST|PATCH|DELETE /api/projects  ·  POST|PATCH /api/projects/{id}/tasks", size=9, color="#92400e", w=665)
+txt(560, 455, "/api/me · /api/workspace · /api/people · /api/projects(+tasks) · /api/catalog(+sync) · /api/home/summary|costs · /api/admin/users", size=9, color="#92400e", w=665)
 
 # Lambda outer box
 rect(160, 500, 870, 130, "#fefce8", "#ca8a04", sw=2)
-txt(595, 514, "Lambda  gestion-proyectos-dev-api  ·  Python 3.12  ·  256 MB  ·  timeout 10 s", size=12, color="#713f12", w=855)
+txt(595, 514, "Lambda  gestion-proyectos-dev-api  ·  Python 3.12  ·  512 MB  ·  timeout 300 s  ·  arquitectura modular (SOLID)", size=12, color="#713f12", w=855)
 
-# Lambda internals
+# Lambda internals — handler delgado → router por registro → módulos → servicios → repos por dominio
 for bx, lbl, sub, c, cs in [
-    (175,  "handler.py",       "router HTTP",             "#fef9c3", "#eab308"),
-    (370,  "services/",        "workspace · users",       "#fef9c3", "#eab308"),
-    (565,  "repositories/",    "dynamodb.py",             "#fef9c3", "#eab308"),
-    (760,  "auth.py",          "JWT claims",              "#fef9c3", "#eab308"),
+    (175,  "handler.py",      "core/router (registro)",   "#fef9c3", "#eab308"),
+    (370,  "modules/",        "*_routes autodescubiertos","#fef9c3", "#eab308"),
+    (565,  "services/",       "lógica por dominio",       "#fef9c3", "#eab308"),
+    (760,  "repositories/",   "1 repo por dominio",       "#fef9c3", "#eab308"),
 ]:
     rect(bx, 524, 180, 96, c, cs, sw=1)
     txt(bx + 90, 558, f"{lbl}\n{sub}", size=12, color="#713f12", w=170)
@@ -138,6 +138,10 @@ txt(875, 817, "S3 Data Lake\ndatos fuente BanRural", size=12, color="#064e3b", w
 rect(1000, 655, 145, 70, "#bae6fd", "#0284c7", sw=2)
 txt(1072, 690, "CloudWatch\nlogs · 1 mes", size=11, color="#0c4a6e", w=133)
 
+# Cost Explorer (módulo Inicio: cuenta app directo + hub vía AssumeRole)
+rect(1000, 775, 175, 84, "#fbcfe8", "#be185d", sw=2)
+txt(1087, 817, "Cost Explorer\napp 186281981036 directo\nhub 396913696127 (AssumeRole)", size=10, color="#831843", w=163)
+
 # ── Flechas principales ───────────────────────────────────────────────────────
 
 # Usuario → CloudFront
@@ -161,11 +165,24 @@ arrow(555, 468, 555, 500, "event{ path, method, claims }")
 # Lambda → DynamoDB
 arrow(300, 630, 235, 655, "Query / PutItem / UpdateItem")
 
-# Lambda → Glue (dashed)
-arrow(545, 630, 545, 655, "GetTable (planeado)", dashed=True, color="#a21caf")
+# Lambda → Glue (implementado: sync del catálogo)
+arrow(545, 630, 545, 655, "GetDatabases/Tables (sync)", color="#a21caf")
 
 # Lambda → Athena (dashed)
 arrow(800, 630, 845, 655, "StartQuery (planeado)", dashed=True, color="#6d28d9")
+
+# Lambda → Cost Explorer
+arrow(1010, 630, 1070, 775, "GetCostAndUsage", color="#be185d", lsize=9)
+
+# Lambda → S3 Data Lake (stats S3 del catálogo: tamaño/frescura)
+arrow(690, 630, 770, 775, "ListBucket (stats catálogo)", color="#059669", lsize=9)
+
+# Auto-invocación asíncrona (sync global del catálogo)
+arrow(1115, 545, 1032, 545, "↺ auto-invoca async\ncatalog_sync_all (Event)", dashed=True, color="#ca8a04", lsize=9)
+
+# ── Límite cross-account: recursos en la cuenta hub 396913696127 ───────────────
+rect(728, 760, 460, 122, "transparent", "#be185d", sw=2, style="dashed", rx=True)
+txt(905, 873, "Cuenta hub 396913696127 · acceso cross-account (bucket policy S3 / AssumeRole Cost Explorer)", size=9, color="#be185d", w=450)
 
 # Athena → S3 DataLake
 arrow(875, 747, 875, 775, "s3://datalake/*", color="#059669")
@@ -178,7 +195,7 @@ rect(60, 898, 1080, 38, "#f1f5f9", "#cbd5e1", sw=1, rx=True)
 arrow(80, 917, 130, 917, color="#455a64")
 txt(195, 917, "Flujo principal", size=10, color="#334155", w=100)
 arrow(310, 917, 360, 917, dashed=True, color="#7c3aed")
-txt(470, 917, "Integración catálogo (planeada)", size=10, color="#334155", w=200)
+txt(470, 917, "Integración planeada (Athena / Lake Formation)", size=10, color="#334155", w=270)
 txt(800, 917, "Frontend: https://d269paz1z7q1g0.cloudfront.net  ·  API: https://63ibnl13da.execute-api.us-east-1.amazonaws.com", size=9, color="#94a3b8", w=590)
 
 # ── Output ────────────────────────────────────────────────────────────────────
