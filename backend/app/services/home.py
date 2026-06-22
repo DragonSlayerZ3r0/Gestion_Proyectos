@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -9,9 +10,30 @@ from repositories.catalog import CatalogRepository
 from repositories.home import HomeRepository
 from repositories.workspace import WorkspaceRepository
 
-APP_ACCOUNT_ID = os.environ.get("APP_ACCOUNT_ID", "")
-HUB_ACCOUNT_ID = os.environ.get("HUB_ACCOUNT_ID", "")
-HUB_COST_ROLE_ARN = os.environ.get("HUB_COST_ROLE_ARN", "")
+
+def _load_cost_accounts() -> dict[str, dict[str, Any]]:
+    """Cuentas habilitadas para el dashboard de costos. Fuente única: la env var
+    COST_ACCOUNTS (la define el stack CDK a partir de su lista costAccounts).
+    Formato: [{"id","name","mode":"direct"|"assume","roleArn"?}].
+    Fallback a las env vars antiguas por compatibilidad durante la transición."""
+    raw = os.environ.get("COST_ACCOUNTS", "")
+    if raw:
+        try:
+            return {a["id"]: a for a in json.loads(raw) if a.get("id")}
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+    accounts: dict[str, dict[str, Any]] = {}
+    app_id = os.environ.get("APP_ACCOUNT_ID", "")
+    if app_id:
+        accounts[app_id] = {"id": app_id, "name": app_id, "mode": "direct"}
+    hub_id = os.environ.get("HUB_ACCOUNT_ID", "")
+    if hub_id:
+        accounts[hub_id] = {"id": hub_id, "name": hub_id, "mode": "assume",
+                            "roleArn": os.environ.get("HUB_COST_ROLE_ARN", "")}
+    return accounts
+
+
+COST_ACCOUNTS = _load_cost_accounts()
 
 # TTL diferenciado: los meses cerrados ya no cambian (caché larga); el mes en
 # curso cambia, pero AWS solo refresca Cost Explorer ~3 veces al día.
@@ -73,26 +95,39 @@ class HomeService:
 
     # ── Costos AWS (Cost Explorer) ───────────────────────────────────────────
 
+    def list_cost_accounts(self) -> list[dict[str, str]]:
+        """Cuentas para el selector del frontend: id + nombre legible. El frontend
+        arma la etiqueta como 'nombre (id)'."""
+        return [
+            {"id": a["id"], "name": a.get("name") or a["id"]}
+            for a in COST_ACCOUNTS.values()
+        ]
+
     def _ce_client(self, account: str):
-        if account == APP_ACCOUNT_ID:
+        cfg = COST_ACCOUNTS.get(account)
+        if not cfg:
+            raise ValidationError("Cuenta no permitida.")
+        if cfg.get("mode") == "direct":
             return boto3.client("ce", region_name="us-east-1")
-        if account == HUB_ACCOUNT_ID:
-            sts = boto3.client("sts")
-            creds = sts.assume_role(
-                RoleArn=HUB_COST_ROLE_ARN,
-                RoleSessionName="gestion-proyectos-costs",
-            )["Credentials"]
-            return boto3.client(
-                "ce", region_name="us-east-1",
-                aws_access_key_id=creds["AccessKeyId"],
-                aws_secret_access_key=creds["SecretAccessKey"],
-                aws_session_token=creds["SessionToken"],
-            )
-        raise ValidationError("Cuenta no permitida.")
+        # mode "assume": Cost Explorer de otra cuenta vía sts:AssumeRole.
+        role_arn = cfg.get("roleArn")
+        if not role_arn:
+            raise ValidationError("Cuenta sin rol cross-account configurado.")
+        sts = boto3.client("sts")
+        creds = sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="gestion-proyectos-costs",
+        )["Credentials"]
+        return boto3.client(
+            "ce", region_name="us-east-1",
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+        )
 
     def get_costs(self, account: str, start: str, end: str, force: bool = False) -> dict[str, Any]:
         account = (account or "").strip()
-        if account not in {APP_ACCOUNT_ID, HUB_ACCOUNT_ID}:
+        if account not in COST_ACCOUNTS:
             raise ValidationError("Cuenta no permitida.")
         self._validate_date(start, "inicio")
         self._validate_date(end, "fin")
@@ -119,6 +154,71 @@ class HomeService:
         data["cached"] = False
         data["fetchedAt"] = now
         return data
+
+    def get_service_detail(self, account: str, service: str, start: str, end: str,
+                           force: bool = False) -> dict[str, Any]:
+        """Desglose de un servicio por tipo de uso (USAGE_TYPE): el 'qué exactamente'
+        se está consumiendo (p. ej. SageMaker → Studio, training por instancia).
+        Es consumo bruto (excluye créditos/reembolsos). Caché propia por servicio."""
+        account = (account or "").strip()
+        service = (service or "").strip()
+        if account not in COST_ACCOUNTS:
+            raise ValidationError("Cuenta no permitida.")
+        if not service:
+            raise ValidationError("Servicio requerido.")
+        self._validate_date(start, "inicio")
+        self._validate_date(end, "fin")
+
+        ttl = self._ttl_for_period(end)
+        key = f"{account}#{start}#{end}#svc#{service}"
+        if not force:
+            cached = self._costs.get_cost_cache(key)
+            if cached:
+                fetched_at = cached.get("fetchedAt", "")
+                if self._fresh(fetched_at, ttl):
+                    data = self._decode(cached.get("data") or {})
+                    data["cached"] = True
+                    data["fetchedAt"] = fetched_at
+                    return data
+
+        client = self._ce_client(account)
+        data = self._fetch_service_detail(client, service, start, end)
+        data["account"] = account
+        data["service"] = service
+        data["start"] = start
+        data["end"] = end
+        now = self._now()
+        self._costs.put_cost_cache(key, self._encode(data), now)
+        data["cached"] = False
+        data["fetchedAt"] = now
+        return data
+
+    def _fetch_service_detail(self, client, service: str, start: str, end: str) -> dict[str, Any]:
+        resp = client.get_cost_and_usage(
+            TimePeriod={"Start": start, "End": end}, Granularity="MONTHLY",
+            Metrics=["UnblendedCost", "UsageQuantity"],
+            Filter={"And": [
+                {"Dimensions": {"Key": "SERVICE", "Values": [service]}},
+                {"Not": {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Credit", "Refund"]}}},
+            ]},
+            GroupBy=[{"Type": "DIMENSION", "Key": "USAGE_TYPE"}],
+        )
+        items = []
+        total = 0.0
+        groups = resp["ResultsByTime"][0]["Groups"] if resp.get("ResultsByTime") else []
+        for g in groups:
+            amount = float(g["Metrics"]["UnblendedCost"]["Amount"])
+            total += amount
+            if abs(amount) < 0.0001:
+                continue
+            qty = g.get("Metrics", {}).get("UsageQuantity", {}).get("Amount")
+            items.append({
+                "usageType": g["Keys"][0],
+                "amount": self._fmt(amount),
+                "quantity": self._fmt(float(qty)) if qty is not None else "",
+            })
+        items.sort(key=lambda x: float(x["amount"]), reverse=True)
+        return {"items": items[:25], "total": self._fmt(total)}
 
     def _fetch_costs(self, client, start: str, end: str) -> dict[str, Any]:
         period = {"Start": start, "End": end}

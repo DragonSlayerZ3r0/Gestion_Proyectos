@@ -67,6 +67,9 @@
         authSession: null,
         authUsername: null,
         user: null,
+        sessionExpiredHandled: false,
+        sessionWatchdog: null,
+        refreshPromise: null,
         profile: null,
         workspace: null,
         activeProjectId: null,
@@ -99,6 +102,11 @@
         homeCosts: null,
         homeCostsError: "",
         homeCostsLoading: false,
+        homeCostDetailService: null,
+        homeCostDetail: null,
+        homeCostDetailLoading: false,
+        homeCostDetailError: "",
+        homeCostAccounts: null,
         homeCostAccount: "186281981036",
         homeCostPeriod: null,
         homeCostView: "net",
@@ -387,6 +395,20 @@
         }
       }
 
+      // Persiste el resultado de Cognito en state.user + sessionStorage.
+      // refreshTokenFallback conserva el refreshToken previo cuando la respuesta
+      // no trae uno nuevo (REFRESH_TOKEN_AUTH no devuelve refreshToken).
+      function applyAuthResult(authenticationResult, refreshTokenFallback) {
+        const expiresIn = authenticationResult.ExpiresIn || 3600;
+        state.user = {
+          accessToken: authenticationResult.AccessToken,
+          idToken: authenticationResult.IdToken,
+          refreshToken: authenticationResult.RefreshToken || refreshTokenFallback || null,
+          expiresAt: Date.now() + expiresIn * 1000
+        };
+        window.sessionStorage.setItem("gestionProyectosAuth", JSON.stringify(state.user));
+      }
+
       async function finishLogin(authenticationResult) {
         if (!authenticationResult?.IdToken) {
           setLoginBusy(false);
@@ -394,20 +416,13 @@
           return;
         }
 
-        const expiresIn = authenticationResult.ExpiresIn || 3600;
-        state.user = {
-          accessToken: authenticationResult.AccessToken,
-          idToken: authenticationResult.IdToken,
-          refreshToken: authenticationResult.RefreshToken,
-          expiresAt: Date.now() + expiresIn * 1000
-        };
-        window.sessionStorage.setItem("gestionProyectosAuth", JSON.stringify(state.user));
+        applyAuthResult(authenticationResult, null);
         elements.loginDialog.hidden = true;
         resetLoginForm();
         await loadMe();
       }
 
-      function logout() {
+      function logout(sessionExpired) {
         window.sessionStorage.removeItem("gestionProyectosAuth");
         window.sessionStorage.removeItem("gestionProyectosModule");
         state.user = null;
@@ -417,9 +432,91 @@
         state.selectedDetail = null;
         state.showPersonForm = false;
         state.showTaskForm = false;
+        clearSessionWatchdog();
         state.activeModule = getDefaultModule(defaultModules);
         renderDefaultNav();
-        renderLoggedOut();
+        renderLoggedOut(sessionExpired === true);
+      }
+
+      // Sesión Cognito expirada: el idToken venció (o la API respondió 401).
+      // En lugar de dejar la pantalla congelada sin funcionalidad, regresamos
+      // al login con un aviso claro. Idempotente ante múltiples llamadas en
+      // paralelo (varias peticiones pueden fallar a la vez).
+      function handleSessionExpired() {
+        if (state.sessionExpiredHandled) return;
+        state.sessionExpiredHandled = true;
+        logout(true);
+      }
+
+      // Margen para renovar el idToken antes de que venza (5 min). Si quedan
+      // menos de estos ms, se intenta refrescar usando el refreshToken.
+      const SESSION_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+
+      // Renovación silenciosa: intercambia el refreshToken (válido más tiempo)
+      // por un idToken nuevo, sin sacar al usuario de la pantalla. Devuelve
+      // true si la sesión quedó vigente. Deduplica llamadas concurrentes con
+      // una promesa compartida.
+      function refreshSession() {
+        if (state.refreshPromise) return state.refreshPromise;
+        if (!state.user || !state.user.refreshToken || !state.authClient) {
+          return Promise.resolve(false);
+        }
+        const refreshToken = state.user.refreshToken;
+        state.refreshPromise = (async () => {
+          try {
+            const response = await state.authClient.send(new InitiateAuthCommand({
+              AuthFlow: "REFRESH_TOKEN_AUTH",
+              ClientId: state.config.cognitoClientId,
+              AuthParameters: { REFRESH_TOKEN: refreshToken }
+            }));
+            if (!response.AuthenticationResult?.IdToken) return false;
+            applyAuthResult(response.AuthenticationResult, refreshToken);
+            scheduleSessionWatchdog();
+            return true;
+          } catch {
+            // refreshToken vencido/revocado: no se puede renovar.
+            return false;
+          } finally {
+            state.refreshPromise = null;
+          }
+        })();
+        return state.refreshPromise;
+      }
+
+      // Garantiza un idToken utilizable antes de llamar a la API. Si está por
+      // vencer (o ya venció) intenta renovarlo silenciosamente.
+      async function ensureFreshToken() {
+        if (!state.user || !state.user.idToken || !state.user.expiresAt) return false;
+        if (state.user.expiresAt - Date.now() > SESSION_REFRESH_MARGIN_MS) return true;
+        return refreshSession();
+      }
+
+      // Watchdog: programa la renovación ~5 min antes del vencimiento. Si la
+      // renovación falla (refreshToken también vencido) o el usuario lleva
+      // demasiado tiempo inactivo, regresa al login en lugar de dejar la
+      // pantalla congelada.
+      function clearSessionWatchdog() {
+        if (state.sessionWatchdog) {
+          window.clearTimeout(state.sessionWatchdog);
+          state.sessionWatchdog = null;
+        }
+      }
+
+      function scheduleSessionWatchdog() {
+        clearSessionWatchdog();
+        if (!state.user || !state.user.expiresAt) return;
+        const msLeft = state.user.expiresAt - Date.now();
+        if (msLeft <= 0) {
+          handleSessionExpired();
+          return;
+        }
+        // Despierta con margen para renovar; si ya estamos dentro del margen,
+        // intenta renovar de inmediato (pero no antes de 1 s).
+        const fireIn = Math.max(1000, msLeft - SESSION_REFRESH_MARGIN_MS);
+        state.sessionWatchdog = window.setTimeout(async () => {
+          const ok = await refreshSession();
+          if (!ok) handleSessionExpired();
+        }, fireIn);
       }
 
       function setLoginBusy(isBusy, label) {
@@ -458,11 +555,14 @@
         return error?.message || "No fue posible iniciar sesión.";
       }
 
-      function renderLoggedOut() {
+      function renderLoggedOut(sessionExpired) {
         elements.app.classList.add("loginOnly");
         elements.loginLanding.hidden = false;
         elements.landingLoginButton.disabled = false;
-        elements.loginLandingMessage.textContent = "Tus módulos y permisos se cargan después de validar tu identidad.";
+        elements.loginLandingMessage.textContent = sessionExpired
+          ? "Tu sesión expiró por seguridad. Inicia sesión de nuevo para continuar."
+          : "Tus módulos y permisos se cargan después de validar tu identidad.";
+        elements.loginLandingMessage.classList.toggle("loginLandingMessageWarn", sessionExpired === true);
         elements.contentPanel.hidden = true;
         elements.statusPanel.hidden = true;
         elements.loginButton.hidden = false;
@@ -471,6 +571,8 @@
       }
 
       function renderApp() {
+        state.sessionExpiredHandled = false;
+        scheduleSessionWatchdog();
         elements.app.classList.remove("loginOnly");
         elements.loginLanding.hidden = true;
         elements.loginButton.hidden = true;
@@ -519,10 +621,10 @@
       // Módulo Inicio extraído a su propio archivo (patrón de módulos enchufables).
       // Recibe el estado y los helpers compartidos por inyección de dependencias.
       const homeModule = createHomeModule({
-        state, elements, apiRequest, escapeHtml, formatBytes, catalogSyncedLabel,
+        state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel,
       });
       const adminModule = createAdminModule({
-        state, elements, apiRequest, escapeHtml, escapeAttribute,
+        state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton,
       });
       const workspaceModule = createWorkspaceModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, priorityLabel,
@@ -592,7 +694,12 @@
 
 
       async function apiRequest(path, options = {}) {
-        const response = await fetch(`${state.config.apiBaseUrl}${path}`, {
+        // Si el token está por vencer, intenta renovarlo antes de la llamada.
+        if (!(await ensureFreshToken())) {
+          handleSessionExpired();
+          throw new Error("Tu sesión expiró. Inicia sesión de nuevo.");
+        }
+        let response = await fetch(`${state.config.apiBaseUrl}${path}`, {
           ...options,
           headers: {
             "content-type": "application/json",
@@ -600,6 +707,23 @@
             ...(options.headers || {})
           }
         });
+        // El authorizer rechazó el JWT: un último intento de renovar y reintentar.
+        if (response.status === 401) {
+          if (await refreshSession()) {
+            response = await fetch(`${state.config.apiBaseUrl}${path}`, {
+              ...options,
+              headers: {
+                "content-type": "application/json",
+                authorization: `Bearer ${state.user.idToken}`,
+                ...(options.headers || {})
+              }
+            });
+          }
+          if (response.status === 401) {
+            handleSessionExpired();
+            throw new Error("Tu sesión expiró. Inicia sesión de nuevo.");
+          }
+        }
         const payload = await response.json();
         if (!response.ok || !payload.ok) {
           throw new Error(payload.error?.message || "No fue posible completar la acción.");

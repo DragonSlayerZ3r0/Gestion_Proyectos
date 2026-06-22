@@ -11,3 +11,14 @@ MODULES = [
 ]
 
 MODULE_KEYS = [m["key"] for m in MODULES]
+
+# Pestañas asignables dentro del módulo Inicio. Se almacenan y validan como
+# permisos granulares (igual que los módulos), pero NO son entradas de menú: el
+# frontend las consume desde el campo `homeTabs` de /api/me. La pestaña
+# Facturación NO está aquí: es exclusiva de administradores y se controla por rol.
+HOME_TABS = [
+    {"key": "home_resumen", "label": "Inicio · Resumen"},
+    {"key": "home_datalake", "label": "Inicio · Data Lake"},
+]
+
+HOME_TAB_KEYS = [t["key"] for t in HOME_TABS]

@@ -45,8 +45,9 @@ El módulo `admin` ya permite gestionar la **autorización** de usuarios desde l
 
 ### Backend
 
-- `backend/app/services/admin.py` (`AdminService`): `list_users`, `create_user`, `update_user`. La clave del usuario es su **email** en minúsculas (`USER#<email>`), igual que `auth.get_user_identity`.
-- Datos en DynamoDB: `USER#<email> / PROFILE` (campos `email`, `name`, `roles`, `status`) y un item por módulo `USER#<email> / MODULE#<key>` (`enabled`, `label`). El módulo `home` siempre se incluye.
+- `backend/app/services/admin.py` (`AdminService`): `list_users`, `create_user`, `update_user`, `delete_user`. La clave del usuario es su **email** en minúsculas (`USER#<email>`), igual que `auth.get_user_identity`.
+- Datos en DynamoDB: `USER#<email> / PROFILE` (campos `email`, `name`, `roles`, `status`) y un item por módulo `USER#<email> / MODULE#<key>` (`enabled`, `label`). El módulo `home` siempre se incluye. El catálogo asignable sale del manifiesto (`MODULES + HOME_TABS`); `create_user`/`update_user` escriben **todo** el catálogo con su flag `enabled` para que la resolución sea determinista.
+- **Pestañas de Inicio**: además de los módulos de menú, se pueden asignar las pestañas del módulo Inicio como permisos granulares (`home_resumen`, `home_datalake`, ver `modules/manifest.py → HOME_TABS`). Se guardan como filas `MODULE#` y se exponen en `GET /api/me` dentro de `homeTabs`. La pestaña **Facturación no es asignable**: es admin-only por rol (`/api/home/costs` exige `admin`).
 - Rol: `roles` contiene `["admin","user"]` (administrador) o `["user"]` (normal).
 - Guard `ensure_admin(identity)` en `handler.py`: exige rol `admin` **y** estado `active`; se valida en backend, no solo ocultando el módulo en el frontend.
 - Rutas (todas bajo JWT Authorizer + `ensure_admin`):
@@ -56,10 +57,11 @@ El módulo `admin` ya permite gestionar la **autorización** de usuarios desde l
 | `/api/admin/users` | GET | Listar usuarios con rol, estado y módulos |
 | `/api/admin/users` | POST | Crear perfil funcional (email, nombre, rol, módulos) |
 | `/api/admin/users/{email}` | PATCH | Editar rol, estado y módulos |
+| `/api/admin/users/{email}` | DELETE | Eliminar perfil y todos sus accesos (con guard de auto-eliminación) |
 
 ### Frontend
 
-`renderAdmin()` en `frontend/src/scripts/app.ts`: lista de usuarios con selector de rol/estado y casillas de módulos por usuario (guardado por tarjeta), más un formulario de alta. El módulo solo es funcional para usuarios con rol `admin`.
+`renderAdmin()` en `frontend/src/scripts/modules/admin.ts`: lista de usuarios donde cada tarjeta está **colapsada** (resumen de rol/módulos) y se edita con el **ícono de lápiz**; dentro de la edición se despliegan rol, estado, casillas de módulos (con sub-casillas para las pestañas de Inicio: Resumen y Data Lake) y el **ícono de eliminar**. Incluye formulario de alta. El módulo solo es funcional para usuarios con rol `admin`.
 
 ### Pendiente
 

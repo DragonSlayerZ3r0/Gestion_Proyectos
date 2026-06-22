@@ -1,19 +1,16 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from modules.manifest import MODULES, HOME_TABS, HOME_TAB_KEYS
 from repositories.users import UsersRepository
 from services.workspace import ValidationError
 
 
-# Catálogo de módulos asignables y su etiqueta visible.
-MODULE_LABELS = {
-    "home": "Inicio",
-    "projects": "Proyectos",
-    "tasks": "Tareas",
-    "catalog": "Catálogo",
-    "admin": "Administración",
-}
+# Catálogo de módulos asignables y su etiqueta visible (módulos de menú +
+# pestañas granulares de Inicio). Fuente única: el manifiesto.
+MODULE_LABELS = {m["key"]: m["label"] for m in (MODULES + HOME_TABS)}
 MODULE_ORDER = {key: index for index, key in enumerate(MODULE_LABELS)}
+_HOME_TAB_KEYS = set(HOME_TAB_KEYS)
 
 VALID_STATUSES = {"active", "inactive"}
 VALID_ROLES = {"admin", "user"}
@@ -105,8 +102,14 @@ class AdminService:
             "email": email, "name": name, "roles": roles,
             "status": status, "createdAt": now, "updatedAt": now,
         })
-        for module_key in modules:
-            self._repository.put_user_module(email, module_key, MODULE_LABELS[module_key], True, now)
+        # Escribe todo el catálogo (habilitado/deshabilitado) para que la
+        # resolución de pestañas de Inicio sea determinista desde el alta.
+        wanted = set(modules)
+        for module_key in MODULE_LABELS:
+            self._repository.put_user_module(
+                email, module_key, MODULE_LABELS[module_key],
+                module_key in wanted, now,
+            )
 
         return self._format_user(email, name, email, status, role, modules, now, now)
 

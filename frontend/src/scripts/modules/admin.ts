@@ -1,9 +1,27 @@
 // @ts-nocheck
 // Módulo Administración de usuarios. Inyección de dependencias desde el shell.
 export function createAdminModule(ctx) {
-  const { state, elements, apiRequest, escapeHtml, escapeAttribute } = ctx;
+  const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton } = ctx;
+
+      // Email de la tarjeta abierta en modo edición; null = todas colapsadas.
+      let editingEmail = null;
+
+      // Ícono de eliminar (papelera), homólogo a renderEditIconButton del shell.
+      function renderDeleteIconButton(label, attributes) {
+        return `
+          <button class="iconTinyButton iconTinyDanger" type="button" ${attributes} aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 7h16"></path>
+              <path d="M9 7V5h6v2"></path>
+              <path d="M6 7l1 13h10l1-13"></path>
+              <path d="M10 11v6M14 11v6"></path>
+            </svg>
+          </button>
+        `;
+      }
 
       async function renderAdmin() {
+        editingEmail = null;
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
         elements.contentPanel.className = "contentGrid adminGrid";
@@ -24,8 +42,16 @@ export function createAdminModule(ctx) {
 
       // Grupos visibles de módulos. "Proyectos y tareas" es un solo módulo para el
       // usuario, aunque internamente son dos claves (projects + tasks) que van juntas.
+      // El módulo Inicio tiene sub-pestañas asignables (Resumen, Data Lake);
+      // Facturación no aparece porque es exclusiva de administradores.
       const adminModuleGroups = [
-        { key: "home", label: "Inicio", keys: ["home"] },
+        {
+          key: "home", label: "Inicio", keys: ["home"],
+          children: [
+            { key: "home_resumen", label: "Resumen" },
+            { key: "home_datalake", label: "Data Lake" },
+          ],
+        },
         { key: "projects", label: "Proyectos y tareas", keys: ["projects", "tasks"] },
         { key: "catalog", label: "Catálogo", keys: ["catalog"] },
         { key: "admin", label: "Administración", keys: ["admin"] },
@@ -35,48 +61,49 @@ export function createAdminModule(ctx) {
         const set = new Set(selected || []);
         return adminModuleGroups.map((g) => {
           const checked = g.keys.some((k) => set.has(k));
+          const children = (g.children || []).map((c) => `
+            <label class="adminModuleChk adminModuleChild">
+              <input type="checkbox" data-mod="${escapeAttribute(c.key)}" name="${prefix}-mod"
+                ${set.has(c.key) ? "checked" : ""} />
+              <span>${escapeHtml(c.label)}</span>
+            </label>`).join("");
           return `
-          <label class="adminModuleChk">
-            <input type="checkbox" data-mod="${escapeAttribute(g.key)}" name="${prefix}-mod"
-              ${checked ? "checked" : ""} ${g.key === "home" ? "disabled checked" : ""} />
-            <span>${escapeHtml(g.label)}</span>
-          </label>`;
+          <div class="adminModuleGroup">
+            <label class="adminModuleChk">
+              <input type="checkbox" data-mod="${escapeAttribute(g.key)}" name="${prefix}-mod"
+                ${checked ? "checked" : ""} ${g.key === "home" ? "disabled checked" : ""} />
+              <span>${escapeHtml(g.label)}</span>
+            </label>
+            ${children ? `<div class="adminModuleChildren">${children}</div>` : ""}
+          </div>`;
         }).join("");
       }
 
-      // Expande las casillas marcadas (por grupo) a las claves reales de módulo.
+      // Expande las casillas marcadas a las claves reales de módulo. Las casillas
+      // de grupo se expanden a sus keys; las hijas (pestañas) se toman tal cual.
       function adminExpandSelectedModules(container, selector) {
-        const groupKeys = [...container.querySelectorAll(selector)].map((c) => c.dataset.mod);
+        const checkedKeys = [...container.querySelectorAll(selector)].map((c) => c.dataset.mod);
         const result = new Set();
-        for (const gk of groupKeys) {
-          const group = adminModuleGroups.find((g) => g.key === gk);
-          (group ? group.keys : [gk]).forEach((k) => result.add(k));
+        for (const ck of checkedKeys) {
+          const group = adminModuleGroups.find((g) => g.key === ck);
+          (group ? group.keys : [ck]).forEach((k) => result.add(k));
         }
         return [...result];
       }
 
-      function paintAdmin() {
-        const isAdmin = (state.profile?.user?.roles || []).includes("admin");
-        if (!isAdmin) {
-          elements.contentPanel.innerHTML = `<article class="panel"><p class="catalogEmpty catalogEmptyError">No tienes permiso para administrar usuarios.</p></article>`;
-          return;
-        }
+      // Resumen legible de los módulos habilitados (por grupo) para la vista colapsada.
+      function moduleSummary(modules) {
+        const set = new Set(modules || []);
+        const labels = adminModuleGroups
+          .filter((g) => g.keys.some((k) => set.has(k)))
+          .map((g) => g.label);
+        return labels.length ? labels.join(" · ") : "Sin módulos";
+      }
 
-        const rows = state.adminLoading
-          ? `<p class="catalogEmpty">Cargando usuarios…</p>`
-          : state.adminError
-          ? `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.adminError)}</p>`
-          : !state.adminUsers.length
-          ? `<p class="catalogEmpty">No hay usuarios configurados todavía.</p>`
-          : state.adminUsers.map((u) => `
-            <div class="adminUserCard" data-email="${escapeAttribute(u.email)}">
-              <div class="adminUserHead">
-                <div>
-                  <strong>${escapeHtml(u.name || u.email)}</strong>
-                  <span class="adminUserEmail">${escapeHtml(u.email)}</span>
-                </div>
-                <span class="adminStatusBadge ${u.status === "active" ? "on" : "off"}">${u.status === "active" ? "Activo" : "Inactivo"}</span>
-              </div>
+      function adminUserCard(u) {
+        const roleLabel = u.role === "admin" ? "Administrador" : "Usuario";
+        const isEditing = editingEmail === u.email;
+        const editBody = isEditing ? `
               <div class="adminUserControls">
                 <label>Rol
                   <select name="role">
@@ -92,11 +119,43 @@ export function createAdminModule(ctx) {
                 </label>
               </div>
               <div class="adminModules">${adminModuleCheckboxes("edit", u.modules)}</div>
-              <div class="adminUserActions">
-                <button class="dangerButton adminDeleteUser" type="button">Eliminar</button>
-                <button class="primaryButton adminSaveUser" type="button">Guardar cambios</button>
-              </div>
-            </div>`).join("");
+              <div class="adminEditActions">
+                ${renderDeleteIconButton("Eliminar usuario", 'data-action="delete"')}
+                <div class="adminEditActionsRight">
+                  <button class="secondaryButton adminCancelEdit" type="button">Cancelar</button>
+                  <button class="primaryButton adminSaveUser" type="button">Guardar cambios</button>
+                </div>
+              </div>` : `
+              <p class="adminUserSummary">${escapeHtml(roleLabel)} · ${escapeHtml(moduleSummary(u.modules))}</p>`;
+        return `
+            <div class="adminUserCard${isEditing ? " editing" : ""}" data-email="${escapeAttribute(u.email)}">
+              <div class="adminUserHead">
+                <div>
+                  <strong>${escapeHtml(u.name || u.email)}</strong>
+                  <span class="adminUserEmail">${escapeHtml(u.email)}</span>
+                </div>
+                <div class="adminUserHeadRight">
+                  <span class="adminStatusBadge ${u.status === "active" ? "on" : "off"}">${u.status === "active" ? "Activo" : "Inactivo"}</span>
+                  ${isEditing ? "" : renderEditIconButton("Editar usuario", 'data-action="edit"')}
+                </div>
+              </div>${editBody}
+            </div>`;
+      }
+
+      function paintAdmin() {
+        const isAdmin = (state.profile?.user?.roles || []).includes("admin");
+        if (!isAdmin) {
+          elements.contentPanel.innerHTML = `<article class="panel"><p class="catalogEmpty catalogEmptyError">No tienes permiso para administrar usuarios.</p></article>`;
+          return;
+        }
+
+        const rows = state.adminLoading
+          ? `<p class="catalogEmpty">Cargando usuarios…</p>`
+          : state.adminError
+          ? `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.adminError)}</p>`
+          : !state.adminUsers.length
+          ? `<p class="catalogEmpty">No hay usuarios configurados todavía.</p>`
+          : state.adminUsers.map(adminUserCard).join("");
 
         elements.contentPanel.innerHTML = `
           <article class="panel adminListPanel">
@@ -124,7 +183,7 @@ export function createAdminModule(ctx) {
               </label>
               <fieldset class="adminModules">
                 <legend>Módulos</legend>
-                ${adminModuleCheckboxes("new", ["home", "catalog"])}
+                ${adminModuleCheckboxes("new", ["home", "home_resumen", "home_datalake", "catalog"])}
               </fieldset>
               <button class="primaryButton" type="submit">Crear usuario</button>
               <p class="adminFormMsg" hidden></p>
@@ -161,6 +220,23 @@ export function createAdminModule(ctx) {
           });
         }
 
+        // Abrir edición (ícono de lápiz): colapsa cualquier otra y repinta.
+        elements.contentPanel.querySelectorAll('.adminEditUser, [data-action="edit"]').forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const card = btn.closest(".adminUserCard");
+            editingEmail = card.dataset.email;
+            paintAdmin();
+          });
+        });
+
+        // Cancelar edición: vuelve a la vista colapsada sin guardar.
+        elements.contentPanel.querySelectorAll(".adminCancelEdit").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            editingEmail = null;
+            paintAdmin();
+          });
+        });
+
         elements.contentPanel.querySelectorAll(".adminSaveUser").forEach((btn) => {
           btn.addEventListener("click", async () => {
             const card = btn.closest(".adminUserCard");
@@ -184,19 +260,17 @@ export function createAdminModule(ctx) {
           });
         });
 
-        elements.contentPanel.querySelectorAll(".adminDeleteUser").forEach((btn) => {
+        elements.contentPanel.querySelectorAll('.adminDeleteUser, [data-action="delete"]').forEach((btn) => {
           btn.addEventListener("click", async () => {
             const card = btn.closest(".adminUserCard");
             const email = card.dataset.email;
             if (!window.confirm(`¿Eliminar al usuario "${email}"? Se borra su perfil y todos sus accesos. Esta acción no se puede deshacer.`)) return;
             btn.disabled = true;
-            btn.textContent = "Eliminando…";
             try {
               await apiRequest(`api/admin/users/${encodeURIComponent(email)}`, { method: "DELETE" });
               await renderAdmin();
             } catch (err) {
               btn.disabled = false;
-              btn.textContent = "Eliminar";
               window.alert(err?.message || "No se pudo eliminar el usuario.");
             }
           });

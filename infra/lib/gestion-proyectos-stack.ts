@@ -233,6 +233,31 @@ export class GestionProyectosStack extends Stack {
           description: "Rol de ejecución de la API de Gestión de Proyectos",
         });
 
+    // ── Fuente ÚNICA de cuentas del dashboard de costos (módulo Inicio) ────────
+    // De aquí se derivan: la env var COST_ACCOUNTS que lee el backend (whitelist +
+    // routing) y los permisos sts:AssumeRole del rol de la Lambda. El selector del
+    // frontend también se arma desde esta lista (vía GET /api/home/cost-accounts).
+    //
+    // Para AGREGAR una cuenta nueva:
+    //   1) En la cuenta nueva, crear el rol cross-account de lectura de Cost
+    //      Explorer con scripts/grant-hub-cost-explorer.sh (ajustando ACCOUNT_ID).
+    //   2) Agregar una entrada en esta lista (mode "assume" + roleArn).
+    //   3) cdk deploy.
+    // mode "direct" = Cost Explorer de la propia cuenta de la Lambda (sin asumir
+    // rol); mode "assume" = otra cuenta vía sts:AssumeRole a roleArn.
+    const costAccounts: { id: string; name: string; mode: "direct" | "assume"; roleArn?: string }[] = [
+      { id: this.account, name: "aws-bdr-cta-analitica-fab-datos-desa", mode: "direct" },
+      {
+        id: "396913696127",
+        name: "aws-bdr-cta-analitica-fab-datos-prod",
+        mode: "assume",
+        roleArn: "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader",
+      },
+    ];
+    const assumeCostRoleArns = costAccounts
+      .filter((a) => a.mode === "assume" && a.roleArn)
+      .map((a) => a.roleArn!);
+
     if (ownedRole) {
       ownedRole.addToPolicy(new iam.PolicyStatement({
         sid: "Logs",
@@ -265,13 +290,15 @@ export class GestionProyectosStack extends Stack {
         actions: ["ce:GetCostAndUsage", "ce:GetCostForecast", "ce:GetDimensionValues"],
         resources: ["*"],
       }));
-      // AssumeRole al rol del hub (396913696127) para leer SU Cost Explorer.
-      // El rol del hub lo crea scripts/grant-hub-cost-explorer.sh.
-      ownedRole.addToPolicy(new iam.PolicyStatement({
-        sid: "AssumeHubCostRole",
-        actions: ["sts:AssumeRole"],
-        resources: ["arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader"],
-      }));
+      // AssumeRole a los roles cross-account de Cost Explorer (cuentas "assume").
+      // Cada rol lo crea scripts/grant-hub-cost-explorer.sh en su cuenta.
+      if (assumeCostRoleArns.length) {
+        ownedRole.addToPolicy(new iam.PolicyStatement({
+          sid: "AssumeCostRoles",
+          actions: ["sts:AssumeRole"],
+          resources: assumeCostRoleArns,
+        }));
+      }
     }
 
     const apiFunction = new lambda.Function(this, "ApiFunction", {
@@ -292,9 +319,8 @@ export class GestionProyectosStack extends Stack {
         ENV_NAME: props.envName,
         MAIN_TABLE_NAME: table.tableName,
         DEFAULT_MODULES: MODULES.join(","),
-        APP_ACCOUNT_ID: this.account,
-        HUB_ACCOUNT_ID: "396913696127",
-        HUB_COST_ROLE_ARN: "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader"
+        // Fuente única de cuentas de costos (ver costAccounts arriba).
+        COST_ACCOUNTS: JSON.stringify(costAccounts)
       }
     });
 
@@ -456,6 +482,18 @@ export class GestionProyectosStack extends Stack {
     });
     httpApi.addRoutes({
       path: "/api/home/costs",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/home/cost-accounts",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/home/costs/detail",
       methods: [apigwv2.HttpMethod.GET],
       integration,
       authorizer: jwtAuthorizer

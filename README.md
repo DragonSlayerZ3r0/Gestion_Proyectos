@@ -14,14 +14,17 @@ La aplicación debe mantenerse simple, clara y rápida. No busca replicar Jira n
 
 ## Arquitectura esperada
 
-- Frontend: Astro.
+- Frontend: Astro + **TypeScript vanilla** (sin React/Vue/Angular).
 - Hosting: CloudFront sobre S3 privado.
 - Autenticacion: Amazon Cognito.
-- API: API Gateway con Lambda Python.
+- API: API Gateway con Lambda **Python 3.12** (sin framework web).
 - Datos operativos: DynamoDB.
 - Catálogo técnico: Glue Catalog.
 - Consultas controladas: Athena.
 - Data Lake: S3.
+- Infraestructura: AWS CDK (TypeScript).
+
+> Stack tecnológico completo (lenguajes, frameworks, librerías y qué **no** se usa) en [`docs/01_arquitectura_aws.md`](docs/01_arquitectura_aws.md#stack-tecnológico).
 
 ## Diagrama de arquitectura
 

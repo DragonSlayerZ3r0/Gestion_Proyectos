@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Crea/actualiza en la cuenta hub (396913696127) un rol que permite a la Lambda de
-# Gestión de Proyectos (cuenta app 186281981036) leer Cost Explorer del hub vía
-# AssumeRole. Ejecutar con un perfil admin del hub (p. ej. perfil_admin_dl).
+# Crea/actualiza un rol que permite a la Lambda de Gestión de Proyectos (cuenta
+# app 186281981036) leer Cost Explorer de OTRA cuenta vía AssumeRole. Se ejecuta
+# en la cuenta destino con un perfil admin de ESA cuenta. El rol creado se llama
+# igual en cada cuenta (gestion-proyectos-cost-reader) y confía en el rol del
+# Lambda de la app.
 #
+#   # cuenta hub (data lake prod):
 #   AWS_PROFILE=perfil_admin_dl ./scripts/grant-hub-cost-explorer.sh
+#   # cualquier cuenta nueva: usar el perfil admin de esa cuenta
+#   AWS_PROFILE=<perfil-admin-cuenta-nueva> ./scripts/grant-hub-cost-explorer.sh
 #
+# Después: agregar la cuenta a costAccounts en infra/lib/gestion-proyectos-stack.ts
+# (mode "assume" + roleArn) y `cdk deploy`. Ver docs/02_modulos_funcionales.md.
 # El rol de la Lambda lo crea el stack de la app (gestion-proyectos-dev-api-role).
 set -euo pipefail
 

@@ -2,12 +2,40 @@
 // Módulo Inicio (dashboard). Se construye con inyección de dependencias: recibe
 // el estado y los helpers compartidos del shell, sin acoplarse al resto de la app.
 export function createHomeModule(ctx) {
-  const { state, elements, apiRequest, escapeHtml, formatBytes, catalogSyncedLabel } = ctx;
+  const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel } = ctx;
 
-      const HOME_COST_ACCOUNTS = [
-        { id: "186281981036", label: "Cuenta App (186281981036)" },
-        { id: "396913696127", label: "Cuenta Hub / Data Lake (396913696127)" },
-      ];
+      // La lista de cuentas la entrega el backend (fuente única en el stack CDK).
+      // Se carga EN PARALELO, sin bloquear la carga de costos: cuando llega,
+      // refresca el selector sin volver a pedir costos. Carga única (dedupe).
+      let accountsLoading = false;
+      async function ensureCostAccounts() {
+        if (state.homeCostAccounts || accountsLoading) return;
+        accountsLoading = true;
+        try {
+          const payload = await apiRequest("api/home/cost-accounts");
+          state.homeCostAccounts = (payload.data.accounts || []).map((a) => ({
+            id: a.id,
+            label: `${a.name} (${a.id})`,
+          }));
+          // Si la cuenta seleccionada ya no existe en la lista, usa la primera.
+          if (state.homeCostAccounts.length && !state.homeCostAccounts.some((a) => a.id === state.homeCostAccount)) {
+            state.homeCostAccount = state.homeCostAccounts[0].id;
+          }
+        } catch {
+          state.homeCostAccounts = [];
+        } finally {
+          accountsLoading = false;
+        }
+        // Si la pestaña de costos está visible, refresca solo el selector.
+        if (state.homeTab === "facturacion") repaintCostPanel();
+      }
+
+      // Cuentas para pintar el selector: las del backend o, mientras cargan, la
+      // seleccionada actual como única opción (evita un selector vacío).
+      function costAccountOptions() {
+        if (state.homeCostAccounts && state.homeCostAccounts.length) return state.homeCostAccounts;
+        return [{ id: state.homeCostAccount, label: state.homeCostAccount }];
+      }
       const TASK_STATUS_LABELS = { pending: "Pendiente", in_progress: "En progreso", review: "En revisión", done: "Completada", sin_estado: "Sin estado" };
       const PROJECT_STATUS_LABELS = { planned: "Planificado", active: "Activo", paused: "Pausado", closed: "Cerrado", sin_estado: "Sin estado" };
       const CHART_COLORS = ["#2f8f83", "#4f9ed8", "#e0a93b", "#9b6dd0", "#d96d6d", "#5cb85c", "#7a8a99", "#c97fb0"];
@@ -61,6 +89,9 @@ export function createHomeModule(ctx) {
         destroyHomeCharts();
         state.homeSummary = null;
         state.homeSummaryError = "";
+        // Pre-carga la lista de cuentas (solo admins) para que el selector de
+        // Facturación esté listo al abrir la pestaña, sin bloquear el resumen.
+        if ((state.profile?.user?.roles || []).includes("admin")) ensureCostAccounts();
         paintHome();
         try {
           const payload = await apiRequest("api/home/summary");
@@ -75,7 +106,10 @@ export function createHomeModule(ctx) {
         state.homeCostsLoading = true;
         state.homeCostsError = "";
         state.homeCosts = null;
+        clearServiceDetail();
         repaintCostPanel();
+        // La lista de cuentas se carga en paralelo (no bloquea los costos).
+        ensureCostAccounts();
         const { start, end } = periodRange(state.homeCostPeriod);
         try {
           const payload = await apiRequest(`api/home/costs?account=${encodeURIComponent(state.homeCostAccount)}&start=${start}&end=${end}${force ? "&force=1" : ""}`);
@@ -135,16 +169,42 @@ export function createHomeModule(ctx) {
           ? ""
           : `<article class="panel homePanel homeCostPanel" id="homeCostPanel">${costPanelInner()}</article>`;
 
+        // Pestañas visibles según permisos. Resumen y Data Lake se controlan por
+        // usuario (homeTabs de /api/me); Facturación es admin-only.
+        const homeTabs = state.profile?.homeTabs;
+        // Compatibilidad: si el perfil no trae homeTabs (cache previa), todas on.
+        const canResumen = !homeTabs || homeTabs.includes("home_resumen");
+        const canDatalake = !homeTabs || homeTabs.includes("home_datalake");
+        const tabs = [];
+        if (canResumen) tabs.push({ id: "resumen", label: "Resumen" });
+        if (canDatalake) tabs.push({ id: "datalake", label: "Data Lake" });
+        if (isAdmin) tabs.push({ id: "facturacion", label: "Facturación" });
+
+        // Asegura que la pestaña activa exista entre las visibles.
+        if (!tabs.some((t) => t.id === state.homeTab)) {
+          state.homeTab = tabs.length ? tabs[0].id : "resumen";
+        }
         const tab = state.homeTab;
+
         const tabBar = `
           <div class="homeTabs" role="tablist">
-            <button type="button" class="homeTab ${tab === "resumen" ? "active" : ""}" data-home-tab="resumen">Resumen</button>
-            ${isAdmin ? `<button type="button" class="homeTab ${tab === "facturacion" ? "active" : ""}" data-home-tab="facturacion">Facturación</button>` : ""}
+            ${tabs.map((t) => `<button type="button" class="homeTab ${tab === t.id ? "active" : ""}" data-home-tab="${t.id}">${escapeHtml(t.label)}</button>`).join("")}
           </div>`;
 
-        const body = tab === "facturacion" && isAdmin
-          ? costBlock
-          : summaryBlock + catalogBlock;
+        let body;
+        if (!tabs.length) {
+          body = `<article class="panel"><p class="catalogEmpty">No tienes pestañas habilitadas en Inicio. Contacta a un administrador.</p></article>`;
+        } else if (tab === "facturacion" && isAdmin) {
+          body = costBlock;
+        } else if (tab === "datalake") {
+          body = state.homeSummaryError
+            ? `<article class="panel"><p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeSummaryError)}</p></article>`
+            : !s
+            ? `<article class="panel"><p class="catalogEmpty">Cargando catálogo…</p></article>`
+            : catalogBlock;
+        } else {
+          body = summaryBlock;
+        }
 
         elements.contentPanel.innerHTML = tabBar + body;
         bindHomeEvents();
@@ -162,7 +222,7 @@ export function createHomeModule(ctx) {
               </div>
               <label>Cuenta
                 <select id="homeAccountSelect">
-                  ${HOME_COST_ACCOUNTS.map((a) => `<option value="${a.id}" ${a.id === state.homeCostAccount ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")}
+                  ${costAccountOptions().map((a) => `<option value="${a.id}" ${a.id === state.homeCostAccount ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")}
                 </select>
               </label>
               <label>Periodo
@@ -216,12 +276,90 @@ export function createHomeModule(ctx) {
             <div class="homeChartBox"><h3>Costo por servicio (top 10) · ${gross ? "bruto" : "neto"}</h3><canvas id="homeServiceChart"></canvas></div>
             <div class="homeChartBox"><h3>Tendencia diaria (neto)</h3><canvas id="homeDailyChart"></canvas></div>
           </div>
+          ${serviceDetailSection(gross ? (c.grossByService || []) : (c.byService || []))}
           ${(c.creditsByService || []).length ? `
             <div class="homeTopList">
               <h3>Créditos por servicio</h3>
               ${c.creditsByService.map((s) => `<div class="homeTopRow"><span>${escapeHtml(s.service)}</span><span class="homeTopMeta homeCredit">$${escapeHtml(s.amount)}</span></div>`).join("")}
             </div>` : ""}
         `;
+      }
+
+      // Lista de servicios con botón "Ver detalle" que expande, inline, el
+      // desglose por tipo de uso (USAGE_TYPE) del servicio seleccionado.
+      function serviceDetailSection(services) {
+        if (!services.length) return "";
+        const chevron = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>`;
+        const rows = services.map((s) => {
+          const open = state.homeCostDetailService === s.service;
+          return `
+            <div class="homeSvcRow">
+              <div class="homeSvcMain">
+                <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-cost-detail="${escapeAttribute(s.service)}"
+                  aria-expanded="${open ? "true" : "false"}" aria-label="Ver detalle de uso de ${escapeAttribute(s.service)}" title="Ver detalle de uso">${chevron}</button>
+                <span class="homeSvcName">${escapeHtml(s.service)}</span>
+                <span class="homeTopMeta homeSvcAmount">$${escapeHtml(s.amount)}</span>
+              </div>
+              ${open ? `<div class="homeSvcDetail">${serviceDetailBody()}</div>` : ""}
+            </div>`;
+        }).join("");
+        return `
+          <div class="homeTopList homeSvcList">
+            <h3>Detalle por servicio</h3>
+            ${rows}
+          </div>`;
+      }
+
+      function serviceDetailBody() {
+        if (state.homeCostDetailLoading) return `<p class="catalogEmpty">Cargando detalle…</p>`;
+        if (state.homeCostDetailError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeCostDetailError)}</p>`;
+        const d = state.homeCostDetail;
+        if (!d || !d.items) return `<p class="catalogEmpty">Sin datos.</p>`;
+        if (!d.items.length) return `<p class="catalogEmpty">Sin tipos de uso con costo en el periodo.</p>`;
+        return `
+          <table class="homeSvcTable">
+            <thead><tr><th>Tipo de uso</th><th>Cantidad</th><th>Costo</th></tr></thead>
+            <tbody>
+              ${d.items.map((it) => `<tr>
+                <td>${escapeHtml(it.usageType)}</td>
+                <td class="homeSvcQty">${it.quantity ? escapeHtml(it.quantity) : "—"}</td>
+                <td class="homeSvcAmt">$${escapeHtml(it.amount)}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>`;
+      }
+
+      async function loadServiceDetail(service) {
+        // Toggle: si ya está abierto ese servicio, lo cierra.
+        if (state.homeCostDetailService === service) {
+          state.homeCostDetailService = null;
+          state.homeCostDetail = null;
+          state.homeCostDetailError = "";
+          repaintCostPanel();
+          return;
+        }
+        state.homeCostDetailService = service;
+        state.homeCostDetail = null;
+        state.homeCostDetailError = "";
+        state.homeCostDetailLoading = true;
+        repaintCostPanel();
+        const { start, end } = periodRange(state.homeCostPeriod);
+        try {
+          const payload = await apiRequest(`api/home/costs/detail?account=${encodeURIComponent(state.homeCostAccount)}&service=${encodeURIComponent(service)}&start=${start}&end=${end}`);
+          state.homeCostDetail = payload.data;
+        } catch (err) {
+          state.homeCostDetailError = err?.message || "No se pudo cargar el detalle.";
+        }
+        state.homeCostDetailLoading = false;
+        repaintCostPanel();
+      }
+
+      // Limpia el detalle abierto (al cambiar cuenta/periodo/vista o recargar).
+      function clearServiceDetail() {
+        state.homeCostDetailService = null;
+        state.homeCostDetail = null;
+        state.homeCostDetailError = "";
+        state.homeCostDetailLoading = false;
       }
 
       function homeDateTimeLabel(iso) {
@@ -271,8 +409,12 @@ export function createHomeModule(ctx) {
           btn.addEventListener("click", () => {
             if (state.homeCostView === btn.dataset.costView) return;
             state.homeCostView = btn.dataset.costView;
+            clearServiceDetail(); // el detalle abierto pierde sentido al cambiar vista
             repaintCostPanel(); // sin volver a llamar a AWS: usa los datos en memoria
           });
+        }
+        for (const btn of elements.contentPanel.querySelectorAll("[data-cost-detail]")) {
+          btn.addEventListener("click", () => loadServiceDetail(btn.dataset.costDetail));
         }
       }
 

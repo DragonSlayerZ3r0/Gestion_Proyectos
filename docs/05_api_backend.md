@@ -85,6 +85,8 @@ GET /api/me
 GET /api/workspace
 GET /api/home/summary
 GET /api/home/costs
+GET /api/home/cost-accounts
+GET /api/home/costs/detail
 POST /api/people
 PATCH /api/people/{personId}
 DELETE /api/people/{personId}
