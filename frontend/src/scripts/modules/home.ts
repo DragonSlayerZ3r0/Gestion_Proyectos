@@ -107,9 +107,13 @@ export function createHomeModule(ctx) {
         state.homeCostsError = "";
         state.homeCosts = null;
         clearServiceDetail();
+        clearDaily();
         repaintCostPanel();
         // La lista de cuentas se carga en paralelo (no bloquea los costos).
         ensureCostAccounts();
+        // Si el análisis de picos ya está cacheado, se muestra solo (sin costo);
+        // si no, queda el botón "Analizar picos". No bloquea ni gasta consulta.
+        loadDailyByService({ cachedOnly: true, silent: true });
         const { start, end } = periodRange(state.homeCostPeriod);
         try {
           const payload = await apiRequest(`api/home/costs?account=${encodeURIComponent(state.homeCostAccount)}&start=${start}&end=${end}${force ? "&force=1" : ""}`);
@@ -274,23 +278,31 @@ export function createHomeModule(ctx) {
           <div class="homeStatsRow homeCostCards">${cards}</div>
           <div class="homeChartsRow">
             <div class="homeChartBox"><h3>Costo por servicio (top 10) · ${gross ? "bruto" : "neto"}</h3><canvas id="homeServiceChart"></canvas></div>
-            <div class="homeChartBox"><h3>Tendencia diaria (neto)</h3><canvas id="homeDailyChart"></canvas></div>
+            <div class="homeChartBox"><h3>Tendencia diaria (${gross ? "bruto" : "neto"})</h3><canvas id="homeDailyChart"></canvas></div>
           </div>
+          ${dailySpikeSection()}
           ${serviceDetailSection(gross ? (c.grossByService || []) : (c.byService || []))}
           ${(c.creditsByService || []).length ? `
             <div class="homeTopList">
-              <h3>Créditos por servicio</h3>
-              ${c.creditsByService.map((s) => `<div class="homeTopRow"><span>${escapeHtml(s.service)}</span><span class="homeTopMeta homeCredit">$${escapeHtml(s.amount)}</span></div>`).join("")}
+              ${sectionTitle("credits", "Créditos por servicio", state.homeCreditsCollapsed)}
+              ${state.homeCreditsCollapsed ? "" : c.creditsByService.map((s) => `<div class="homeTopRow"><span>${escapeHtml(s.service)}</span><span class="homeTopMeta homeCredit">$${fmtUsd(s.amount)}</span></div>`).join("")}
             </div>` : ""}
         `;
       }
 
-      // Lista de servicios con botón "Ver detalle" que expande, inline, el
-      // desglose por tipo de uso (USAGE_TYPE) del servicio seleccionado.
+      // Título de sección colapsable: caret + texto, toggle con data-section-toggle.
+      function sectionTitle(key, label, collapsed) {
+        return `<h3 class="homeSectionTitle ${collapsed ? "collapsed" : ""}" data-section-toggle="${key}" role="button" tabindex="0" aria-expanded="${collapsed ? "false" : "true"}">
+            <span class="homeSectionCaret"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>${escapeHtml(label)}
+          </h3>`;
+      }
+
+      // Lista de servicios con ícono ▸ que expande el desglose por tipo de uso.
       function serviceDetailSection(services) {
         if (!services.length) return "";
         const chevron = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>`;
-        const rows = services.map((s) => {
+        const collapsed = state.homeDetailCollapsed;
+        const rows = collapsed ? "" : services.map((s) => {
           const open = state.homeCostDetailService === s.service;
           return `
             <div class="homeSvcRow">
@@ -298,35 +310,53 @@ export function createHomeModule(ctx) {
                 <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-cost-detail="${escapeAttribute(s.service)}"
                   aria-expanded="${open ? "true" : "false"}" aria-label="Ver detalle de uso de ${escapeAttribute(s.service)}" title="Ver detalle de uso">${chevron}</button>
                 <span class="homeSvcName">${escapeHtml(s.service)}</span>
-                <span class="homeTopMeta homeSvcAmount">$${escapeHtml(s.amount)}</span>
+                <span class="homeTopMeta homeSvcAmount">$${fmtUsd(s.amount)}</span>
               </div>
               ${open ? `<div class="homeSvcDetail">${serviceDetailBody()}</div>` : ""}
             </div>`;
         }).join("");
         return `
           <div class="homeTopList homeSvcList">
-            <h3>Detalle por servicio</h3>
+            ${sectionTitle("detail", "Detalle por servicio", collapsed)}
             ${rows}
           </div>`;
       }
 
-      function serviceDetailBody() {
-        if (state.homeCostDetailLoading) return `<p class="catalogEmpty">Cargando detalle…</p>`;
-        if (state.homeCostDetailError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeCostDetailError)}</p>`;
-        const d = state.homeCostDetail;
+      // Cantidad legible: separador de miles + unidad (p. ej. "210,185,825 Requests").
+      function formatQty(qty, unit) {
+        if (!qty) return "—";
+        const n = parseFloat(qty);
+        const num = Number.isFinite(n) ? n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : qty;
+        return `${escapeHtml(num)}${unit ? ` <span class="homeSvcUnit">${escapeHtml(unit)}</span>` : ""}`;
+      }
+
+      // Importe en dólares con separador de miles.
+      function fmtUsd(amount) {
+        const n = parseFloat(amount);
+        return Number.isFinite(n) ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : escapeHtml(amount);
+      }
+
+      // Tabla de tipos de uso reutilizable (detalle mensual y detalle por día).
+      function usageDetailTable(d, emptyMsg) {
         if (!d || !d.items) return `<p class="catalogEmpty">Sin datos.</p>`;
-        if (!d.items.length) return `<p class="catalogEmpty">Sin tipos de uso con costo en el periodo.</p>`;
+        if (!d.items.length) return `<p class="catalogEmpty">${escapeHtml(emptyMsg || "Sin tipos de uso con costo en el periodo.")}</p>`;
         return `
           <table class="homeSvcTable">
             <thead><tr><th>Tipo de uso</th><th>Cantidad</th><th>Costo</th></tr></thead>
             <tbody>
               ${d.items.map((it) => `<tr>
                 <td>${escapeHtml(it.usageType)}</td>
-                <td class="homeSvcQty">${it.quantity ? escapeHtml(it.quantity) : "—"}</td>
-                <td class="homeSvcAmt">$${escapeHtml(it.amount)}</td>
+                <td class="homeSvcQty">${formatQty(it.quantity, it.unit)}</td>
+                <td class="homeSvcAmt">$${fmtUsd(it.amount)}</td>
               </tr>`).join("")}
             </tbody>
           </table>`;
+      }
+
+      function serviceDetailBody() {
+        if (state.homeCostDetailLoading) return `<p class="catalogEmpty">Cargando detalle…</p>`;
+        if (state.homeCostDetailError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeCostDetailError)}</p>`;
+        return usageDetailTable(state.homeCostDetail);
       }
 
       async function loadServiceDetail(service) {
@@ -360,6 +390,226 @@ export function createHomeModule(ctx) {
         state.homeCostDetail = null;
         state.homeCostDetailError = "";
         state.homeCostDetailLoading = false;
+      }
+
+      // ── Variación diaria (detección de picos) ────────────────────────────────
+
+      function clearDaily() {
+        state.homeDaily = null;
+        state.homeDailyLoading = false;
+        state.homeDailyError = "";
+        state.homeDailyOpenDate = null;
+        state.homeDailyDetailKey = null;
+        state.homeDailyDetail = null;
+        state.homeDailyDetailLoading = false;
+        state.homeDailyDetailError = "";
+      }
+
+      function dayLabel(iso) {
+        const d = new Date(`${iso}T00:00:00Z`);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleDateString("es-GT", { day: "2-digit", month: "short", timeZone: "UTC" });
+      }
+
+      function dayPlusOne(iso) {
+        const d = new Date(`${iso}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + 1);
+        return d.toISOString().slice(0, 10);
+      }
+
+      // Calcula, por día, el total y la variación (Δ) contra el día anterior, más
+      // qué servicios subieron ese día. Devuelve también el mayor pico.
+      function computeDailyDeltas(days) {
+        const rows = [];
+        let topSpike = null;
+        for (let i = 0; i < days.length; i++) {
+          const day = days[i];
+          const prev = i > 0 ? days[i - 1] : null;
+          const total = parseFloat(day.total) || 0;
+          const prevTotal = prev ? (parseFloat(prev.total) || 0) : 0;
+          const delta = prev ? total - prevTotal : 0;
+          // Servicios que subieron vs el día anterior.
+          let risers = [];
+          if (prev) {
+            const prevMap = {};
+            for (const s of prev.services || []) prevMap[s.service] = parseFloat(s.amount) || 0;
+            const curMap = {};
+            for (const s of day.services || []) curMap[s.service] = parseFloat(s.amount) || 0;
+            const names = new Set([...Object.keys(prevMap), ...Object.keys(curMap)]);
+            for (const name of names) {
+              const d = (curMap[name] || 0) - (prevMap[name] || 0);
+              if (d > 0.005) risers.push({ service: name, delta: d, amount: curMap[name] || 0 });
+            }
+            risers.sort((a, b) => b.delta - a.delta);
+          }
+          const row = { date: day.date, total, delta, hasPrev: !!prev, risers, services: day.services || [] };
+          rows.push(row);
+          if (prev && (!topSpike || delta > topSpike.delta)) topSpike = row;
+        }
+        return { rows, topSpike };
+      }
+
+      function dailySpikeSection() {
+        const collapsed = state.homeDailyCollapsed;
+        const loaded = state.homeDaily && !state.homeDailyLoading && !state.homeDailyError;
+        const actionBtn = state.homeDailyLoading ? "" : `<button type="button" id="homeAnalyzeDaily" class="tinyButton" title="${loaded ? "Vuelve a consultar (usa caché si está fresco)." : "Consulta el costo por día y servicio para detectar saltos (1 consulta a AWS, se cachea)."}">${loaded ? "Recalcular" : "Analizar picos"}</button>`;
+
+        let body = "";
+        if (!collapsed) {
+          if (state.homeDailyLoading) {
+            body = `<p class="catalogEmpty">Analizando variación diaria…</p>`;
+          } else if (state.homeDailyError) {
+            body = `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeDailyError)}</p>`;
+          } else if (!state.homeDaily) {
+            body = `<p class="homeCostHint">Detecta de un día a otro qué servicio elevó la factura.</p>`;
+          } else {
+            const { rows, topSpike } = computeDailyDeltas(state.homeDaily.days || []);
+            const callout = topSpike && topSpike.delta > 0.005
+              ? `<div class="homeSpikeCallout">
+                   <strong>Mayor aumento:</strong> ${escapeHtml(dayLabel(topSpike.date))} ·
+                   <span class="homeSpikeUp">+$${fmtUsd(topSpike.delta)}</span> vs el día anterior${
+                     topSpike.risers.length ? ` · principal causa: <b>${escapeHtml(topSpike.risers[0].service)}</b> (+$${fmtUsd(topSpike.risers[0].delta)})` : ""}
+                 </div>`
+              : `<p class="homeCostHint">Sin aumentos relevantes de un día a otro en este periodo.</p>`;
+            // Tabla ordenada por fecha, la última primero. Incluye el día 1 (su
+            // variación es $0.00 porque no hay día previo con qué comparar).
+            const ordered = rows.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+            const tableRows = ordered.map((r) => {
+              const open = state.homeDailyOpenDate === r.date;
+              const up = r.delta > 0.005;
+              const varCell = !r.hasPrev
+                ? `<span class="homeTopMeta">$0.00</span>`
+                : up
+                ? `<span class="homeSpikeUp">+$${fmtUsd(r.delta)}</span>`
+                : r.delta < -0.005
+                ? `<span class="homeSpikeDown">-$${fmtUsd(Math.abs(r.delta))}</span>`
+                : `<span class="homeTopMeta">≈ $0.00</span>`;
+              return `
+                <tr class="homeDayTr ${up ? "isSpike" : ""}" data-daily-day="${escapeAttribute(r.date)}">
+                  <td class="homeDayCellDate"><span class="homeDayToggle ${open ? "open" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>${escapeHtml(dayLabel(r.date))}</td>
+                  <td class="homeDayCellNum">$${fmtUsd(r.total)}</td>
+                  <td class="homeDayCellNum">${varCell}</td>
+                </tr>
+                ${open ? `<tr class="homeDayDetailTr"><td colspan="3">${dayRisersBody(r)}</td></tr>` : ""}`;
+            }).join("");
+            const list = ordered.length
+              ? `<table class="homeDailyTable">
+                <thead><tr><th>Diario</th><th class="homeDayCellNum">Gasto del día</th><th class="homeDayCellNum">Variación diaria</th></tr></thead>
+                <tbody>${tableRows}</tbody>
+              </table>`
+              : `<p class="catalogEmpty">Sin datos diarios.</p>`;
+            const fresh = state.homeDaily.fetchedAt
+              ? `<p class="homeDailyFreshness">Calculado: <b>${homeDateTimeLabel(state.homeDaily.fetchedAt)}</b> <span class="homeCostAgo">(${catalogSyncedLabel(state.homeDaily.fetchedAt)}${state.homeDaily.cached ? ", desde caché" : ""})</span></p>`
+              : "";
+            body = `${fresh}${callout}${list}`;
+          }
+        }
+
+        return `
+          <div class="homeTopList homeDailyList">
+            <div class="homeDailyHead">
+              ${sectionTitle("daily", "Detalle diario", collapsed)}
+              ${collapsed ? "" : actionBtn}
+            </div>
+            ${body}
+          </div>`;
+      }
+
+      // Fila de un servicio dentro del detalle de un día, con drill al tipo de uso.
+      // delta != null: muestra el aumento vs el día anterior (días con comparación).
+      function serviceDrillRow(date, service, delta, amount) {
+        const key = `${date}|${service}`;
+        const open = state.homeDailyDetailKey === key;
+        return `
+          <div class="homeSvcRow">
+            <div class="homeSvcMain">
+              <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-daily-detail="${escapeAttribute(key)}"
+                aria-expanded="${open ? "true" : "false"}" title="Ver tipos de uso de ${escapeAttribute(service)} ese día"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+              <span class="homeSvcName">${escapeHtml(service)}</span>
+              ${delta != null ? `<span class="homeSpikeUp homeDayRiserDelta">+$${fmtUsd(delta)}</span>` : ""}
+              <span class="homeTopMeta homeSvcAmount">día $${fmtUsd(amount)}</span>
+            </div>
+            ${open ? `<div class="homeSvcDetail">${dailyDetailBody()}</div>` : ""}
+          </div>`;
+      }
+
+      // Detalle al expandir un día. Con día previo: servicios que subieron (Δ).
+      // Día base (sin previo, p. ej. el 1): gasto por servicio del día.
+      function dayRisersBody(row) {
+        if (!row.hasPrev) {
+          if (!row.services || !row.services.length) return `<p class="catalogEmpty">Sin gasto registrado ese día.</p>`;
+          return row.services.slice(0, 12).map((s) => serviceDrillRow(row.date, s.service, null, s.amount)).join("");
+        }
+        if (!row.risers.length) return `<p class="catalogEmpty">Ningún servicio aumentó respecto al día anterior.</p>`;
+        return row.risers.slice(0, 12).map((s) => serviceDrillRow(row.date, s.service, s.delta, s.amount)).join("");
+      }
+
+      function dailyDetailBody() {
+        if (state.homeDailyDetailLoading) return `<p class="catalogEmpty">Cargando detalle del día…</p>`;
+        if (state.homeDailyDetailError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeDailyDetailError)}</p>`;
+        return usageDetailTable(state.homeDailyDetail, "Sin tipos de uso con costo ese día.");
+      }
+
+      // opts: { cachedOnly } solo lee caché (no gasta consulta); { silent } no
+      // muestra spinner ni error (para el auto-chequeo al abrir); { force } recalcula.
+      async function loadDailyByService(opts = {}) {
+        if (!opts.silent) {
+          state.homeDailyLoading = true;
+          state.homeDailyError = "";
+          state.homeDailyOpenDate = null;
+          repaintCostPanel();
+        }
+        const { start, end } = periodRange(state.homeCostPeriod);
+        let url = `api/home/costs/daily?account=${encodeURIComponent(state.homeCostAccount)}&start=${start}&end=${end}`;
+        if (opts.cachedOnly) url += "&cachedOnly=1";
+        if (opts.force) url += "&force=1";
+        try {
+          const payload = await apiRequest(url);
+          // pending = no había caché y no se consultó AWS: dejar para el botón.
+          if (!payload.data || payload.data.pending) {
+            state.homeDaily = null;
+          } else {
+            state.homeDaily = payload.data;
+          }
+        } catch (err) {
+          if (!opts.silent) state.homeDailyError = err?.message || "No se pudo analizar la variación diaria.";
+        }
+        state.homeDailyLoading = false;
+        repaintCostPanel();
+      }
+
+      function toggleDailyDay(date) {
+        // Cambiar de día cierra cualquier drill de tipo de uso abierto.
+        state.homeDailyOpenDate = state.homeDailyOpenDate === date ? null : date;
+        state.homeDailyDetailKey = null;
+        state.homeDailyDetail = null;
+        state.homeDailyDetailError = "";
+        repaintCostPanel();
+      }
+
+      async function loadDailyServiceDetail(key) {
+        if (state.homeDailyDetailKey === key) {
+          state.homeDailyDetailKey = null;
+          state.homeDailyDetail = null;
+          state.homeDailyDetailError = "";
+          repaintCostPanel();
+          return;
+        }
+        const [date, service] = key.split("|");
+        state.homeDailyDetailKey = key;
+        state.homeDailyDetail = null;
+        state.homeDailyDetailError = "";
+        state.homeDailyDetailLoading = true;
+        repaintCostPanel();
+        try {
+          // Reusa el endpoint de detalle con una ventana de UN día.
+          const payload = await apiRequest(`api/home/costs/detail?account=${encodeURIComponent(state.homeCostAccount)}&service=${encodeURIComponent(service)}&start=${date}&end=${dayPlusOne(date)}`);
+          state.homeDailyDetail = payload.data;
+        } catch (err) {
+          state.homeDailyDetailError = err?.message || "No se pudo cargar el detalle del día.";
+        }
+        state.homeDailyDetailLoading = false;
+        repaintCostPanel();
       }
 
       function homeDateTimeLabel(iso) {
@@ -416,6 +666,24 @@ export function createHomeModule(ctx) {
         for (const btn of elements.contentPanel.querySelectorAll("[data-cost-detail]")) {
           btn.addEventListener("click", () => loadServiceDetail(btn.dataset.costDetail));
         }
+        const sectionFlags = { detail: "homeDetailCollapsed", daily: "homeDailyCollapsed", credits: "homeCreditsCollapsed" };
+        for (const h of elements.contentPanel.querySelectorAll("[data-section-toggle]")) {
+          h.addEventListener("click", () => {
+            const flag = sectionFlags[h.dataset.sectionToggle];
+            if (!flag) return;
+            state[flag] = !state[flag];
+            repaintCostPanel();
+          });
+        }
+        const analyze = elements.contentPanel.querySelector("#homeAnalyzeDaily");
+        // Si ya hay datos cargados es "Recalcular" (fuerza); si no, primer cálculo.
+        if (analyze) analyze.addEventListener("click", (e) => { e.stopPropagation(); loadDailyByService({ force: !!state.homeDaily }); });
+        for (const el of elements.contentPanel.querySelectorAll("[data-daily-day]")) {
+          el.addEventListener("click", () => toggleDailyDay(el.dataset.dailyDay));
+        }
+        for (const btn of elements.contentPanel.querySelectorAll("[data-daily-detail]")) {
+          btn.addEventListener("click", (e) => { e.stopPropagation(); loadDailyServiceDetail(btn.dataset.dailyDetail); });
+        }
       }
 
       function destroyCostCharts() {
@@ -466,11 +734,14 @@ export function createHomeModule(ctx) {
             options: { indexAxis: "y", plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } }, maintainAspectRatio: false },
           });
         }
+        // En "Bruto" muestra el consumo diario (que sí varía); en "Neto" el neto
+        // (que en cuentas con créditos que cubren el consumo queda en ~0).
+        const dailySeries = state.homeCostView === "gross" ? (c.dailyGross || c.daily || []) : (c.daily || []);
         const dEl = elements.contentPanel.querySelector("#homeDailyChart");
-        if (dEl && c.daily.length) {
+        if (dEl && dailySeries.length) {
           state.homeCharts.daily = new Chart(dEl, {
             type: "line",
-            data: { labels: c.daily.map((x) => x.date.slice(8)), datasets: [{ data: c.daily.map((x) => parseFloat(x.amount)), borderColor: CHART_COLORS[0], backgroundColor: "rgba(47,143,131,0.15)", fill: true, tension: 0.25 }] },
+            data: { labels: dailySeries.map((x) => x.date.slice(8)), datasets: [{ data: dailySeries.map((x) => parseFloat(x.amount)), borderColor: CHART_COLORS[0], backgroundColor: "rgba(47,143,131,0.15)", fill: true, tension: 0.25 }] },
             options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } }, maintainAspectRatio: false },
           });
         }

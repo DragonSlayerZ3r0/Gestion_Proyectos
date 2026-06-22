@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/01_arquitectura_aws.md",
+                "file": "README.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "01_arquitectura_aws"
+              "title": "README"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "docs/01_arquitectura_aws.md",
+                "file": "README.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Enlaces entrantes de 01_arquitectura_aws"
+              "title": "Enlaces entrantes de README"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "docs/01_arquitectura_aws.md",
+                "file": "README.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Enlaces salientes de 01_arquitectura_aws"
+              "title": "Enlaces salientes de README"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "docs/01_arquitectura_aws.md",
+                "file": "README.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Esquema de 01_arquitectura_aws"
+              "title": "Esquema de README"
             }
           }
         ]
@@ -185,17 +185,19 @@
   },
   "active": "9b2d863712aed54c",
   "lastOpenFiles": [
-    "frontend/dist/index.html",
-    "frontend/dist/_astro/index.browser.BymnG33a.js",
-    "frontend/dist/_astro/index.astro_astro_type_script_index_0_lang.Bc3hcPyG.js",
-    "frontend/dist/_astro/index.BamsAIql.css",
-    "frontend/dist/_astro",
+    "infra/cdk.out/read.48048.1.lock",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/services/workspace.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/services/users.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/services/home.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/services/catalog.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/services/admin.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/services/__init__.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/services",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/responses.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/repositories/workspace.py",
+    "infra/cdk.out/asset.a4e368548dbb4ae68366c347543418a16caad656c8c24361d12b65edfc32789f/repositories/users.py",
+    "docs/01_arquitectura_aws.md",
     "frontend/dist/icono_gp.png",
-    "frontend/dist/config.json",
-    "frontend/dist/_astro/index.browser.B44Yt9fi.js",
-    "frontend/dist/_astro/index.astro_astro_type_script_index_0_lang.CJLFXNOE.js",
-    "infra/cdk.out/read.30332.1.lock",
-    "infra/cdk.out/synth.lock",
     "README.md"
   ]
 }

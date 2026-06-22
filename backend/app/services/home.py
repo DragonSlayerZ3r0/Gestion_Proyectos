@@ -134,7 +134,12 @@ class HomeService:
 
         ttl = self._ttl_for_period(end)
         key = f"{account}#{start}#{end}"
-        if not force:
+        if force:
+            # "Actualizar ahora" refresca TODO el periodo: invalida también el
+            # diario y los detalles por servicio (no solo el costo principal),
+            # para que un único refresco deje todo coherente y al día.
+            self._costs.delete_cost_cache_prefix(key)
+        else:
             cached = self._costs.get_cost_cache(key)
             if cached:
                 fetched_at = cached.get("fetchedAt", "")
@@ -193,6 +198,69 @@ class HomeService:
         data["fetchedAt"] = now
         return data
 
+    def get_daily_by_service(self, account: str, start: str, end: str,
+                             force: bool = False, cached_only: bool = False) -> dict[str, Any]:
+        """Costo por día y por servicio (consumo bruto). Una sola llamada a CE
+        devuelve todo el mes; el frontend compara día contra día para detectar
+        picos e identificar el servicio que los causó. Caché propia.
+
+        cached_only=True: devuelve el dato SOLO si ya está en caché fresco; si no,
+        devuelve {"pending": True} sin consultar AWS (para auto-mostrar sin costo)."""
+        account = (account or "").strip()
+        if account not in COST_ACCOUNTS:
+            raise ValidationError("Cuenta no permitida.")
+        self._validate_date(start, "inicio")
+        self._validate_date(end, "fin")
+
+        ttl = self._ttl_for_period(end)
+        key = f"{account}#{start}#{end}#daily-svc"
+        if not force:
+            cached = self._costs.get_cost_cache(key)
+            if cached:
+                fetched_at = cached.get("fetchedAt", "")
+                if self._fresh(fetched_at, ttl):
+                    data = self._decode(cached.get("data") or {})
+                    data["cached"] = True
+                    data["fetchedAt"] = fetched_at
+                    return data
+
+        # Modo solo-caché: no hay dato fresco y no se debe gastar una consulta.
+        if cached_only:
+            return {"pending": True}
+
+        client = self._ce_client(account)
+        data = self._fetch_daily_by_service(client, start, end)
+        data["account"] = account
+        data["start"] = start
+        data["end"] = end
+        now = self._now()
+        self._costs.put_cost_cache(key, self._encode(data), now)
+        data["cached"] = False
+        data["fetchedAt"] = now
+        return data
+
+    def _fetch_daily_by_service(self, client, start: str, end: str) -> dict[str, Any]:
+        resp = client.get_cost_and_usage(
+            TimePeriod={"Start": start, "End": end}, Granularity="DAILY",
+            Metrics=["UnblendedCost"],
+            Filter={"Not": {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Credit", "Refund"]}}},
+            GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+        )
+        days = []
+        for r in resp.get("ResultsByTime", []):
+            date = r["TimePeriod"]["Start"]
+            services = []
+            total = 0.0
+            for g in r.get("Groups", []):
+                amount = float(g["Metrics"]["UnblendedCost"]["Amount"])
+                total += amount
+                if abs(amount) < 0.0001:
+                    continue
+                services.append({"service": g["Keys"][0], "amount": self._fmt(amount)})
+            services.sort(key=lambda s: float(s["amount"]), reverse=True)
+            days.append({"date": date, "total": self._fmt(total), "services": services})
+        return {"days": days}
+
     def _fetch_service_detail(self, client, service: str, start: str, end: str) -> dict[str, Any]:
         resp = client.get_cost_and_usage(
             TimePeriod={"Start": start, "End": end}, Granularity="MONTHLY",
@@ -211,11 +279,13 @@ class HomeService:
             total += amount
             if abs(amount) < 0.0001:
                 continue
-            qty = g.get("Metrics", {}).get("UsageQuantity", {}).get("Amount")
+            qty_metric = g.get("Metrics", {}).get("UsageQuantity", {})
+            qty = qty_metric.get("Amount")
             items.append({
                 "usageType": g["Keys"][0],
                 "amount": self._fmt(amount),
                 "quantity": self._fmt(float(qty)) if qty is not None else "",
+                "unit": qty_metric.get("Unit", ""),
             })
         items.sort(key=lambda x: float(x["amount"]), reverse=True)
         return {"items": items[:25], "total": self._fmt(total)}
@@ -267,14 +337,27 @@ class HomeService:
             gross_by_service.append({"service": g["Keys"][0], "amount": self._fmt(amount)})
         gross_by_service.sort(key=lambda s: float(s["amount"]), reverse=True)
 
-        # Tendencia diaria (neto por día).
+        # Tendencia diaria. Se agrupa por RECORD_TYPE en la MISMA llamada para
+        # obtener neto (todo) y bruto (excluye créditos/reembolsos) sin costo extra.
+        # En cuentas donde los créditos cubren el consumo, el neto es ~0 todos los
+        # días (línea plana); el bruto sí refleja el consumo real.
         daily_resp = client.get_cost_and_usage(
             TimePeriod=period, Granularity="DAILY", Metrics=["UnblendedCost"],
+            GroupBy=[{"Type": "DIMENSION", "Key": "RECORD_TYPE"}],
         )
-        daily = [
-            {"date": r["TimePeriod"]["Start"], "amount": self._fmt(float(r["Total"]["UnblendedCost"]["Amount"]))}
-            for r in daily_resp.get("ResultsByTime", [])
-        ]
+        daily = []
+        daily_gross = []
+        for r in daily_resp.get("ResultsByTime", []):
+            date = r["TimePeriod"]["Start"]
+            day_net = 0.0
+            day_gross = 0.0
+            for g in r.get("Groups", []):
+                amount = float(g["Metrics"]["UnblendedCost"]["Amount"])
+                day_net += amount
+                if g["Keys"][0] not in ("Credit", "Refund"):
+                    day_gross += amount
+            daily.append({"date": date, "amount": self._fmt(day_net)})
+            daily_gross.append({"date": date, "amount": self._fmt(day_gross)})
 
         # Créditos por servicio.
         credits_resp = client.get_cost_and_usage(
@@ -298,6 +381,7 @@ class HomeService:
             "byService": by_service[:10],
             "grossByService": gross_by_service[:10],
             "daily": daily,
+            "dailyGross": daily_gross,
             "creditsByService": credits_by_service,
         }
 

@@ -29,6 +29,15 @@ def _cost_detail(req: Request):
     return success(HomeService().get_service_detail(account, service, start, end, force))
 
 
+def _cost_daily(req: Request):
+    account = req.query.get("account") or ""
+    start = req.query.get("start") or ""
+    end = req.query.get("end") or ""
+    force = req.query.get("force") == "1"
+    cached_only = req.query.get("cachedOnly") == "1"
+    return success(HomeService().get_daily_by_service(account, start, end, force, cached_only))
+
+
 def register(router: Router) -> None:
     router.add(["GET"], "/api/home/summary", _summary, modules=["home"],
                error_msg="Error inesperado al cargar el resumen.")
@@ -41,3 +50,6 @@ def register(router: Router) -> None:
     # Detalle de un servicio por tipo de uso (admin-only).
     router.add(["GET"], "/api/home/costs/detail", _cost_detail, modules=["home"], admin=True,
                error_msg="Error inesperado al cargar el detalle del servicio.")
+    # Costo diario por servicio para detección de picos (admin-only).
+    router.add(["GET"], "/api/home/costs/daily", _cost_daily, modules=["home"], admin=True,
+               error_msg="Error inesperado al cargar el costo diario.")

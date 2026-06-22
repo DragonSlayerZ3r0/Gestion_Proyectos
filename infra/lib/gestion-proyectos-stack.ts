@@ -498,6 +498,12 @@ export class GestionProyectosStack extends Stack {
       integration,
       authorizer: jwtAuthorizer
     });
+    httpApi.addRoutes({
+      path: "/api/home/costs/daily",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
 
     // ── Administración de usuarios ──────────────────────────────────────────
     // Requieren rol `admin` (validado en la Lambda) además del JWT Authorizer.

@@ -1951,7 +1951,10 @@
   .adminUserControls select, .adminCreateForm select, .adminCreateForm input { padding: 6px 8px; border: 1px solid var(--border, #d7dce1); border-radius: 7px; font-size: 0.85rem; }
   .adminModules { display: flex; flex-wrap: wrap; gap: 8px 14px; border: none; padding: 4px 0; margin: 6px 0; }
   .adminModules legend { font-size: 0.74rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
-  .adminModuleChk { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82rem; }
+  /* Mayor especificidad que `.adminCreateForm label` (column) para que la casilla
+     y su texto queden EN FILA tanto en alta como en edición. */
+  .adminModules .adminModuleChk { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 0.82rem; }
+  .adminModules .adminModuleChk input { margin: 0; flex: 0 0 auto; }
   .adminModules { flex-direction: column; align-items: flex-start; }
   .adminModuleGroup { display: flex; flex-direction: column; gap: 4px; }
   .adminModuleChildren { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-left: 22px; margin-bottom: 2px; }
@@ -1995,26 +1998,56 @@
   .homeChartsRow { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
   .homeChartBox { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
   .homeChartBox canvas { width: 100% !important; height: 240px !important; }
-  .homeTopList { margin-top: 16px; }
-  .homeTopRow { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.86rem; }
+  .homeTopList { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .homeSectionTitle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 1.06rem; font-weight: 700; color: #0f172a; margin: 0 0 8px; }
+  .homeSectionTitle:hover { color: var(--accent-strong, #0f766e); }
+  .homeSectionCaret { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--accent-strong, #0f766e); }
+  .homeSectionCaret svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .homeSectionTitle.collapsed .homeSectionCaret svg { transform: rotate(-90deg); }
+  .homeTopRow { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0 7px 26px; border-bottom: 1px solid var(--line); font-size: 0.84rem; }
   .homeTopMeta { color: var(--muted); }
   .homeCredit { color: #1e7a3c; font-weight: 600; }
   /* Detalle por servicio (desglose por tipo de uso) */
-  .homeSvcRow { border-bottom: 1px solid var(--line); padding: 7px 0; }
-  .homeSvcMain { display: flex; align-items: center; gap: 10px; font-size: 0.86rem; }
-  .homeSvcToggle { flex: 0 0 auto; display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
+  .homeSvcRow { border-bottom: 1px solid var(--line); padding: 7px 0 7px 16px; }
+  .homeSvcMain { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; }
+  .homeSvcToggle { flex: 0 0 auto; display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
   .homeSvcToggle:hover { background: var(--surface-muted, #f1f5f9); color: var(--accent-strong, #0f766e); }
-  .homeSvcToggle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .homeSvcToggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
   .homeSvcToggle.open svg { transform: rotate(90deg); }
   .homeSvcName { font-weight: 500; overflow-wrap: anywhere; flex: 1 1 auto; }
   .homeSvcAmount { flex: 0 0 auto; }
-  .homeSvcDetail { margin: 8px 0 4px; padding: 8px 10px; background: var(--surface-muted, #f6f8fa); border-radius: 8px; }
-  .homeSvcTable { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-  .homeSvcTable th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); }
-  .homeSvcTable td { padding: 4px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .homeSvcDetail { margin: 8px 0 4px; padding: 6px 8px; background: #ffffff; border: 1px solid var(--line); border-radius: 8px; }
+  .homeSvcTable { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .homeSvcTable th { text-align: left; color: var(--muted); font-weight: 600; padding: 7px 12px; border-bottom: 2px solid var(--line); }
+  .homeSvcTable td { padding: 7px 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  /* Bandas alternadas + hover para seguir cada fila de izquierda a derecha. */
+  .homeSvcTable tbody tr:nth-child(even) { background: var(--surface-muted, #f6f8fa); }
+  .homeSvcTable tbody tr:hover { background: #e8eef2; }
   .homeSvcTable tr:last-child td { border-bottom: none; }
   .homeSvcQty, .homeSvcAmt { text-align: right; white-space: nowrap; }
   .homeSvcAmt { font-weight: 600; }
+  .homeSvcUnit { color: var(--muted); font-weight: 500; }
+  /* Variación diaria (detección de picos) */
+  .homeDailyHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .homeDailyFreshness { font-size: 0.78rem; color: var(--muted); margin: 2px 0 8px; }
+  .homeSpikeCallout { background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; border-radius: 8px; padding: 8px 12px; font-size: 0.86rem; margin: 8px 0; }
+  .homeSpikeUp { color: #b45309; font-weight: 700; }
+  .homeSpikeDown { color: #1e7a3c; font-weight: 600; }
+  /* Tabla "Detalle diario": Diario | Gasto del día | Variación diaria */
+  .homeDailyTable { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .homeDailyTable th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px 8px 16px; border-bottom: 1px solid var(--line); }
+  .homeDailyTable td { padding: 7px 8px 7px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .homeDayCellNum { text-align: right; white-space: nowrap; }
+  th.homeDayCellNum { text-align: right; }
+  .homeDayTr { cursor: pointer; }
+  .homeDayTr:hover { background: var(--surface-muted, #f6f8fa); }
+  .homeDayTr.isSpike td.homeDayCellDate { font-weight: 700; }
+  .homeDayCellDate { white-space: nowrap; }
+  .homeDayDetailTr td { padding: 4px 8px 10px 30px; background: var(--surface-muted, #f9fafb); }
+  .homeDayToggle { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--muted); vertical-align: middle; margin-right: 4px; }
+  .homeDayToggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .homeDayToggle.open svg { transform: rotate(90deg); }
+  .homeDayRiserDelta { flex: 0 0 auto; margin-left: auto; }
   .homeCostHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   .homeCostControls { display: flex; gap: 12px; flex-wrap: wrap; }
   .homeCostControls label { display: flex; flex-direction: column; font-size: 0.74rem; color: var(--muted); gap: 4px; }

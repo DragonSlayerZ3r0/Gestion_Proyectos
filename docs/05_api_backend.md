@@ -87,6 +87,7 @@ GET /api/home/summary
 GET /api/home/costs
 GET /api/home/cost-accounts
 GET /api/home/costs/detail
+GET /api/home/costs/daily
 POST /api/people
 PATCH /api/people/{personId}
 DELETE /api/people/{personId}
