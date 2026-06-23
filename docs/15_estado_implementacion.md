@@ -1,6 +1,13 @@
 # Estado de implementación
 
-## Últimos avances (refactor a arquitectura modular + módulos nuevos)
+## Últimos avances (monitoreo de cargas + mejoras de Inicio)
+
+- **Monitoreo de cargas del data lake** (pestaña Data Lake): histograma diario de **archivos y peso** por zona y área (Fase 1: listado S3 con colector intercambiable hacia S3 Inventory en Fase 2), escaneo asíncrono (`datalake_ingest_scan`), caché en DynamoDB (`DATALAKE#INGEST`) con TTL 12 h + botón "Escanear ahora". Sub-módulo frontend `modules/datalake.ts` compuesto por Inicio. Alcance inicial: `arc-enterprise-data` (landing/staging). Ver `docs/02_modulos_funcionales.md`.
+- **Inicio en pestañas** Resumen / Data Lake / Facturación, con visibilidad de pestañas por usuario (permisos `home_resumen`, `home_datalake`; Facturación es admin-only). Títulos de sección colapsables.
+- **Facturación mejorada**: cuentas **config-driven** (fuente única `costAccounts` en el stack → env `COST_ACCOUNTS`, selector + whitelist + IAM AssumeRole derivados), nombres reales de cuenta en el selector; **detalle por servicio** (desglose por `USAGE_TYPE` con unidad), **Detalle diario** (tabla Diario/Gasto/Variación con detección del día de mayor aumento y su servicio causante), **tendencia que respeta Neto/Bruto**, y "Actualizar ahora" que invalida toda la caché del periodo.
+- **Sesión**: renovación silenciosa del idToken con el refreshToken mientras el usuario está activo; aviso de expiración y regreso al login (sin pantalla congelada).
+
+## Avances previos (refactor a arquitectura modular + módulos nuevos)
 
 - **Módulo Inicio (dashboard)** implementado: pestañas Resumen (proyectos/tareas/personas + catálogo, con gráficas Chart.js) y Facturación (costos AWS, solo admin). Costos vía Cost Explorer con selector de cuenta **186281981036 (app)** y **396913696127 (hub, vía rol cross-account `gestion-proyectos-cost-reader` + AssumeRole)**, toggle bruto/neto, caché en DynamoDB (`HOME#COSTS`) con TTL diferenciado y botón "Actualizar ahora". Ver `docs/02_modulos_funcionales.md`.
 - **Módulo Administración funcional**: alta/edición/eliminación de usuarios (perfil + módulos + rol + estado) desde la UI; solo Cognito sigue manual. Guard de rol admin en backend. Ver `docs/09_admin_accesos.md`.

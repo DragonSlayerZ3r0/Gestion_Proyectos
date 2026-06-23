@@ -88,6 +88,18 @@ item `USER#<email> / MODULE#reports`).
 3. Agregar la entrada al menú: `defaultModules` y `moduleOrder` en `app.ts` (y a
    `viewCopy` si usa la tarjeta genérica).
 
+### Sub-módulos (componer una sección dentro de otro módulo)
+
+Si lo nuevo no es una entrada de menú sino una **sección dentro de un módulo existente**
+(p. ej. una pestaña), aplica el mismo patrón pero el **módulo padre** lo compone en vez
+del shell. Ejemplo real: el **Monitoreo de cargas** vive en la pestaña Data Lake del
+módulo Inicio, así que se extrajo a `frontend/src/scripts/modules/datalake.ts`
+(`createDatalakeModule(ctx)`) y el módulo Inicio lo instancia y le **delega**
+`sectionHtml()`, `bindEvents()`, `drawChart()` y `ensure()`, pasándole un callback
+`repaint` para re-renderizar. Así Inicio no se vuelve un "archivo dios" y la sección
+mantiene una sola responsabilidad. En backend sigue siendo un dominio normal
+(`services/datalake.py`, `repositories/datalake.py`, `modules/datalake_routes.py`).
+
 ## 4. Validar y publicar
 
 - Backend: `python3 -m py_compile` de los archivos nuevos; desplegar (`npm run infra:deploy`);

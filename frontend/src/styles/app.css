@@ -2030,6 +2030,16 @@
   /* Variación diaria (detección de picos) */
   .homeDailyHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .homeDailyFreshness { font-size: 0.78rem; color: var(--muted); margin: 2px 0 8px; }
+  /* Monitoreo de cargas (Data Lake) */
+  .ingestControls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 12px; }
+  .ingestScanning { color: var(--accent-strong, #0f766e); font-weight: 600; }
+  .ingestDateLbl { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--muted); }
+  .ingestDateLbl input { padding: 4px 6px; border: 1px solid var(--border, #d7dce1); border-radius: 6px; font-size: 0.8rem; }
+  /* Encabezados de tabla ordenables (cargas, detalle diario, tipos de uso) */
+  .sortableTh { cursor: pointer; user-select: none; white-space: nowrap; }
+  .sortableTh:hover { color: var(--accent-strong, #0f766e); }
+  .sortableTh.active { color: var(--accent-strong, #0f766e); }
+  .homeSvcTable th.num { text-align: right; }
   .homeSpikeCallout { background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; border-radius: 8px; padding: 8px 12px; font-size: 0.86rem; margin: 8px 0; }
   .homeSpikeUp { color: #b45309; font-weight: 700; }
   .homeSpikeDown { color: #1e7a3c; font-weight: 600; }

@@ -88,6 +88,10 @@ GET /api/home/costs
 GET /api/home/cost-accounts
 GET /api/home/costs/detail
 GET /api/home/costs/daily
+GET /api/datalake/buckets
+GET /api/datalake/ingest
+POST /api/datalake/ingest/scan
+GET /api/datalake/ingest/detail
 POST /api/people
 PATCH /api/people/{personId}
 DELETE /api/people/{personId}

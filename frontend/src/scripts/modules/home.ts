@@ -1,6 +1,8 @@
 // @ts-nocheck
 // Módulo Inicio (dashboard). Se construye con inyección de dependencias: recibe
 // el estado y los helpers compartidos del shell, sin acoplarse al resto de la app.
+import { createDatalakeModule } from "./datalake";
+
 export function createHomeModule(ctx) {
   const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel } = ctx;
 
@@ -39,6 +41,20 @@ export function createHomeModule(ctx) {
       const TASK_STATUS_LABELS = { pending: "Pendiente", in_progress: "En progreso", review: "En revisión", done: "Completada", sin_estado: "Sin estado" };
       const PROJECT_STATUS_LABELS = { planned: "Planificado", active: "Activo", paused: "Pausado", closed: "Cerrado", sin_estado: "Sin estado" };
       const CHART_COLORS = ["#2f8f83", "#4f9ed8", "#e0a93b", "#9b6dd0", "#d96d6d", "#5cb85c", "#7a8a99", "#c97fb0"];
+
+      // Sub-módulo del monitoreo de cargas (pestaña Data Lake). Inicio lo compone
+      // y le delega render/eventos/gráfico; repaint reusa el paint de Inicio.
+      const datalakeModule = createDatalakeModule({
+        state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes,
+        catalogSyncedLabel, homeDateTimeLabel, chartColors: CHART_COLORS,
+        repaint: () => { if (state.homeTab === "datalake") paintHome(); },
+      });
+
+      // Orden de las tablas de Facturación (compartido entre repintados).
+      let dailySortKey = "date";    // Detalle diario: "date"|"total"|"delta"
+      let dailySortDir = "desc";
+      let usageSortKey = "amount";  // Tipos de uso: "usageType"|"quantity"|"amount"
+      let usageSortDir = "desc";
 
       function loadChartJs() {
         return new Promise((resolve, reject) => {
@@ -100,6 +116,8 @@ export function createHomeModule(ctx) {
           state.homeSummaryError = err?.message || "No se pudo cargar el resumen.";
         }
         paintHome();
+        // Si la pestaña activa es Data Lake, carga el monitoreo de cargas.
+        if (state.homeTab === "datalake") datalakeModule.ensure();
       }
 
       async function loadHomeCosts(force) {
@@ -201,11 +219,12 @@ export function createHomeModule(ctx) {
         } else if (tab === "facturacion" && isAdmin) {
           body = costBlock;
         } else if (tab === "datalake") {
-          body = state.homeSummaryError
+          const catalogPart = state.homeSummaryError
             ? `<article class="panel"><p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeSummaryError)}</p></article>`
             : !s
             ? `<article class="panel"><p class="catalogEmpty">Cargando catálogo…</p></article>`
             : catalogBlock;
+          body = catalogPart + datalakeModule.sectionHtml();
         } else {
           body = summaryBlock;
         }
@@ -337,14 +356,32 @@ export function createHomeModule(ctx) {
       }
 
       // Tabla de tipos de uso reutilizable (detalle mensual y detalle por día).
+      function usageSortHeader(key, label, numeric) {
+        const active = usageSortKey === key;
+        const arrow = active ? (usageSortDir === "asc" ? " ▲" : " ▼") : "";
+        return `<th class="sortableTh${numeric ? " num" : ""}${active ? " active" : ""}" data-usage-sort="${key}">${label}${arrow}</th>`;
+      }
+
+      function dailySortHeader(key, label, numeric) {
+        const active = dailySortKey === key;
+        const arrow = active ? (dailySortDir === "asc" ? " ▲" : " ▼") : "";
+        return `<th class="${numeric ? "homeDayCellNum " : ""}sortableTh${active ? " active" : ""}" data-daily-sort="${key}">${label}${arrow}</th>`;
+      }
+
       function usageDetailTable(d, emptyMsg) {
         if (!d || !d.items) return `<p class="catalogEmpty">Sin datos.</p>`;
         if (!d.items.length) return `<p class="catalogEmpty">${escapeHtml(emptyMsg || "Sin tipos de uso con costo en el periodo.")}</p>`;
+        const items = d.items.slice().sort((a, b) => {
+          const cmp = usageSortKey === "usageType"
+            ? (a.usageType < b.usageType ? -1 : a.usageType > b.usageType ? 1 : 0)
+            : (parseFloat(a[usageSortKey]) || 0) - (parseFloat(b[usageSortKey]) || 0);
+          return usageSortDir === "asc" ? cmp : -cmp;
+        });
         return `
           <table class="homeSvcTable">
-            <thead><tr><th>Tipo de uso</th><th>Cantidad</th><th>Costo</th></tr></thead>
+            <thead><tr>${usageSortHeader("usageType", "Tipo de uso", false)}${usageSortHeader("quantity", "Cantidad", true)}${usageSortHeader("amount", "Costo", true)}</tr></thead>
             <tbody>
-              ${d.items.map((it) => `<tr>
+              ${items.map((it) => `<tr>
                 <td>${escapeHtml(it.usageType)}</td>
                 <td class="homeSvcQty">${formatQty(it.quantity, it.unit)}</td>
                 <td class="homeSvcAmt">$${fmtUsd(it.amount)}</td>
@@ -471,9 +508,14 @@ export function createHomeModule(ctx) {
                      topSpike.risers.length ? ` · principal causa: <b>${escapeHtml(topSpike.risers[0].service)}</b> (+$${fmtUsd(topSpike.risers[0].delta)})` : ""}
                  </div>`
               : `<p class="homeCostHint">Sin aumentos relevantes de un día a otro en este periodo.</p>`;
-            // Tabla ordenada por fecha, la última primero. Incluye el día 1 (su
-            // variación es $0.00 porque no hay día previo con qué comparar).
-            const ordered = rows.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+            // Tabla ordenable por columna (Diario/Gasto/Variación). Por defecto
+            // fecha descendente. Incluye el día 1 (su variación es $0.00).
+            const ordered = rows.slice().sort((a, b) => {
+              const cmp = dailySortKey === "date"
+                ? (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+                : (a[dailySortKey] - b[dailySortKey]);
+              return dailySortDir === "asc" ? cmp : -cmp;
+            });
             const tableRows = ordered.map((r) => {
               const open = state.homeDailyOpenDate === r.date;
               const up = r.delta > 0.005;
@@ -494,7 +536,7 @@ export function createHomeModule(ctx) {
             }).join("");
             const list = ordered.length
               ? `<table class="homeDailyTable">
-                <thead><tr><th>Diario</th><th class="homeDayCellNum">Gasto del día</th><th class="homeDayCellNum">Variación diaria</th></tr></thead>
+                <thead><tr>${dailySortHeader("date", "Diario", false)}${dailySortHeader("total", "Gasto del día", true)}${dailySortHeader("delta", "Variación diaria", true)}</tr></thead>
                 <tbody>${tableRows}</tbody>
               </table>`
               : `<p class="catalogEmpty">Sin datos diarios.</p>`;
@@ -639,6 +681,8 @@ export function createHomeModule(ctx) {
             if (needCosts) state.homeCostsLoading = true; // muestra "Cargando…" de inmediato
             paintHome();
             if (needCosts) loadHomeCosts();
+            // Carga el monitoreo de cargas al entrar a Data Lake.
+            if (tab === "datalake") datalakeModule.ensure();
           });
         }
         const acct = elements.contentPanel.querySelector("#homeAccountSelect");
@@ -666,6 +710,25 @@ export function createHomeModule(ctx) {
         for (const btn of elements.contentPanel.querySelectorAll("[data-cost-detail]")) {
           btn.addEventListener("click", () => loadServiceDetail(btn.dataset.costDetail));
         }
+        // Orden de la tabla de tipos de uso (detalle por servicio / por día).
+        for (const th of elements.contentPanel.querySelectorAll("[data-usage-sort]")) {
+          th.addEventListener("click", () => {
+            const k = th.dataset.usageSort;
+            if (usageSortKey === k) usageSortDir = usageSortDir === "asc" ? "desc" : "asc";
+            else { usageSortKey = k; usageSortDir = "desc"; }
+            repaintCostPanel();
+          });
+        }
+        // Orden de la tabla Detalle diario (Diario / Gasto / Variación).
+        for (const th of elements.contentPanel.querySelectorAll("[data-daily-sort]")) {
+          th.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const k = th.dataset.dailySort;
+            if (dailySortKey === k) dailySortDir = dailySortDir === "asc" ? "desc" : "asc";
+            else { dailySortKey = k; dailySortDir = "desc"; }
+            repaintCostPanel();
+          });
+        }
         const sectionFlags = { detail: "homeDetailCollapsed", daily: "homeDailyCollapsed", credits: "homeCreditsCollapsed" };
         for (const h of elements.contentPanel.querySelectorAll("[data-section-toggle]")) {
           h.addEventListener("click", () => {
@@ -684,6 +747,8 @@ export function createHomeModule(ctx) {
         for (const btn of elements.contentPanel.querySelectorAll("[data-daily-detail]")) {
           btn.addEventListener("click", (e) => { e.stopPropagation(); loadDailyServiceDetail(btn.dataset.dailyDetail); });
         }
+        // Monitoreo de cargas (Data Lake): eventos delegados al sub-módulo.
+        datalakeModule.bindEvents();
       }
 
       function destroyCostCharts() {
@@ -717,6 +782,7 @@ export function createHomeModule(ctx) {
             });
           }
         }
+        datalakeModule.drawChart();
         drawCostCharts();
       }
 

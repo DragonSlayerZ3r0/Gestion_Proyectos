@@ -174,11 +174,11 @@ arrow(800, 630, 845, 655, "StartQuery (planeado)", dashed=True, color="#6d28d9")
 # Lambda → Cost Explorer
 arrow(1010, 630, 1070, 775, "GetCostAndUsage", color="#be185d", lsize=9)
 
-# Lambda → S3 Data Lake (stats S3 del catálogo: tamaño/frescura)
-arrow(690, 630, 770, 775, "ListBucket (stats catálogo)", color="#059669", lsize=9)
+# Lambda → S3 Data Lake (stats S3 del catálogo + monitoreo de cargas por día)
+arrow(690, 630, 770, 775, "ListBucket (stats catálogo +\nmonitoreo de cargas)", color="#059669", lsize=9)
 
-# Auto-invocación asíncrona (sync global del catálogo)
-arrow(1115, 545, 1032, 545, "↺ auto-invoca async\ncatalog_sync_all (Event)", dashed=True, color="#ca8a04", lsize=9)
+# Auto-invocación asíncrona (sync del catálogo + escaneo de cargas del data lake)
+arrow(1115, 545, 1032, 545, "↺ auto-invoca async\ncatalog_sync_all / datalake_ingest_scan", dashed=True, color="#ca8a04", lsize=9)
 
 # ── Límite cross-account: recursos en la cuenta hub 396913696127 ───────────────
 rect(728, 760, 460, 122, "transparent", "#be185d", sw=2, style="dashed", rx=True)

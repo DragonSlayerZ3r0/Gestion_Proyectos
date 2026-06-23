@@ -14,4 +14,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         CatalogService().run_sync_all()
         return {"ok": True}
 
+    # Escaneo en segundo plano del monitoreo de cargas del data lake.
+    if event.get("action") == "datalake_ingest_scan":
+        from services.datalake import DatalakeService
+        DatalakeService().run_scan(event.get("bucket", ""))
+        return {"ok": True}
+
     return _router.dispatch(Request(event, context))

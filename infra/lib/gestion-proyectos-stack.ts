@@ -505,6 +505,32 @@ export class GestionProyectosStack extends Stack {
       authorizer: jwtAuthorizer
     });
 
+    // ── Monitoreo de cargas del data lake (pestaña Data Lake) ───────────────
+    httpApi.addRoutes({
+      path: "/api/datalake/buckets",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/datalake/ingest",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/datalake/ingest/scan",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/datalake/ingest/detail",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+
     // ── Administración de usuarios ──────────────────────────────────────────
     // Requieren rol `admin` (validado en la Lambda) además del JWT Authorizer.
     httpApi.addRoutes({
