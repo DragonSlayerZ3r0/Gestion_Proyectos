@@ -1109,6 +1109,16 @@
     color: var(--text);
   }
 
+  .projectOverviewDescription {
+    margin-top: 8px;
+    max-width: 60ch;
+    color: #34454b;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+  }
+
   .projectOverviewGrid {
     display: grid;
     grid-template-columns: minmax(260px, 0.9fr) minmax(260px, 1.1fr);
@@ -1166,43 +1176,6 @@
   .projectSummaryBlock p {
     color: #34454b;
     font-size: 0.92rem;
-  }
-
-  .projectTaskGroups {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .taskGroupList {
-    display: grid;
-    gap: 8px;
-  }
-
-  .taskSummaryRow {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-    align-items: start;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: #ffffff;
-    padding: 10px;
-  }
-
-  .taskSummaryRow strong {
-    display: block;
-    color: var(--text);
-    line-height: 1.25;
-    overflow-wrap: anywhere;
-  }
-
-  .taskSummaryRow span {
-    display: block;
-    margin-top: 4px;
-    color: var(--muted);
-    font-size: 0.82rem;
-    line-height: 1.35;
   }
 
   .priorityBadge {
@@ -1648,8 +1621,7 @@
     .projectOverviewCard.hasInlineDetail,
     .personDirectory.hasDetail,
     .workspaceHero,
-    .projectOverviewGrid,
-    .projectTaskGroups {
+    .projectOverviewGrid {
       grid-template-columns: 1fr;
     }
 
@@ -1673,8 +1645,7 @@
     }
 
     .inlineForm,
-    .projectCreateForm,
-    .taskSummaryRow {
+    .projectCreateForm {
       grid-template-columns: 1fr;
     }
 

@@ -36,8 +36,8 @@ Regla de navegación: no separar `Proyectos` y `Tareas` en dos ventanas del men�
 La pantalla principal debe tener una jerarquía directa:
 
 - Barra superior: búsqueda de proyectos/tareas con alcance seleccionable, creación de proyecto, registro secundario de persona y filtros de estado.
-- Lista de proyectos: cada tarjeta muestra responsable, personas relacionadas, resumen de tareas y tareas visibles agrupadas por estado.
-- Tablero: se abre solo dentro del proyecto cuando el usuario presiona `Ver tablero` y reemplaza la lista resumida de tareas para no duplicar vistas.
+- Lista de proyectos: cada tarjeta muestra responsable, descripción (bajo el título, si existe), personas relacionadas y resumen de tareas por estado (conteos).
+- Tablero: oculto por defecto; se abre solo dentro del proyecto cuando el usuario presiona `Ver tablero` (Kanban completo con drag-and-drop) y se cierra con `Ocultar tablero`. Sin abrirlo, la tarjeta solo muestra el resumen de conteos, no las tareas, para no aparentar un tablero duplicado.
 
 El usuario no debe llenar formularios largos para empezar. Los detalles extendidos se editan desde un panel contextual cuando haga falta, sin cubrir el tablero ni abrirse automáticamente. En escritorio, el detalle debe abrirse como panel lateral derecho no modal alineado con el proyecto o tarea seleccionada; en móvil, como bottom sheet con scroll interno.
 

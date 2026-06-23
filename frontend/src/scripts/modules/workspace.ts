@@ -254,7 +254,6 @@ export function createWorkspaceModule(ctx) {
         const isSelected = state.selectedDetail?.type === "project" && state.selectedDetail.id === project.id;
         const owner = peopleById[project.ownerPersonId] || null;
         const summary = renderTaskSummary(project);
-        const taskGroups = renderProjectTaskGroups(project, peopleById);
         const boardOpen = state.expandedBoardProjectId === project.id;
         const taskFormOpen = state.showTaskForm && state.taskFormProjectId === project.id;
         const columns = boardOpen ? state.workspace.taskStatuses.map((status) => renderTaskColumn(status, project, peopleById)).join("") : "";
@@ -270,6 +269,7 @@ export function createWorkspaceModule(ctx) {
                   <p class="eyebrow">Proyecto</p>
                   <h2>${escapeHtml(project.name)}</h2>
                   ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
+                  ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
                 </div>
                 ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}" data-status="${escapeAttribute(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
               </div>
@@ -300,8 +300,6 @@ export function createWorkspaceModule(ctx) {
                 </section>
               </div>
 
-              ${boardOpen ? "" : `<div class="projectTaskGroups">${taskGroups}</div>`}
-
               <form class="inlineForm projectTaskForm" data-task-quick-project="${project.id}" ${taskFormOpen ? "" : "hidden"}>
                 <input name="title" type="text" placeholder="Nueva tarea" required />
                 <button class="primaryButton" type="submit">Crear tarea</button>
@@ -329,41 +327,6 @@ export function createWorkspaceModule(ctx) {
             return `${count} ${status.label.toLowerCase()}`;
           })
           .join(" · ");
-      }
-
-      function renderProjectTaskGroups(project, peopleById) {
-        return state.workspace.taskStatuses
-          .map((status) => {
-            const tasks = project.tasks.filter((task) => task.status === status.key);
-            const visibleTasks = tasks.slice(0, 3);
-            return `
-              <section class="taskGroup ${taskStatusClass(status.key)}">
-                <header>
-                  <strong>${status.label}</strong>
-                  <span>${tasks.length}</span>
-                </header>
-                <div class="taskGroupList">
-                  ${visibleTasks.length ? visibleTasks.map((task) => renderTaskSummaryRow(task, peopleById)).join("") : `<p class="emptyText">Sin tareas.</p>`}
-                  ${tasks.length > visibleTasks.length ? `<button class="textButton" type="button" data-toggle-board="${project.id}">Ver ${tasks.length - visibleTasks.length} tareas más</button>` : ""}
-                </div>
-              </section>
-            `;
-          })
-          .join("");
-      }
-
-      function renderTaskSummaryRow(task, peopleById) {
-        const assignee = task.assigneePersonId ? peopleById[task.assigneePersonId] : null;
-        return `
-          <article class="taskSummaryRow">
-            <div>
-              <strong>${escapeHtml(task.title)}</strong>
-              <span>Responsable: ${escapeHtml(assignee?.fullName || "Sin responsable")}</span>
-              ${task.priority ? `<span class="priorityBadge ${priorityClass(task.priority)}">${priorityLabel(task.priority)}</span>` : ""}
-            </div>
-            ${renderEditIconButton("Editar tarea", `data-detail-task="${task.id}" data-detail-task-project="${task.projectId}"`)}
-          </article>
-        `;
       }
 
       function renderTaskColumn(status, project, peopleById) {

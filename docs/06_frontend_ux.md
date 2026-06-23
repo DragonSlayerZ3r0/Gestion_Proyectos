@@ -103,9 +103,9 @@ La pantalla principal debe permitir trabajar sin cambiar de contexto:
 - Búsqueda independiente de personas dentro de la franja `Personas registradas`.
 - Lista de proyectos como vista principal.
 - Personas relacionadas dentro de cada tarjeta de proyecto.
-- Resumen de tareas por estado dentro de cada proyecto.
-- Tareas principales visibles dentro de cada proyecto.
-- Kanban simple dentro del proyecto solo cuando el usuario presione `Ver tablero`.
+- Descripción del proyecto visible bajo el título (cuando exista), en tipografía secundaria, para dar contexto sin abrir edición.
+- Resumen de tareas por estado (conteos) dentro de cada proyecto.
+- Kanban simple dentro del proyecto solo cuando el usuario presione `Ver tablero` (oculto por defecto).
 - Panel de detalles para editar persona, proyecto o tarea sin salir de la pantalla.
 
 Esta pantalla debe ser la entrada operativa predeterminada cuando el usuario tenga acceso a proyectos o tareas. Evitar abrir Administración o Catálogo como primera vista solo por orden alfabético de permisos.
@@ -126,7 +126,7 @@ La búsqueda principal no debe ocultar personas registradas ni impedir asignarla
 
 El listado de proyectos debe incluir filtros visibles por estado. Por defecto se muestran todos los estados. Cada tarjeta de proyecto debe mostrar su estado actual para evitar que el usuario tenga que abrir el detalle para entenderlo.
 
-Cuando el usuario abre `Ver tablero`, la tarjeta debe ocultar la lista resumida de tareas para evitar dos tableros visibles del mismo proyecto. El Kanban reemplaza la vista resumida hasta que el usuario presione `Ocultar tablero`.
+Por defecto la tarjeta no muestra ningún tablero: solo el resumen de conteos por estado dentro del bloque `Tareas`. Al presionar `Ver tablero` se muestra el Kanban completo del proyecto; con `Ocultar tablero` vuelve a ocultarse. Así se evita mostrar columnas o listas que parezcan un segundo tablero cuando el tablero real aún no se ha abierto.
 
 Los estados deben tener color contextual sobrio: proyectos cerrados en rojo suave, activos en verde, planificados en azul y pausados en ámbar. Las tareas y prioridades también deben mostrarse con badges o acentos de color para facilitar lectura rápida. Si un proyecto no tiene estado o una tarea no tiene prioridad, no se debe mostrar un badge vacío ni texto de relleno.
 
