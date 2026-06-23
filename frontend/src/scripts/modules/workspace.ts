@@ -238,7 +238,14 @@ export function createWorkspaceModule(ctx) {
                 draggable="true"
                 data-member-drag-project="${project.id}"
                 data-member-drag-person="${member.personId}"
-              >${escapeHtml(person.fullName)}</span>
+              >${escapeHtml(person.fullName)}<button
+                type="button"
+                class="memberChipRemove"
+                data-member-remove-project="${project.id}"
+                data-member-remove-person="${member.personId}"
+                title="Quitar del proyecto"
+                aria-label="Quitar a ${escapeAttribute(person.fullName)} del proyecto"
+              >×</button></span>
             `;
           })
           .join("");
@@ -803,6 +810,20 @@ export function createWorkspaceModule(ctx) {
           select.addEventListener("change", async () => {
             try {
               await updateProjectMember(select.dataset.memberRole, select.dataset.memberPerson, { role: select.value });
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        }
+
+        // Quitar persona del proyecto con un clic (alternativa al drag-and-drop,
+        // que era inviable cuando el proyecto queda lejos del listado de arriba).
+        for (const button of document.querySelectorAll("[data-member-remove-project]")) {
+          button.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            event.preventDefault();
+            try {
+              await removeProjectMember(button.dataset.memberRemoveProject, button.dataset.memberRemovePerson);
             } catch (error) {
               alert(error.message);
             }
