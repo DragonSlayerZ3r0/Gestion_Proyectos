@@ -203,7 +203,18 @@ curl -i https://63ibnl13da.execute-api.us-east-1.amazonaws.com/health
 
 ## Publicación de frontend
 
-Flujo vigente (con `pnpm` y config runtime en `/tmp/config-prod.json`, no versionado):
+### Método recomendado: `scripts/deploy-frontend.sh`
+
+Usar siempre este script. Compila, sincroniza los assets **excluyendo `config.json` y `.DS_Store`**, y **regenera `config.json` desde los outputs reales del stack** (Cognito + API), por lo que no depende de un archivo temporal ni puede dejar a los usuarios fuera:
+
+```bash
+./scripts/deploy-frontend.sh                                  # dev (por defecto)
+STACK=GestionProyectosProdStack PROFILE=<perfil> ENV_NAME=prod ./scripts/deploy-frontend.sh
+```
+
+> ⚠️ **Nunca** correr `aws s3 sync dist/ ... --delete` sin `--exclude config.json`. El `frontend/public/config.json` versionado es un placeholder vacío (`environment: local`); un sync sin exclusión lo sube y borra el `config.json` real de producción → la pantalla de login muestra "Falta completar la configuración de acceso" y nadie puede entrar. El `config.json` real **solo vive en S3**, no en git.
+
+### Flujo manual equivalente (si no se usa el script)
 
 ```bash
 cd frontend
@@ -212,7 +223,7 @@ cp /tmp/config-prod.json dist/config.json
 aws s3 sync dist/ s3://gestion-proyectos-dev-frontend-186281981036 \
   --delete \
   --profile gestion-proyectos-dev \
-  --exclude config.json
+  --exclude config.json --exclude .DS_Store
 aws cloudfront create-invalidation \
   --distribution-id E2K3CA110228B1 \
   --paths "/*" \

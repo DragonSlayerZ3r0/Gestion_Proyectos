@@ -38,6 +38,15 @@ def _cost_daily(req: Request):
     return success(HomeService().get_daily_by_service(account, start, end, force, cached_only))
 
 
+def _cost_responsibles(req: Request):
+    account = req.query.get("account") or ""
+    service = req.query.get("service") or ""
+    start = req.query.get("start") or ""
+    end = req.query.get("end") or ""
+    force = req.query.get("force") == "1"
+    return success(HomeService().get_responsibles(account, service, start, end, force))
+
+
 def register(router: Router) -> None:
     router.add(["GET"], "/api/home/summary", _summary, modules=["home"],
                error_msg="Error inesperado al cargar el resumen.")
@@ -53,3 +62,6 @@ def register(router: Router) -> None:
     # Costo diario por servicio para detección de picos (admin-only).
     router.add(["GET"], "/api/home/costs/daily", _cost_daily, modules=["home"], admin=True,
                error_msg="Error inesperado al cargar el costo diario.")
+    # Responsables (CloudTrail) de un servicio en un rango (admin-only).
+    router.add(["GET"], "/api/home/costs/responsibles", _cost_responsibles, modules=["home"], admin=True,
+               error_msg="Error inesperado al cargar los responsables.")

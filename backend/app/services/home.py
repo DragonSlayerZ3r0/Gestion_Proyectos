@@ -40,6 +40,17 @@ COST_ACCOUNTS = _load_cost_accounts()
 CACHE_TTL_CURRENT = 8 * 3600        # mes en curso (o futuro): 8 h
 CACHE_TTL_CLOSED = 30 * 24 * 3600   # mes ya cerrado: 30 días
 
+# Acciones de CloudTrail que generan costo, por servicio. Atribución forense del
+# "quién" de un pico (acciones de management; los data events no se registran por
+# defecto). Cada acción se consulta por separado (LookupEvents acepta 1 atributo).
+SERVICE_EVENTS = {
+    "Amazon SageMaker": [
+        "CreateApp", "CreateProcessingJob", "CreateTrainingJob", "CreateTransformJob",
+        "CreateHyperParameterTuningJob", "StartPipelineExecution",
+        "CreateEndpoint", "CreateNotebookInstance",
+    ],
+}
+
 
 class HomeService:
     # El dashboard agrega varios dominios: depende de los repos que necesita.
@@ -103,27 +114,31 @@ class HomeService:
             for a in COST_ACCOUNTS.values()
         ]
 
-    def _ce_client(self, account: str):
+    def _client(self, account: str, service: str):
+        """Cliente boto3 del servicio en la cuenta indicada. mode 'direct' usa el
+        rol de la Lambda; mode 'assume' asume el rol cross-account de esa cuenta.
+        Sirve para 'ce' (Cost Explorer) y 'cloudtrail' (responsables)."""
         cfg = COST_ACCOUNTS.get(account)
         if not cfg:
             raise ValidationError("Cuenta no permitida.")
         if cfg.get("mode") == "direct":
-            return boto3.client("ce", region_name="us-east-1")
-        # mode "assume": Cost Explorer de otra cuenta vía sts:AssumeRole.
+            return boto3.client(service, region_name="us-east-1")
         role_arn = cfg.get("roleArn")
         if not role_arn:
             raise ValidationError("Cuenta sin rol cross-account configurado.")
-        sts = boto3.client("sts")
-        creds = sts.assume_role(
+        creds = boto3.client("sts").assume_role(
             RoleArn=role_arn,
             RoleSessionName="gestion-proyectos-costs",
         )["Credentials"]
         return boto3.client(
-            "ce", region_name="us-east-1",
+            service, region_name="us-east-1",
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
         )
+
+    def _ce_client(self, account: str):
+        return self._client(account, "ce")
 
     def get_costs(self, account: str, start: str, end: str, force: bool = False) -> dict[str, Any]:
         account = (account or "").strip()
@@ -197,6 +212,108 @@ class HomeService:
         data["cached"] = False
         data["fetchedAt"] = now
         return data
+
+    # ── Responsables (CloudTrail): el "quién" forense de un pico ──────────────
+    def get_responsibles(self, account: str, service: str, start: str, end: str,
+                         force: bool = False) -> dict[str, Any]:
+        """Quién lanzó las acciones que generan costo de un servicio en el rango
+        (vía CloudTrail LookupEvents, retroactivo 90 días, sin depender de tags).
+        Devuelve actores agregados. Atribuye por ACCIÓN, no por dólar."""
+        account = (account or "").strip()
+        service = (service or "").strip()
+        if account not in COST_ACCOUNTS:
+            raise ValidationError("Cuenta no permitida.")
+        self._validate_date(start, "inicio")
+        self._validate_date(end, "fin")
+
+        events = SERVICE_EVENTS.get(service)
+        if not events:
+            return {"supported": False, "service": service, "actors": [], "cached": False}
+
+        ttl = self._ttl_for_period(end)
+        key = f"{account}#{start}#{end}#resp#{service}"
+        if not force:
+            cached = self._costs.get_cost_cache(key)
+            if cached:
+                fetched_at = cached.get("fetchedAt", "")
+                if self._fresh(fetched_at, ttl):
+                    data = self._decode(cached.get("data") or {})
+                    data["cached"] = True
+                    data["fetchedAt"] = fetched_at
+                    return data
+
+        client = self._client(account, "cloudtrail")
+        data = self._fetch_responsibles(client, events, start, end)
+        data["supported"] = True
+        data["service"] = service
+        data["account"] = account
+        now = self._now()
+        self._costs.put_cost_cache(key, self._encode(data), now)
+        data["cached"] = False
+        data["fetchedAt"] = now
+        return data
+
+    def _fetch_responsibles(self, client, events: list[str], start: str, end: str) -> dict[str, Any]:
+        start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        actors: dict[str, dict[str, Any]] = {}
+        for name in events:
+            token = None
+            pages = 0
+            while True:
+                kwargs = {
+                    "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": name}],
+                    "StartTime": start_dt, "EndTime": end_dt, "MaxResults": 50,
+                }
+                if token:
+                    kwargs["NextToken"] = token
+                try:
+                    resp = client.lookup_events(**kwargs)
+                except Exception:
+                    break
+                for ev in resp.get("Events", []):
+                    actor, instance = self._parse_event(ev)
+                    entry = actors.setdefault(actor, {"actor": actor, "count": 0, "actions": {}, "instances": {}})
+                    entry["count"] += 1
+                    entry["actions"][name] = entry["actions"].get(name, 0) + 1
+                    if instance:
+                        entry["instances"][instance] = entry["instances"].get(instance, 0) + 1
+                token = resp.get("NextToken")
+                pages += 1
+                if not token or pages >= 10:
+                    break
+        result = sorted(actors.values(), key=lambda a: a["count"], reverse=True)
+        # Convierte los dicts de actions/instances a listas legibles.
+        for a in result:
+            a["actions"] = [{"action": k, "count": v} for k, v in sorted(a["actions"].items(), key=lambda x: -x[1])]
+            a["instances"] = [k for k, _ in sorted(a["instances"].items(), key=lambda x: -x[1])]
+        return {"actors": result}
+
+    def _parse_event(self, ev: dict[str, Any]) -> tuple[str, str]:
+        import json as _json
+        try:
+            raw = _json.loads(ev.get("CloudTrailEvent", "{}"))
+        except (ValueError, TypeError):
+            raw = {}
+        rp = raw.get("requestParameters") or {}
+        ident = raw.get("userIdentity") or {}
+        # Mejor identificador disponible: user-profile de Studio > nombre IAM >
+        # sesión del rol asumido > tipo.
+        actor = (
+            rp.get("userProfileName")
+            or ident.get("userName")
+            or (ident.get("arn", "") or "").split("/")[-1]
+            or ident.get("type")
+            or "desconocido"
+        )
+        # Tipo de instancia si aparece en el request (apps/jobs).
+        instance = (
+            (rp.get("resourceSpec") or {}).get("instanceType")
+            or ((rp.get("processingResources") or {}).get("clusterConfig") or {}).get("instanceType")
+            or (rp.get("resourceConfig") or {}).get("instanceType")
+            or ""
+        )
+        return actor, instance
 
     def get_daily_by_service(self, account: str, start: str, end: str,
                              force: bool = False, cached_only: bool = False) -> dict[str, Any]:

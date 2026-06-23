@@ -589,7 +589,55 @@ export function createHomeModule(ctx) {
       function dailyDetailBody() {
         if (state.homeDailyDetailLoading) return `<p class="catalogEmpty">Cargando detalle del día…</p>`;
         if (state.homeDailyDetailError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeDailyDetailError)}</p>`;
-        return usageDetailTable(state.homeDailyDetail, "Sin tipos de uso con costo ese día.");
+        return usageDetailTable(state.homeDailyDetail, "Sin tipos de uso con costo ese día.") + responsiblesSection();
+      }
+
+      // Panel "Responsables (CloudTrail)": quién lanzó las acciones que generan
+      // costo de este servicio ESE día. Carga diferida (botón). Atribuye por acción.
+      function responsiblesSection() {
+        const key = state.homeDailyDetailKey;
+        if (!key) return "";
+        if (state.homeRespLoading && state.homeRespKey === key) {
+          return `<div class="homeRespBox"><p class="catalogEmpty">Buscando responsables en CloudTrail…</p></div>`;
+        }
+        if (state.homeRespError && state.homeRespKey === key) {
+          return `<div class="homeRespBox"><p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeRespError)}</p></div>`;
+        }
+        if (state.homeRespKey !== key || !state.homeResp) {
+          return `<div class="homeRespBox"><button type="button" class="tinyButton" data-load-responsibles="1" title="Consulta CloudTrail: quién lanzó las acciones que generan costo de este servicio ese día.">Ver responsables (CloudTrail)</button></div>`;
+        }
+        const d = state.homeResp;
+        if (!d.supported) {
+          return `<div class="homeRespBox"><p class="homeCostHint">Atribución por CloudTrail disponible para SageMaker; otros servicios próximamente.</p></div>`;
+        }
+        if (!d.actors || !d.actors.length) {
+          return `<div class="homeRespBox"><h4>Responsables (CloudTrail)</h4><p class="catalogEmpty">Sin acciones de management ese día (puede ser uso automático/pipeline o data-plane no auditado).</p></div>`;
+        }
+        const rows = d.actors.map((a) => `
+          <div class="homeRespRow">
+            <span class="homeRespActor">${escapeHtml(a.actor)}</span>
+            <span class="homeTopMeta">${a.actions.map((x) => `${escapeHtml(x.action)}×${x.count}`).join(", ")}${a.instances && a.instances.length ? ` · ${a.instances.map(escapeHtml).join(", ")}` : ""}</span>
+          </div>`).join("");
+        return `<div class="homeRespBox"><h4>Responsables (CloudTrail)</h4>${rows}<p class="homeCostHint">Atribución por <b>acción</b>, no por dólar. Eventos de management (no incluye data-plane como FeatureStore).</p></div>`;
+      }
+
+      async function loadResponsibles() {
+        const key = state.homeDailyDetailKey;
+        if (!key) return;
+        const [date, service] = key.split("|");
+        state.homeRespKey = key;
+        state.homeResp = null;
+        state.homeRespError = "";
+        state.homeRespLoading = true;
+        repaintCostPanel();
+        try {
+          const payload = await apiRequest(`api/home/costs/responsibles?account=${encodeURIComponent(state.homeCostAccount)}&service=${encodeURIComponent(service)}&start=${date}&end=${dayPlusOne(date)}`);
+          state.homeResp = payload.data;
+        } catch (err) {
+          state.homeRespError = err?.message || "No se pudo cargar los responsables.";
+        }
+        state.homeRespLoading = false;
+        repaintCostPanel();
       }
 
       // opts: { cachedOnly } solo lee caché (no gasta consulta); { silent } no
@@ -620,16 +668,25 @@ export function createHomeModule(ctx) {
         repaintCostPanel();
       }
 
+      function clearResponsibles() {
+        state.homeRespKey = null;
+        state.homeResp = null;
+        state.homeRespError = "";
+        state.homeRespLoading = false;
+      }
+
       function toggleDailyDay(date) {
         // Cambiar de día cierra cualquier drill de tipo de uso abierto.
         state.homeDailyOpenDate = state.homeDailyOpenDate === date ? null : date;
         state.homeDailyDetailKey = null;
         state.homeDailyDetail = null;
         state.homeDailyDetailError = "";
+        clearResponsibles();
         repaintCostPanel();
       }
 
       async function loadDailyServiceDetail(key) {
+        clearResponsibles(); // el panel de responsables corresponde al servicio abierto
         if (state.homeDailyDetailKey === key) {
           state.homeDailyDetailKey = null;
           state.homeDailyDetail = null;
@@ -747,6 +804,8 @@ export function createHomeModule(ctx) {
         for (const btn of elements.contentPanel.querySelectorAll("[data-daily-detail]")) {
           btn.addEventListener("click", (e) => { e.stopPropagation(); loadDailyServiceDetail(btn.dataset.dailyDetail); });
         }
+        const respBtn = elements.contentPanel.querySelector("[data-load-responsibles]");
+        if (respBtn) respBtn.addEventListener("click", (e) => { e.stopPropagation(); loadResponsibles(); });
         // Monitoreo de cargas (Data Lake): eventos delegados al sub-módulo.
         datalakeModule.bindEvents();
       }

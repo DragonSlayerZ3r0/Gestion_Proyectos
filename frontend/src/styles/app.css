@@ -2049,6 +2049,12 @@
   .homeSvcQty, .homeSvcAmt { text-align: right; white-space: nowrap; }
   .homeSvcAmt { font-weight: 600; }
   .homeSvcUnit { color: var(--muted); font-weight: 500; }
+  /* Panel "Responsables" (CloudTrail) dentro del drill día→servicio */
+  .homeRespBox { margin-top: 10px; padding: 8px 10px; background: var(--surface-muted, #f6f8fa); border-radius: 8px; }
+  .homeRespBox h4 { margin: 0 0 6px; font-size: 0.85rem; }
+  .homeRespRow { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 0.82rem; }
+  .homeRespRow:last-child { border-bottom: none; }
+  .homeRespActor { font-weight: 600; overflow-wrap: anywhere; }
   /* Variación diaria (detección de picos) */
   .homeDailyHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .homeDailyFreshness { font-size: 0.78rem; color: var(--muted); margin: 2px 0 8px; }

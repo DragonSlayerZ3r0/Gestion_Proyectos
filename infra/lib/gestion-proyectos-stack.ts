@@ -287,7 +287,14 @@ export class GestionProyectosStack extends Stack {
       // Cost Explorer de la cuenta app (solo lectura) para el dashboard de Inicio.
       ownedRole.addToPolicy(new iam.PolicyStatement({
         sid: "CostExplorerReadOnly",
-        actions: ["ce:GetCostAndUsage", "ce:GetCostForecast", "ce:GetDimensionValues"],
+        actions: ["ce:GetCostAndUsage", "ce:GetCostForecast", "ce:GetDimensionValues", "ce:GetTags", "ce:ListCostAllocationTags"],
+        resources: ["*"],
+      }));
+      // CloudTrail (solo lectura) para el panel de "Responsables" de facturación
+      // en la cuenta app. Para el hub se usa el rol cross-account (ver script).
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "CloudTrailLookup",
+        actions: ["cloudtrail:LookupEvents"],
         resources: ["*"],
       }));
       // AssumeRole a los roles cross-account de Cost Explorer (cuentas "assume").
@@ -500,6 +507,12 @@ export class GestionProyectosStack extends Stack {
     });
     httpApi.addRoutes({
       path: "/api/home/costs/daily",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/home/costs/responsibles",
       methods: [apigwv2.HttpMethod.GET],
       integration,
       authorizer: jwtAuthorizer

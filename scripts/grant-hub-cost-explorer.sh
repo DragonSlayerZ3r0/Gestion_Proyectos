@@ -23,7 +23,7 @@ TRUST=$(cat <<EOF
 EOF
 )
 PERMS=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ce:GetCostAndUsage","ce:GetCostForecast","ce:GetDimensionValues"],"Resource":"*"}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ce:GetCostAndUsage","ce:GetCostForecast","ce:GetDimensionValues","cloudtrail:LookupEvents"],"Resource":"*"}]}
 EOF
 )
 
