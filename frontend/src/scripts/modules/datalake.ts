@@ -188,7 +188,7 @@ export function createDatalakeModule(ctx) {
       if (records) {
         if (!rr) totals = `<span class="homeCostAgo">selecciona un rango (no "Todo")</span>`;
         else if (!rec || rec.loading || !rec.data) totals = `<span class="homeCostAgo">calculando registros…</span>`;
-        else { const t = recordsTotals(rec); totals = `${t.rows.toLocaleString("en-US")} registros · ${t.files.toLocaleString("en-US")} ingestas · ${formatBytes(t.bytes)} origen <span class="homeCostAgo">(log de ingesta · ≠ Archivos/Peso de S3)</span>`; }
+        else { const t = recordsTotals(rec); totals = `${t.rows.toLocaleString("en-US")} registros · ${t.files.toLocaleString("en-US")} archivos <span class="homeCostAgo">(por fecha de ingesta · reporte oficial)</span>`; }
       } else {
         const rt = z ? rangeTotals(z.byDay, b) : { count: 0, bytes: 0 };
         const rangeNote = (b.from === null && b.to === null) ? "todo el histórico" : "en el rango";
@@ -378,13 +378,12 @@ export function createDatalakeModule(ctx) {
   }
   function recordsTotals(rec) {
     const byArea = (rec.data && rec.data.byArea) || {};
-    let rows = 0, files = 0, bytes = 0;
+    let rows = 0, files = 0;
     for (const a of Object.keys(byArea)) {
       rows += Number(byArea[a].rows) || 0;
       files += Number(byArea[a].files) || 0;
-      bytes += Number(byArea[a].bytes) || 0;
     }
-    return { rows, files, bytes };
+    return { rows, files };
   }
   async function ensureRecords() {
     const r = recordsRange();
@@ -438,18 +437,18 @@ export function createDatalakeModule(ctx) {
     const zone = state.ingestZone;
     const byArea = (rec.data && rec.data.byArea) || {};
     const areas = Object.keys(byArea)
-      .map((area) => ({ area, files: Number(byArea[area].files) || 0, bytes: Number(byArea[area].bytes) || 0, rows: Number(byArea[area].rows) || 0 }))
+      .map((area) => ({ area, files: Number(byArea[area].files) || 0, rows: Number(byArea[area].rows) || 0 }))
       .sort((a, b) => b.rows - a.rows);
-    const head = `<h3>Por área · registros (${escapeHtml(zoneLabel(zone))})</h3>`;
+    const head = `<h3>Por origen · registros</h3>`;
     if (!areas.length) return `<div class="homeTopList">${head}<p class="catalogEmpty">Sin registros en el rango.</p></div>`;
     const rows = areas.map((a) => {
       const open = state.ingestOpenArea === a.area;
       return `
         <div class="homeSvcRow">
           <div class="homeSvcMain">
-            <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-ingest-area="${escapeAttribute(a.area)}" title="Ver tablas de ${escapeAttribute(a.area)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+            <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-ingest-area="${escapeAttribute(a.area)}" title="Ver archivos de ${escapeAttribute(a.area)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
             <span class="homeSvcName">${escapeHtml(a.area)}</span>
-            <span class="homeTopMeta homeSvcAmount">${a.rows.toLocaleString("en-US")} registros · ${a.files.toLocaleString("en-US")} ingestas · ${formatBytes(a.bytes)} origen</span>
+            <span class="homeTopMeta homeSvcAmount">${a.rows.toLocaleString("en-US")} registros · ${a.files.toLocaleString("en-US")} archivos</span>
           </div>
           ${open ? `<div class="homeSvcDetail">${recordsTables(byArea[a.area])}</div>` : ""}
         </div>`;
@@ -463,27 +462,32 @@ export function createDatalakeModule(ctx) {
   }
   function recordsTables(areaObj) {
     const t = (areaObj && areaObj.tables) || {};
-    const list = Object.keys(t)
-      .map((name) => ({ name, files: Number(t[name].files) || 0, bytes: Number(t[name].bytes) || 0, rows: Number(t[name].rows) || 0 }));
+    const list = Object.values(t)
+      .map((v) => ({ name: v.name || "", status: v.status || "", files: Number(v.files) || 0, rows: Number(v.rows) || 0 }));
     list.sort((a, b) => {
-      const cmp = tableSortKey === "name"
-        ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+      const cmp = (tableSortKey === "name" || tableSortKey === "status")
+        ? (a[tableSortKey] < b[tableSortKey] ? -1 : a[tableSortKey] > b[tableSortKey] ? 1 : 0)
         : a[tableSortKey] - b[tableSortKey];
       return tableSortDir === "asc" ? cmp : -cmp;
     });
-    if (!list.length) return `<p class="catalogEmpty">Sin tablas.</p>`;
+    if (!list.length) return `<p class="catalogEmpty">Sin archivos.</p>`;
     return `
       <table class="homeSvcTable">
-        <thead><tr>${tableSortHeader("name", "Tabla", false)}${tableSortHeader("files", "Ingestas", true)}${tableSortHeader("bytes", "Peso origen", true)}${tableSortHeader("rows", "Registros", true)}</tr></thead>
+        <thead><tr>${tableSortHeader("name", "Archivo", false)}${tableSortHeader("status", "Estado", false)}${tableSortHeader("files", "Archivos", true)}${tableSortHeader("rows", "Registros", true)}</tr></thead>
         <tbody>
           ${list.map((x) => `<tr>
             <td>${escapeHtml(x.name)}</td>
+            <td>${ingStatus(x.status)}</td>
             <td class="homeSvcQty">${x.files.toLocaleString("en-US")}</td>
-            <td class="homeSvcAmt">${formatBytes(x.bytes)}</td>
             <td class="homeSvcQty">${x.rows.toLocaleString("en-US")}</td>
           </tr>`).join("")}
         </tbody>
       </table>`;
+  }
+  function ingStatus(s) {
+    if (!s) return "";
+    const cls = s === "NUEVO" ? "ingStatusNew" : s === "MODIFICADO" ? "ingStatusMod" : "ingStatusOk";
+    return `<span class="ingStatus ${cls}">${escapeHtml(s)}</span>`;
   }
   // Vista "Por fecha" en modo registros: registros por día (sumando áreas).
   function recordsDayList(rec) {
@@ -493,19 +497,18 @@ export function createDatalakeModule(ctx) {
     for (const area of Object.keys(byArea)) {
       const bd = byArea[area].byDay || {};
       for (const d of Object.keys(bd)) {
-        const agg = perDay[d] || (perDay[d] = { rows: 0, count: 0, bytes: 0 });
+        const agg = perDay[d] || (perDay[d] = { rows: 0, count: 0 });
         agg.rows += Number(bd[d].rows) || 0;
         agg.count += Number(bd[d].files) || 0;
-        agg.bytes += Number(bd[d].bytes) || 0;
       }
     }
-    const sortKey = ["date", "rows", "count", "bytes"].includes(daySortKey) ? daySortKey : "date";
+    const sortKey = ["date", "rows", "count"].includes(daySortKey) ? daySortKey : "date";
     const entries = Object.keys(perDay).map((d) => ({ day: d, ...perDay[d] }));
     entries.sort((x, y) => {
       const cmp = sortKey === "date" ? (x.day < y.day ? -1 : x.day > y.day ? 1 : 0) : x[sortKey] - y[sortKey];
       return daySortDir === "asc" ? cmp : -cmp;
     });
-    const head = `<h3>Por fecha · registros (${escapeHtml(zoneLabel(zone))})</h3>`;
+    const head = `<h3>Por fecha de ingesta · registros</h3>`;
     if (!entries.length) return `<div class="homeTopList">${head}<p class="catalogEmpty">Sin registros en el rango.</p></div>`;
     const rows = entries.map((e) => {
       const open = state.ingestOpenDay === e.day;
@@ -514,13 +517,12 @@ export function createDatalakeModule(ctx) {
           <td class="homeDayCellDate"><span class="homeDayToggle ${open ? "open" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>${escapeHtml(e.day)}</td>
           <td class="homeDayCellNum">${e.rows.toLocaleString("en-US")}</td>
           <td class="homeDayCellNum">${e.count.toLocaleString("en-US")}</td>
-          <td class="homeDayCellNum">${formatBytes(e.bytes)}</td>
         </tr>
-        ${open ? `<tr class="homeDayDetailTr"><td colspan="4">${recordsDayAreas(rec, e.day)}</td></tr>` : ""}`;
+        ${open ? `<tr class="homeDayDetailTr"><td colspan="3">${recordsDayAreas(rec, e.day)}</td></tr>` : ""}`;
     }).join("");
     return `<div class="homeTopList">${head}
       <table class="homeDailyTable">
-        <thead><tr>${daySortHeader("date", "Día", false)}${daySortHeader("rows", "Registros", true)}${daySortHeader("count", "Ingestas", true)}${daySortHeader("bytes", "Peso origen", true)}</tr></thead>
+        <thead><tr>${daySortHeader("date", "Día", false)}${daySortHeader("rows", "Registros", true)}${daySortHeader("count", "Archivos", true)}</tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
   }
@@ -531,7 +533,7 @@ export function createDatalakeModule(ctx) {
     const areas = Object.keys(byArea)
       .map((area) => {
         const v = byArea[area].byDay && byArea[area].byDay[day];
-        return v ? { area, rows: Number(v.rows) || 0, files: Number(v.files) || 0, bytes: Number(v.bytes) || 0 } : null;
+        return v ? { area, rows: Number(v.rows) || 0, files: Number(v.files) || 0 } : null;
       })
       .filter(Boolean)
       .sort((a, b) => b.rows - a.rows);
@@ -541,31 +543,31 @@ export function createDatalakeModule(ctx) {
       return `
         <div class="homeSvcRow">
           <div class="homeSvcMain">
-            <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-ingest-dayarea="${escapeAttribute(a.area)}" title="Ver tablas de ${escapeAttribute(a.area)} ese día"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+            <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-ingest-dayarea="${escapeAttribute(a.area)}" title="Ver archivos de ${escapeAttribute(a.area)} ese día"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
             <span class="homeSvcName">${escapeHtml(a.area)}</span>
-            <span class="homeTopMeta homeSvcAmount">${a.rows.toLocaleString("en-US")} registros · ${a.files.toLocaleString("en-US")} ingestas · ${formatBytes(a.bytes)} origen</span>
+            <span class="homeTopMeta homeSvcAmount">${a.rows.toLocaleString("en-US")} registros · ${a.files.toLocaleString("en-US")} archivos</span>
           </div>
           ${open ? `<div class="homeSvcDetail">${dayAreaTables(a.area, day)}</div>` : ""}
         </div>`;
     }).join("");
   }
-  // Tablas de un (área, día), cargadas bajo demanda desde el backend (Athena puntual).
+  // Archivos de un (origen, día), cargados bajo demanda desde el backend (Athena puntual).
   function dayAreaTables(area, day) {
     const key = `${state.ingestZone}|${area}|${day}`;
     const cur = state.ingestDayTables[key];
-    if (!cur || cur.loading) return `<p class="catalogEmpty">Cargando tablas…</p>`;
+    if (!cur || cur.loading) return `<p class="catalogEmpty">Cargando archivos…</p>`;
     if (cur.error) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(cur.error)}</p>`;
     const list = (cur.data || []).slice().sort((a, b) => b.rows - a.rows);
-    if (!list.length) return `<p class="catalogEmpty">Sin tablas ese día.</p>`;
+    if (!list.length) return `<p class="catalogEmpty">Sin archivos ese día.</p>`;
     return `
       <table class="homeSvcTable">
-        <thead><tr><th>Tabla</th><th class="num">Registros</th><th class="num">Ingestas</th><th class="num">Peso origen</th></tr></thead>
+        <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Archivos</th><th class="num">Registros</th></tr></thead>
         <tbody>
           ${list.map((x) => `<tr>
             <td>${escapeHtml(x.name)}</td>
-            <td class="homeSvcQty">${Number(x.rows).toLocaleString("en-US")}</td>
+            <td>${ingStatus(x.status)}</td>
             <td class="homeSvcQty">${Number(x.files).toLocaleString("en-US")}</td>
-            <td class="homeSvcAmt">${formatBytes(Number(x.bytes) || 0)}</td>
+            <td class="homeSvcQty">${Number(x.rows).toLocaleString("en-US")}</td>
           </tr>`).join("")}
         </tbody>
       </table>`;

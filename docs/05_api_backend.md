@@ -39,6 +39,12 @@ función `register(router)`; `build_router()` lo **autodescubre** (`pkgutil`) si
 el handler ni el núcleo. Cada dominio tiene su propio repositorio (no hay god-class).
 El handler ya no es un router-dios: pasó de ~518 líneas a ~17.
 
+**Ruteo en API Gateway (proxy)**: el HTTP API usa **una sola ruta catch-all `/api/{proxy+}`**
+(GET/POST/PATCH/PUT/DELETE, con JWT authorizer) + `/health` pública. La Lambda resuelve
+cada endpoint con su router interno (por `rawPath`). Por eso **agregar un endpoint nuevo
+NO requiere tocar `infra/` ** — solo el router del backend. Esto evita el límite duro de
+20KB del *resource policy* del Lambda (antes cada ruta sumaba un `AWS::Lambda::Permission`).
+
 > **Cómo agregar un módulo nuevo (paso a paso, backend + frontend): ver `docs/21_guia_nuevo_modulo.md`.**
 
 ## Formato estandar de respuesta
@@ -89,6 +95,7 @@ GET /api/home/cost-accounts
 GET /api/home/costs/detail
 GET /api/home/costs/daily
 GET /api/home/costs/responsibles
+GET /api/home/athena
 GET /api/datalake/buckets
 GET /api/datalake/ingest
 POST /api/datalake/ingest/scan

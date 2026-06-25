@@ -20,6 +20,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         DatalakeService().run_scan(event.get("bucket", ""))
         return {"ok": True}
 
+    # Monitoreo de consumo de Athena por usuario (CloudTrail + Athena), por ventana.
+    if event.get("action") == "athena_usage_scan":
+        from services.athena_monitor import AthenaMonitorService
+        AthenaMonitorService().run_scan(event.get("start", ""), event.get("end", ""))
+        return {"ok": True}
+
     # Conteo de filas por área/tabla (tabla de control vía Athena), acotado a un rango.
     if event.get("action") == "datalake_records_scan":
         from services.datalake import DatalakeService

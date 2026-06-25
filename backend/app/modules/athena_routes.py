@@ -1,0 +1,21 @@
+from core.request import Request
+from core.router import Router
+from responses import success
+from services.athena_monitor import AthenaMonitorService
+
+
+def _usage(req: Request):
+    # Con `qid` devuelve el SQL completo de esa consulta (bajo demanda); si no, el
+    # agregado por usuario de la ventana.
+    qid = req.query.get("qid") or ""
+    if qid:
+        return success(AthenaMonitorService().get_query_sql(qid))
+    start = req.query.get("start") or ""
+    end = req.query.get("end") or ""
+    return success(AthenaMonitorService().get_usage(start, end, req.lambda_context.function_name))
+
+
+def register(router: Router) -> None:
+    # Monitoreo de consumo de Athena por usuario (pestaña Athena de Inicio). Admin-only.
+    router.add(["GET"], "/api/home/athena", _usage, modules=["home"], admin=True,
+               error_msg="Error al cargar el consumo de Athena.")

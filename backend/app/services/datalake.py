@@ -21,9 +21,6 @@ INGEST_TARGETS: dict[str, list[str]] = {
 SCAN_TTL = 12 * 3600          # frescura del histograma: 12 h (auto-refresh)
 SCAN_HUNG_AFTER = 20 * 60     # un "scanning" más viejo que esto se ignora (colgado)
 _MAX_PAGES = 500              # tope de seguridad por área (~500k objetos)
-# El nombre de "tabla" sale del filename quitando el sufijo de fecha (YYYYMMDD o
-# YYYYMM) y la extensión: MGC_Detalle_Ahorros_20230630.parquet → MGC_Detalle_Ahorros.
-_DATE_SUFFIX = re.compile(r"[ _.-]?\d{6,8}$")
 
 # Tabla de control de ingesta (fuente oficial de `record_count` por archivo, cubre
 # CSV y PARQUET) consultada vía Athena asumiendo el rol del hub. Athena agrega
@@ -34,17 +31,19 @@ ATHENA_WORKGROUP = "primary"
 ATHENA_DATABASE = "stage_staging"
 ATHENA_TABLE = "ctl_ingestion_unstructured"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_AREA_RE = re.compile(r"^[\w./ -]+$")  # sanea el área antes de inyectarla en el LIKE
-# Fecha LÓGICA del dato (archivo_*), igual que los queries oficiales del reporte
-# de ingestas. Distinta de la fecha de partición/ingesta (anio/mes/dia).
-_DATA_DATE_SQL = (
-    "coalesce(try_cast(concat(cast(archivo_anio as varchar),'-',"
-    "lpad(cast(archivo_mes as varchar),2,'0'),'-',"
-    "lpad(cast(archivo_dia as varchar),2,'0')) as date), date '1901-01-01')"
+_AREA_RE = re.compile(r"^[\w./ -]+$")  # sanea source_system antes de inyectarlo en el filtro
+# Consulta OFICIAL del reporte de ingestas (equipo de datos). Agrupa por:
+#  - source_system (con remapeo de los orígenes que cuelgan de "Canales Digitales/"),
+#  - file_name normalizado (sin el sufijo _YYYYMMDD…),
+#  - ingestion_date (columna = fecha real de ingesta, no la lógica del archivo).
+# Deduplica reprocesos con DISTINCT(source_system, file_name, record_count, ingestion_date).
+# Es zona-agnóstico (la tabla de control no separa landing/staging).
+_SRC_SQL = (
+    "if(source_system in ('Tarjeta de credito','Canales alternos','Canales digitales',"
+    "'Inteligencia de negocios'), concat('Canales Digitales/', source_system, '/'), source_system)"
 )
-# Dedup de reprocesos: la ingesta más reciente por target_path (una fila por
-# tabla+fecha-lógica). Validado: reconcilia EXACTO con el conteo real de staging.
-_LATEST_RN = "row_number() over (partition by target_path order by execution_timestamp desc)"
+_FNAME_SQL = "regexp_replace(file_name, '_[0-9]{8}.*$', '')"
+_IDATE_SQL = "CAST(date_parse(ingestion_date, '%Y-%m-%d %H:%i:%s') AS DATE)"
 
 
 class DatalakeService:
@@ -165,10 +164,9 @@ class DatalakeService:
 
     def run_records_scan(self, bucket: str, zone: str, start: str, end: str) -> None:
         self._validate_bucket(bucket)
-        zone_prefix = self._zone_prefix(bucket, zone)
         now = self._now()
         try:
-            data = self._scan_records(bucket, zone_prefix, start, end)
+            data = self._scan_records(start, end)  # zona-agnóstico (tabla de control)
             self._db.put_records(bucket, zone, start, end, data, now, "ok")
         except Exception:
             self._db.set_records_status(bucket, zone, start, end, "error", now)
@@ -192,32 +190,21 @@ class DatalakeService:
         return {"zone": zone, "area": area, "day": day, "tables": tables, "cached": False}
 
     def _scan_day_tables(self, bucket: str, zone: str, area: str, day: str) -> list[dict[str, Any]]:
-        zone_prefix = self._zone_prefix(bucket, zone)
-        use_target = self._zone_label(zone_prefix) == "staging"
-        path_col = "target_path" if use_target else "s3_key"
-        like = (f"s3://arc-enterprise-data/stage/staging/{area}/%" if use_target
-                else f"stage/landing/{area}/%")
-        # Mismo criterio que el rango: dedup (ingesta más reciente por target_path)
-        # y fecha lógica del archivo. Reconcilia con el reporte oficial.
+        """file_names ingestados por un source_system (`area`) en un `ingestion_date`
+        concreto. Misma consulta oficial; `area` ya viene saneado por _AREA_RE."""
         sql = (
-            "SELECT path, recs, bytes FROM ("
-            f"SELECT {_DATA_DATE_SQL} AS data_date, {path_col} AS path, "
-            f"record_count AS recs, file_size AS bytes, {_LATEST_RN} AS rn "
-            f"FROM {ATHENA_TABLE} WHERE bucket_name = 'arc-enterprise-data' "
-            f"AND {path_col} LIKE '{like}') "
-            f"WHERE rn = 1 AND data_date = date '{day}'"
+            "SELECT file_name, status, count(*) AS quantity, sum(record_count) AS records FROM ("
+            f"SELECT DISTINCT {_SRC_SQL} AS source_system, {_FNAME_SQL} AS file_name, "
+            f"record_count, {_IDATE_SQL} AS ingestion_date, status FROM {ATHENA_TABLE}) "
+            f"WHERE ingestion_date = date '{day}' AND source_system = '{area}' "
+            "GROUP BY file_name, status"
         )
         athena = self._athena_session().client("athena")
-        agg: dict[str, dict[str, int]] = {}
-        for path, recs_s, bytes_s in self._athena_query(athena, sql):
-            _area, table = self._area_table_from_path(zone_prefix, path)
-            if not table:
-                continue
-            t = agg.setdefault(table, {"rows": 0, "files": 0, "bytes": 0})
-            t["rows"] += int(recs_s or 0)
-            t["files"] += 1
-            t["bytes"] += int(bytes_s or 0)
-        return [{"name": k, **v} for k, v in agg.items()]
+        out: list[dict[str, Any]] = []
+        for table, status, qty_s, rec_s in self._athena_query(athena, sql):
+            out.append({"name": table or "(sin nombre)", "status": status or "",
+                        "files": int(qty_s or 0), "rows": int(rec_s or 0)})
+        return out
 
     def _scan(self, bucket: str) -> tuple[dict[str, Any], dict[str, Any]]:
         overview_zones: dict[str, Any] = {}
@@ -295,41 +282,6 @@ class DatalakeService:
                 break
         return {"byDay": by_day, "count": count, "bytes": total}
 
-    def _zone_prefix(self, bucket: str, zone: str) -> str:
-        for z in INGEST_TARGETS.get(bucket, []):
-            if self._zone_label(z) == zone:
-                return z
-        raise ValidationError("Zona no monitoreada.")
-
-    def _table_of(self, zone_prefix: str, key: str) -> tuple[str | None, str | None]:
-        """(área, tabla) a partir de la key. área = 1er nivel bajo la zona.
-
-        - Staging (Hive-particionado: .../tabla/anio=2026/mes=06/.../run-xxx): la
-          tabla es la ruta ANTES de la primera partición `clave=valor`.
-        - Landing (archivos con fecha en el nombre: MGC_Detalle_Ahorros_20230630.parquet):
-          la tabla es la sub-ruta + filename sin la fecha ni la extensión."""
-        rel = key[len(zone_prefix):].strip("/")
-        parts = rel.split("/")
-        if len(parts) < 2:
-            return None, None
-        area, rest = parts[0], parts[1:]
-        cut = next((i for i, p in enumerate(rest) if "=" in p), None)
-        if cut is not None:  # hay particiones Hive
-            table_parts = rest[:cut]
-            return area, ("/".join(table_parts) if table_parts else area)
-        sub, filename = rest[:-1], rest[-1]
-        stem = _DATE_SUFFIX.sub("", filename.rsplit(".", 1)[0])
-        table = "/".join([*sub, stem]) if stem else "/".join(sub) or filename
-        return area, table
-
-    def _area_table_from_path(self, zone_prefix: str, path: str) -> tuple[str | None, str | None]:
-        """área/tabla desde una ruta del control table. Acepta `s3://bucket/key` o
-        key relativo; normaliza y reutiliza _table_of contra el prefijo de la zona."""
-        key = path or ""
-        if key.startswith("s3://"):
-            key = key.split("/", 3)[3] if key.count("/") >= 3 else ""
-        return self._table_of(zone_prefix, key)
-
     def _athena_session(self):
         """Sesión boto3 con el rol del hub (Athena/Glue/S3 del catálogo de control)."""
         creds = boto3.client("sts").assume_role(
@@ -371,42 +323,37 @@ class DatalakeService:
                 rows.append([c.get("VarCharValue") for c in r["Data"]])
         return rows
 
-    def _scan_records(self, bucket: str, zone_prefix: str, start: str, end: str) -> dict[str, Any]:
-        """Suma record_count/file_size/archivos por área → tabla y área → día desde la
-        TABLA DE CONTROL de ingesta vía Athena (agregación server-side, segundos). Para
-        staging usa target_path; para landing, s3_key. Filtra al bucket monitoreado."""
+    def _scan_records(self, start: str, end: str) -> dict[str, Any]:
+        """Ingestas por **source_system → file_name** y por **ingestion_date**, vía Athena
+        con la consulta OFICIAL del reporte (DISTINCT dedup, source_system remapeado,
+        file_name sin fecha). Zona-agnóstico. `quantity`=count(*)=ingestas, `record_count`
+        =filas. (No incluye peso: la consulta oficial no lo reporta.)"""
         if not (_DATE_RE.match(start) and _DATE_RE.match(end)):
             raise ValidationError("Rango de fechas inválido.")
-        use_target = self._zone_label(zone_prefix) == "staging"
-        path_col = "target_path" if use_target else "s3_key"
-        like = "s3://arc-enterprise-data/stage/staging/%" if use_target else "stage/landing/%"
-        # Una fila por target_path = la ingesta más reciente (dedup de reprocesos);
-        # día = fecha lógica del archivo. Reconcilia exacto con el reporte oficial.
         sql = (
-            "SELECT cast(data_date as varchar) AS day, path, recs, bytes FROM ("
-            f"SELECT {_DATA_DATE_SQL} AS data_date, {path_col} AS path, "
-            f"record_count AS recs, file_size AS bytes, {_LATEST_RN} AS rn "
-            f"FROM {ATHENA_TABLE} WHERE bucket_name = 'arc-enterprise-data' "
-            f"AND {path_col} LIKE '{like}') "
-            f"WHERE rn = 1 AND data_date BETWEEN date '{start}' AND date '{end}'"
+            "SELECT cast(ingestion_date as varchar) AS day, source_system, file_name, status, "
+            "count(*) AS quantity, sum(record_count) AS records FROM ("
+            f"SELECT DISTINCT {_SRC_SQL} AS source_system, {_FNAME_SQL} AS file_name, "
+            f"record_count, {_IDATE_SQL} AS ingestion_date, status FROM {ATHENA_TABLE}) "
+            f"WHERE ingestion_date BETWEEN date '{start}' AND date '{end}' "
+            "GROUP BY ingestion_date, source_system, file_name, status"
         )
         athena = self._athena_session().client("athena")
         by_area: dict[str, Any] = {}
-        file_count = 0
-        for day, path, recs_s, bytes_s in self._athena_query(athena, sql):
-            area, table = self._area_table_from_path(zone_prefix, path)
+        for day, area, table, status, qty_s, rec_s in self._athena_query(athena, sql):
             if not area:
                 continue
-            recs = int(recs_s or 0)
-            size = int(bytes_s or 0)
-            file_count += 1
-            a = by_area.setdefault(area, {"tables": {}, "byDay": {}, "files": 0, "bytes": 0, "rows": 0})
-            t = a["tables"].setdefault(table, {"files": 0, "bytes": 0, "rows": 0})
-            t["files"] += 1; t["bytes"] += size; t["rows"] += recs
-            d = a["byDay"].setdefault(day, {"files": 0, "bytes": 0, "rows": 0})
-            d["files"] += 1; d["bytes"] += size; d["rows"] += recs
-            a["files"] += 1; a["bytes"] += size; a["rows"] += recs
-        return {"byArea": by_area, "start": start, "end": end, "fileCount": file_count}
+            qty = int(qty_s or 0)
+            rec = int(rec_s or 0)
+            name = table or "(sin nombre)"
+            status = status or ""
+            a = by_area.setdefault(area, {"tables": {}, "byDay": {}, "files": 0, "rows": 0})
+            t = a["tables"].setdefault(f"{name} {status}", {"name": name, "status": status, "files": 0, "rows": 0})
+            t["files"] += qty; t["rows"] += rec
+            d = a["byDay"].setdefault(day, {"files": 0, "rows": 0})
+            d["files"] += qty; d["rows"] += rec
+            a["files"] += qty; a["rows"] += rec
+        return {"byArea": by_area, "start": start, "end": end}
 
     # ── Helpers de frescura/estado ───────────────────────────────────────────
     def _is_stale(self, scanned_at: Any) -> bool:

@@ -201,6 +201,7 @@ export function createHomeModule(ctx) {
         if (canResumen) tabs.push({ id: "resumen", label: "Resumen" });
         if (canDatalake) tabs.push({ id: "datalake", label: "Data Lake" });
         if (isAdmin) tabs.push({ id: "facturacion", label: "Facturación" });
+        if (isAdmin) tabs.push({ id: "athena", label: "Athena" });
 
         // Asegura que la pestaña activa exista entre las visibles.
         if (!tabs.some((t) => t.id === state.homeTab)) {
@@ -218,6 +219,8 @@ export function createHomeModule(ctx) {
           body = `<article class="panel"><p class="catalogEmpty">No tienes pestañas habilitadas en Inicio. Contacta a un administrador.</p></article>`;
         } else if (tab === "facturacion" && isAdmin) {
           body = costBlock;
+        } else if (tab === "athena" && isAdmin) {
+          body = athenaBlock();
         } else if (tab === "datalake") {
           const catalogPart = state.homeSummaryError
             ? `<article class="panel"><p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeSummaryError)}</p></article>`
@@ -727,6 +730,137 @@ export function createHomeModule(ctx) {
         return `<div class="${cls}"><strong>$${escapeHtml(Number.isFinite(n) ? n.toFixed(2) : amount)}</strong><span>${escapeHtml(label)}</span></div>`;
       }
 
+      // ── Pestaña Athena: consumo por usuario (CloudTrail + Athena) ─────────────
+      function athenaRange() {
+        const end = new Date().toISOString().slice(0, 10);
+        const s = new Date();
+        s.setUTCDate(s.getUTCDate() - (state.athenaRangeDays - 1));
+        return { start: s.toISOString().slice(0, 10), end };
+      }
+      function athMs(ms) {
+        ms = Number(ms) || 0;
+        return ms >= 60000 ? (ms / 60000).toFixed(1) + " min" : (ms / 1000).toFixed(1) + "s";
+      }
+      function ensureAthena(force) {
+        if (state.athenaLoading) return;
+        if (force || (!state.athenaData && !state.athenaScanning)) loadAthena();
+        else if (state.athenaScanning) scheduleAthenaPoll();
+      }
+      async function fetchAthena() {
+        const { start, end } = athenaRange();
+        const p = await apiRequest(`api/home/athena?start=${start}&end=${end}`);
+        state.athenaData = p.data.data || null;
+        state.athenaStatus = p.data.status || "empty";
+        state.athenaScanning = !!p.data.scanning;
+        state.athenaScannedAt = p.data.scannedAt || null;
+      }
+      async function loadAthena() {
+        state.athenaLoading = true; state.athenaError = "";
+        paintHome();
+        try { await fetchAthena(); }
+        catch (err) { state.athenaError = err?.message || "No se pudo cargar el consumo de Athena."; }
+        state.athenaLoading = false;
+        paintHome();
+        if (state.athenaScanning) scheduleAthenaPoll();
+      }
+      function scheduleAthenaPoll() {
+        if (state.athenaPollTimer) return;
+        state.athenaPollTimer = window.setTimeout(async () => {
+          state.athenaPollTimer = null;
+          if (state.homeTab !== "athena") return;
+          try { await fetchAthena(); } catch {}
+          paintHome();
+          if (state.athenaScanning) scheduleAthenaPoll();
+        }, 5000);
+      }
+      function athenaBlock() {
+        const d = state.athenaData;
+        const days = state.athenaRangeDays;
+        const fresh = state.athenaScannedAt
+          ? `Calculado: <b>${homeDateTimeLabel(state.athenaScannedAt)}</b> <span class="homeCostAgo">(${catalogSyncedLabel(state.athenaScannedAt)})</span>`
+          : "";
+        const scanningMsg = state.athenaScanning ? ` · <span class="ingestScanning">Calculando…</span>` : "";
+        const header = `
+          <div class="homeCostHeader">
+            <div><p class="eyebrow">Consumo Athena · por usuario</p><h2>Monitoreo de consultas</h2>
+            <p class="homeDailyFreshness">${fresh}${scanningMsg}</p></div>
+            <div class="homeCostControls">
+              <label>Rango
+                <select id="athenaRangeSelect">
+                  ${[7, 14, 30].map((n) => `<option value="${n}" ${days === n ? "selected" : ""}>Últimos ${n} días</option>`).join("")}
+                </select>
+              </label>
+              <button type="button" id="athenaRefresh" class="tinyButton" title="Recalcular consumo">↻ Actualizar</button>
+            </div>
+          </div>`;
+        let inner;
+        if (state.athenaError) {
+          inner = `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.athenaError)}</p>`;
+        } else if (!d && (state.athenaScanning || state.athenaLoading)) {
+          inner = `<p class="catalogEmpty">Calculando consumo de Athena (CloudTrail + Athena)… puede tardar, se actualiza solo.</p>`;
+        } else if (!d) {
+          inner = `<p class="catalogEmpty">Sin datos. Presiona "Actualizar".</p>`;
+        } else {
+          const users = d.users || [];
+          const totals = `<span class="homeTopMeta">${(d.totalQueries || 0).toLocaleString("en-US")} consultas · ${formatBytes(d.totalBytes || 0)} escaneados · ~$${fmtUsd((d.totalBytes || 0) / 1e12 * 5)} <span class="homeCostAgo">(${escapeHtml(d.start)} a ${escapeHtml(d.end)})</span></span>`;
+          const userRows = users.map((u) => `<tr>
+              <td>${escapeHtml(u.user)}</td>
+              <td class="homeDayCellNum">${Number(u.queries).toLocaleString("en-US")}</td>
+              <td class="homeDayCellNum">${formatBytes(u.bytes)}</td>
+              <td class="homeDayCellNum">$${fmtUsd((u.bytes || 0) / 1e12 * 5)}</td>
+              <td class="homeDayCellNum">${athMs(u.totalMs)}</td>
+              <td class="homeDayCellNum">${athMs(u.maxMs)}</td>
+              <td class="homeDayCellNum">${Number(u.selectStar) ? `<span class="homeSpikeUp">${u.selectStar}</span>` : "0"}</td>
+            </tr>`).join("");
+          const top = (d.topQueries || []).slice(0, 15).map((q) => {
+            const full = q.qid ? state.athenaSqlCache[q.qid] : null;
+            const open = state.athenaOpenQid === q.qid;
+            const sqlText = (open && full && full.sql) ? full.sql : (q.sql || "");
+            const loadingFull = open && full && full.loading;
+            const btn = q.qid
+              ? `<button type="button" class="textButton athenaFullBtn" data-athena-qid="${escapeAttribute(q.qid)}">${open ? "Ocultar" : "Ver consulta completa"}</button>`
+              : "";
+            return `
+            <div class="athenaQueryRow">
+              <div class="athenaQueryMeta">
+                <span class="homeSvcName">${escapeHtml(q.user)} <span class="homeCostAgo">· ${escapeHtml(q.wg || "")}</span></span>
+                <span class="homeTopMeta">${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}${q.selectStar ? ` · <span class="homeSpikeUp">SELECT *</span>` : ""}</span>
+              </div>
+              <pre class="athenaSql${open ? " full" : ""}">${escapeHtml(sqlText)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
+              ${btn}
+            </div>`;
+          }).join("");
+          inner = `${totals}
+            <div class="homeTopList"><h3>Por usuario</h3>
+              <table class="homeDailyTable">
+                <thead><tr><th>Usuario</th><th class="homeDayCellNum">Consultas</th><th class="homeDayCellNum">Escaneado</th><th class="homeDayCellNum">Costo ~</th><th class="homeDayCellNum">Tiempo total</th><th class="homeDayCellNum">Máx</th><th class="homeDayCellNum">SELECT *</th></tr></thead>
+                <tbody>${userRows}</tbody>
+              </table>
+            </div>
+            <div class="homeTopList"><h3>Consultas más pesadas</h3>${top || `<p class="catalogEmpty">Sin consultas.</p>`}</div>`;
+        }
+        return `<article class="panel homePanel">${header}${inner}</article>`;
+      }
+      function toggleAthenaQuery(qid) {
+        if (!qid) return;
+        if (state.athenaOpenQid === qid) { state.athenaOpenQid = null; paintHome(); return; }
+        state.athenaOpenQid = qid;
+        const cached = state.athenaSqlCache[qid];
+        paintHome();
+        if (!cached || (!cached.sql && !cached.loading)) loadAthenaSql(qid);
+      }
+      async function loadAthenaSql(qid) {
+        state.athenaSqlCache[qid] = { loading: true };
+        paintHome();
+        try {
+          const p = await apiRequest(`api/home/athena?qid=${encodeURIComponent(qid)}`);
+          state.athenaSqlCache[qid] = { sql: p.data.sql || "", loading: false };
+        } catch (err) {
+          state.athenaSqlCache[qid] = { sql: "No se pudo cargar la consulta completa.", loading: false };
+        }
+        if (state.athenaOpenQid === qid) paintHome();
+      }
+
       function bindHomeEvents() {
         for (const btn of elements.contentPanel.querySelectorAll("[data-home-tab]")) {
           btn.addEventListener("click", () => {
@@ -740,7 +874,20 @@ export function createHomeModule(ctx) {
             if (needCosts) loadHomeCosts();
             // Carga el monitoreo de cargas al entrar a Data Lake.
             if (tab === "datalake") datalakeModule.ensure();
+            // Carga el consumo de Athena al entrar a su pestaña.
+            if (tab === "athena") ensureAthena();
           });
+        }
+        const athRange = elements.contentPanel.querySelector("#athenaRangeSelect");
+        if (athRange) athRange.addEventListener("change", () => {
+          state.athenaRangeDays = Number(athRange.value) || 7;
+          state.athenaData = null; state.athenaStatus = "empty";
+          ensureAthena(true);
+        });
+        const athRefresh = elements.contentPanel.querySelector("#athenaRefresh");
+        if (athRefresh) athRefresh.addEventListener("click", () => ensureAthena(true));
+        for (const b of elements.contentPanel.querySelectorAll("[data-athena-qid]")) {
+          b.addEventListener("click", () => toggleAthenaQuery(b.dataset.athenaQid));
         }
         const acct = elements.contentPanel.querySelector("#homeAccountSelect");
         if (acct) acct.addEventListener("change", () => { state.homeCostAccount = acct.value; loadHomeCosts(); });

@@ -2109,6 +2109,15 @@
   .homeChartBox { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
   .homeChartBox canvas { width: 100% !important; height: 240px !important; }
   .homeTopList { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .athenaQueryRow { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: #ffffff; }
+  .athenaQueryMeta { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+  .athenaSql { margin: 6px 0 0; padding: 8px; background: #f6f8fa; border-radius: 6px; font-size: 0.78rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; color: #34454b; }
+  .athenaSql.full { max-height: 420px; }
+  .ingStatus { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+  .ingStatusNew { background: #dcfce7; color: #166534; }
+  .ingStatusMod { background: #fef3c7; color: #92400e; }
+  .ingStatusOk { background: #eef2f6; color: #475569; }
+  .athenaFullBtn { margin-top: 6px; }
   .homeSectionTitle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 1.06rem; font-weight: 700; color: #0f172a; margin: 0 0 8px; }
   .homeSectionTitle:hover { color: var(--accent-strong, #0f766e); }
   .homeSectionCaret { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--accent-strong, #0f766e); }
