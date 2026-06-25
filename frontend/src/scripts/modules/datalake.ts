@@ -12,6 +12,9 @@ export function createDatalakeModule(ctx) {
   // fecha descendente (la última primero).
   let daySortKey = "date";   // "date" | "count" | "bytes"
   let daySortDir = "desc";   // "asc" | "desc"
+  // Orden de la tabla de tablas (vista Registros · Por área). Por defecto registros desc.
+  let tableSortKey = "rows"; // "name" | "files" | "bytes" | "rows"
+  let tableSortDir = "desc"; // "asc" | "desc"
 
   function zoneLabel(zn) {
     return zn ? zn.charAt(0).toUpperCase() + zn.slice(1) : "";
@@ -172,18 +175,39 @@ export function createDatalakeModule(ctx) {
     } else if (!state.ingestData) {
       inner = `<p class="catalogEmpty">Sin datos todavía. Presiona "Escanear ahora".</p>`;
     } else {
+      const records = metric === "records";
       const zoneTabs = zones.map((zn) => `<button type="button" class="homeViewBtn ${zn === zone ? "active" : ""}" data-ingest-zone="${escapeAttribute(zn)}">${escapeHtml(zoneLabel(zn))}</button>`).join("");
       const metricTabs = `
         <button type="button" class="homeViewBtn ${metric === "count" ? "active" : ""}" data-ingest-metric="count">Archivos</button>
-        <button type="button" class="homeViewBtn ${metric === "bytes" ? "active" : ""}" data-ingest-metric="bytes">Peso</button>`;
+        <button type="button" class="homeViewBtn ${metric === "bytes" ? "active" : ""}" data-ingest-metric="bytes">Peso</button>
+        <button type="button" class="homeViewBtn ${records ? "active" : ""}" data-ingest-metric="records" title="Filas ingestadas por tabla, de la bitácora de ingesta (del rango).">Registros</button>`;
       const b = rangeBounds();
-      const rt = z ? rangeTotals(z.byDay, b) : { count: 0, bytes: 0 };
-      const rangeNote = (b.from === null && b.to === null) ? "todo el histórico" : "en el rango";
-      const totals = `${rt.count.toLocaleString("en-US")} archivos · ${formatBytes(rt.bytes)} <span class="homeCostAgo">(${rangeNote})</span>`;
+      const rr = recordsRange();
+      const rec = records ? currentRecords() : null;
+      let totals;
+      if (records) {
+        if (!rr) totals = `<span class="homeCostAgo">selecciona un rango (no "Todo")</span>`;
+        else if (!rec || rec.loading || !rec.data) totals = `<span class="homeCostAgo">calculando registros…</span>`;
+        else { const t = recordsTotals(rec); totals = `${t.rows.toLocaleString("en-US")} registros · ${t.files.toLocaleString("en-US")} ingestas · ${formatBytes(t.bytes)} origen <span class="homeCostAgo">(log de ingesta · ≠ Archivos/Peso de S3)</span>`; }
+      } else {
+        const rt = z ? rangeTotals(z.byDay, b) : { count: 0, bytes: 0 };
+        const rangeNote = (b.from === null && b.to === null) ? "todo el histórico" : "en el rango";
+        totals = `${rt.count.toLocaleString("en-US")} archivos · ${formatBytes(rt.bytes)} <span class="homeCostAgo">(${rangeNote})</span>`;
+      }
       const byArea = state.ingestGroupBy !== "date";
       const groupTabs = `
         <button type="button" class="homeViewBtn ${byArea ? "active" : ""}" data-ingest-groupby="area">Por área</button>
         <button type="button" class="homeViewBtn ${!byArea ? "active" : ""}" data-ingest-groupby="date">Por fecha</button>`;
+      const chartTitleMetric = records ? "registros" : (metric === "count" ? "archivos" : "peso");
+      let view;
+      if (records) {
+        if (!rr) view = `<div class="homeTopList"><p class="catalogEmpty">Selecciona un rango de fechas (distinto de "Todo") para contar registros.</p></div>`;
+        else if (rec && rec.error) view = `<div class="homeTopList"><p class="catalogEmpty catalogEmptyError">${escapeHtml(rec.error)}</p></div>`;
+        else if (!rec || rec.loading || (rec.scanning && !rec.data)) view = `<div class="homeTopList"><p class="catalogEmpty">Calculando registros del rango… (se actualiza solo)</p></div>`;
+        else view = byArea ? recordsAreaList(rec) : recordsDayList(rec);
+      } else {
+        view = byArea ? ingestAreaList(z, b) : ingestDayList(z, b);
+      }
       inner = `
         <div class="ingestControls">
           <div class="homeViewToggle" role="group" aria-label="Zona">${zoneTabs}</div>
@@ -191,9 +215,9 @@ export function createDatalakeModule(ctx) {
           <span class="homeTopMeta">${totals}</span>
         </div>
         ${rangeControl()}
-        <div class="homeChartBox"><h3>Cargas por día · ${metric === "count" ? "archivos" : "peso"} (${escapeHtml(zoneLabel(zone))})</h3><canvas id="ingestChart"></canvas></div>
+        <div class="homeChartBox"><h3>Cargas por día · ${chartTitleMetric} (${escapeHtml(zoneLabel(zone))})</h3><canvas id="ingestChart"></canvas></div>
         <div class="ingestControls"><div class="homeViewToggle" role="group" aria-label="Agrupar por">${groupTabs}</div></div>
-        ${byArea ? ingestAreaList(z, b) : ingestDayList(z, b)}`;
+        ${view}`;
     }
 
     return `
@@ -292,10 +316,13 @@ export function createDatalakeModule(ctx) {
   }
 
   function toggleIngestDay(day) {
+    state.ingestOpenDayArea = null; // al cambiar de día, cierra el área expandida
     if (state.ingestOpenDay === day) { state.ingestOpenDay = null; repaint(); return; }
     state.ingestOpenDay = day;
     repaint();
-    if (!state.ingestDetail[state.ingestZone]) loadIngestDetail(state.ingestZone);
+    // En modo Registros el desglose por área ya está en memoria (rec.data); el
+    // detalle del histograma solo hace falta para las métricas Archivos/Peso.
+    if (state.ingestMetric !== "records" && !state.ingestDetail[state.ingestZone]) loadIngestDetail(state.ingestZone);
   }
 
   function daySortHeader(key, label, numeric) {
@@ -332,6 +359,282 @@ export function createDatalakeModule(ctx) {
       </table>`;
   }
 
+  // ── Registros (conteo de filas por área/tabla, acotado al rango) ─────────────
+  // El conteo se calcula en backend desde la tabla de control de ingesta (Athena).
+  // Requiere un rango con límites (no "Todo"); resolvemos "hasta" → hoy. El
+  // resultado se cachea por (zona|inicio|fin) en backend y aquí en memoria.
+  function recordsRange() {
+    const b = rangeBounds();
+    if (b.from === null) return null; // "Todo": sin límite inferior, no aplica
+    return { from: b.from, to: b.to || isoMinusDays(0) };
+  }
+  function recordsKey() {
+    const r = recordsRange();
+    return r ? `${state.ingestZone}|${r.from}|${r.to}` : null;
+  }
+  function currentRecords() {
+    const k = recordsKey();
+    return k ? state.ingestRecords[k] : null;
+  }
+  function recordsTotals(rec) {
+    const byArea = (rec.data && rec.data.byArea) || {};
+    let rows = 0, files = 0, bytes = 0;
+    for (const a of Object.keys(byArea)) {
+      rows += Number(byArea[a].rows) || 0;
+      files += Number(byArea[a].files) || 0;
+      bytes += Number(byArea[a].bytes) || 0;
+    }
+    return { rows, files, bytes };
+  }
+  async function ensureRecords() {
+    const r = recordsRange();
+    if (!r || !state.ingestZone) return;
+    const key = recordsKey();
+    const cur = state.ingestRecords[key];
+    if (cur && (cur.loading || cur.scanning || cur.data || cur.error)) {
+      if (cur.scanning) scheduleRecordsPoll(key);
+      return;
+    }
+    await loadRecords(key, r);
+  }
+  async function fetchRecords(key, r) {
+    const payload = await apiRequest(
+      `api/datalake/ingest/records?bucket=${encodeURIComponent(state.ingestBucket)}`
+      + `&zone=${encodeURIComponent(state.ingestZone)}&start=${r.from}&end=${r.to}`);
+    state.ingestRecords[key] = {
+      data: payload.data.data || null,
+      scanning: !!payload.data.scanning,
+      scannedAt: payload.data.scannedAt || null,
+      error: "",
+    };
+  }
+  async function loadRecords(key, r) {
+    state.ingestRecords[key] = { ...(state.ingestRecords[key] || {}), loading: true, error: "" };
+    repaint();
+    try {
+      await fetchRecords(key, r);
+    } catch (err) {
+      state.ingestRecords[key] = { data: null, scanning: false, error: err?.message || "No se pudo calcular registros." };
+    }
+    repaint();
+    if (state.ingestRecords[key] && state.ingestRecords[key].scanning) scheduleRecordsPoll(key);
+  }
+  function scheduleRecordsPoll(key) {
+    if (state.ingestRecordsPollTimer) return;
+    state.ingestRecordsPollTimer = window.setTimeout(async () => {
+      state.ingestRecordsPollTimer = null;
+      const r = recordsRange();
+      if (!r || recordsKey() !== key) return; // cambió zona/rango: descarta
+      try { await fetchRecords(key, r); } catch {}
+      repaint();
+      const cur = state.ingestRecords[key];
+      if (cur && cur.scanning) scheduleRecordsPoll(key);
+    }, 4000);
+  }
+
+  // Vista "Por área" en modo registros: áreas con total de filas; al expandir,
+  // las TABLAS que ingestó esa área con archivos, peso y registros.
+  function recordsAreaList(rec) {
+    const zone = state.ingestZone;
+    const byArea = (rec.data && rec.data.byArea) || {};
+    const areas = Object.keys(byArea)
+      .map((area) => ({ area, files: Number(byArea[area].files) || 0, bytes: Number(byArea[area].bytes) || 0, rows: Number(byArea[area].rows) || 0 }))
+      .sort((a, b) => b.rows - a.rows);
+    const head = `<h3>Por área · registros (${escapeHtml(zoneLabel(zone))})</h3>`;
+    if (!areas.length) return `<div class="homeTopList">${head}<p class="catalogEmpty">Sin registros en el rango.</p></div>`;
+    const rows = areas.map((a) => {
+      const open = state.ingestOpenArea === a.area;
+      return `
+        <div class="homeSvcRow">
+          <div class="homeSvcMain">
+            <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-ingest-area="${escapeAttribute(a.area)}" title="Ver tablas de ${escapeAttribute(a.area)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+            <span class="homeSvcName">${escapeHtml(a.area)}</span>
+            <span class="homeTopMeta homeSvcAmount">${a.rows.toLocaleString("en-US")} registros · ${a.files.toLocaleString("en-US")} ingestas · ${formatBytes(a.bytes)} origen</span>
+          </div>
+          ${open ? `<div class="homeSvcDetail">${recordsTables(byArea[a.area])}</div>` : ""}
+        </div>`;
+    }).join("");
+    return `<div class="homeTopList">${head}${rows}</div>`;
+  }
+  function tableSortHeader(key, label, numeric) {
+    const active = tableSortKey === key;
+    const arrow = active ? (tableSortDir === "asc" ? " ▲" : " ▼") : "";
+    return `<th class="${numeric ? "num " : ""}sortableTh${active ? " active" : ""}" data-ingest-tablesort="${key}">${label}${arrow}</th>`;
+  }
+  function recordsTables(areaObj) {
+    const t = (areaObj && areaObj.tables) || {};
+    const list = Object.keys(t)
+      .map((name) => ({ name, files: Number(t[name].files) || 0, bytes: Number(t[name].bytes) || 0, rows: Number(t[name].rows) || 0 }));
+    list.sort((a, b) => {
+      const cmp = tableSortKey === "name"
+        ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+        : a[tableSortKey] - b[tableSortKey];
+      return tableSortDir === "asc" ? cmp : -cmp;
+    });
+    if (!list.length) return `<p class="catalogEmpty">Sin tablas.</p>`;
+    return `
+      <table class="homeSvcTable">
+        <thead><tr>${tableSortHeader("name", "Tabla", false)}${tableSortHeader("files", "Ingestas", true)}${tableSortHeader("bytes", "Peso origen", true)}${tableSortHeader("rows", "Registros", true)}</tr></thead>
+        <tbody>
+          ${list.map((x) => `<tr>
+            <td>${escapeHtml(x.name)}</td>
+            <td class="homeSvcQty">${x.files.toLocaleString("en-US")}</td>
+            <td class="homeSvcAmt">${formatBytes(x.bytes)}</td>
+            <td class="homeSvcQty">${x.rows.toLocaleString("en-US")}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+  }
+  // Vista "Por fecha" en modo registros: registros por día (sumando áreas).
+  function recordsDayList(rec) {
+    const zone = state.ingestZone;
+    const byArea = (rec.data && rec.data.byArea) || {};
+    const perDay = {};
+    for (const area of Object.keys(byArea)) {
+      const bd = byArea[area].byDay || {};
+      for (const d of Object.keys(bd)) {
+        const agg = perDay[d] || (perDay[d] = { rows: 0, count: 0, bytes: 0 });
+        agg.rows += Number(bd[d].rows) || 0;
+        agg.count += Number(bd[d].files) || 0;
+        agg.bytes += Number(bd[d].bytes) || 0;
+      }
+    }
+    const sortKey = ["date", "rows", "count", "bytes"].includes(daySortKey) ? daySortKey : "date";
+    const entries = Object.keys(perDay).map((d) => ({ day: d, ...perDay[d] }));
+    entries.sort((x, y) => {
+      const cmp = sortKey === "date" ? (x.day < y.day ? -1 : x.day > y.day ? 1 : 0) : x[sortKey] - y[sortKey];
+      return daySortDir === "asc" ? cmp : -cmp;
+    });
+    const head = `<h3>Por fecha · registros (${escapeHtml(zoneLabel(zone))})</h3>`;
+    if (!entries.length) return `<div class="homeTopList">${head}<p class="catalogEmpty">Sin registros en el rango.</p></div>`;
+    const rows = entries.map((e) => {
+      const open = state.ingestOpenDay === e.day;
+      return `
+        <tr class="homeDayTr" data-ingest-day="${escapeAttribute(e.day)}">
+          <td class="homeDayCellDate"><span class="homeDayToggle ${open ? "open" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>${escapeHtml(e.day)}</td>
+          <td class="homeDayCellNum">${e.rows.toLocaleString("en-US")}</td>
+          <td class="homeDayCellNum">${e.count.toLocaleString("en-US")}</td>
+          <td class="homeDayCellNum">${formatBytes(e.bytes)}</td>
+        </tr>
+        ${open ? `<tr class="homeDayDetailTr"><td colspan="4">${recordsDayAreas(rec, e.day)}</td></tr>` : ""}`;
+    }).join("");
+    return `<div class="homeTopList">${head}
+      <table class="homeDailyTable">
+        <thead><tr>${daySortHeader("date", "Día", false)}${daySortHeader("rows", "Registros", true)}${daySortHeader("count", "Ingestas", true)}${daySortHeader("bytes", "Peso origen", true)}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+  // Áreas ingestadas un día concreto (vista Registros · Por fecha → expandir día).
+  // Cada área es a su vez expandible → sus TABLAS de ese día (carga bajo demanda).
+  function recordsDayAreas(rec, day) {
+    const byArea = (rec.data && rec.data.byArea) || {};
+    const areas = Object.keys(byArea)
+      .map((area) => {
+        const v = byArea[area].byDay && byArea[area].byDay[day];
+        return v ? { area, rows: Number(v.rows) || 0, files: Number(v.files) || 0, bytes: Number(v.bytes) || 0 } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.rows - a.rows);
+    if (!areas.length) return `<p class="catalogEmpty">Sin ingestas registradas ese día.</p>`;
+    return areas.map((a) => {
+      const open = state.ingestOpenDayArea === a.area;
+      return `
+        <div class="homeSvcRow">
+          <div class="homeSvcMain">
+            <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-ingest-dayarea="${escapeAttribute(a.area)}" title="Ver tablas de ${escapeAttribute(a.area)} ese día"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+            <span class="homeSvcName">${escapeHtml(a.area)}</span>
+            <span class="homeTopMeta homeSvcAmount">${a.rows.toLocaleString("en-US")} registros · ${a.files.toLocaleString("en-US")} ingestas · ${formatBytes(a.bytes)} origen</span>
+          </div>
+          ${open ? `<div class="homeSvcDetail">${dayAreaTables(a.area, day)}</div>` : ""}
+        </div>`;
+    }).join("");
+  }
+  // Tablas de un (área, día), cargadas bajo demanda desde el backend (Athena puntual).
+  function dayAreaTables(area, day) {
+    const key = `${state.ingestZone}|${area}|${day}`;
+    const cur = state.ingestDayTables[key];
+    if (!cur || cur.loading) return `<p class="catalogEmpty">Cargando tablas…</p>`;
+    if (cur.error) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(cur.error)}</p>`;
+    const list = (cur.data || []).slice().sort((a, b) => b.rows - a.rows);
+    if (!list.length) return `<p class="catalogEmpty">Sin tablas ese día.</p>`;
+    return `
+      <table class="homeSvcTable">
+        <thead><tr><th>Tabla</th><th class="num">Registros</th><th class="num">Ingestas</th><th class="num">Peso origen</th></tr></thead>
+        <tbody>
+          ${list.map((x) => `<tr>
+            <td>${escapeHtml(x.name)}</td>
+            <td class="homeSvcQty">${Number(x.rows).toLocaleString("en-US")}</td>
+            <td class="homeSvcQty">${Number(x.files).toLocaleString("en-US")}</td>
+            <td class="homeSvcAmt">${formatBytes(Number(x.bytes) || 0)}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+  }
+  function toggleDayArea(area) {
+    if (state.ingestOpenDayArea === area) { state.ingestOpenDayArea = null; repaint(); return; }
+    state.ingestOpenDayArea = area;
+    repaint();
+    ensureDayTables(area, state.ingestOpenDay);
+  }
+  async function ensureDayTables(area, day) {
+    if (!area || !day) return;
+    const key = `${state.ingestZone}|${area}|${day}`;
+    const cur = state.ingestDayTables[key];
+    if (cur && (cur.loading || cur.data || cur.error)) return;
+    state.ingestDayTables[key] = { loading: true };
+    repaint();
+    try {
+      const p = await apiRequest(
+        `api/datalake/ingest/records?bucket=${encodeURIComponent(state.ingestBucket)}`
+        + `&zone=${encodeURIComponent(state.ingestZone)}&area=${encodeURIComponent(area)}&day=${encodeURIComponent(day)}`);
+      state.ingestDayTables[key] = { data: p.data.tables || [], loading: false };
+    } catch (err) {
+      state.ingestDayTables[key] = { error: err?.message || "No se pudo cargar las tablas.", loading: false };
+    }
+    repaint();
+  }
+  function drawRecordsChart() {
+    const Chart = window.Chart;
+    if (!Chart) return;
+    const iEl = elements.contentPanel.querySelector("#ingestChart");
+    if (!iEl) return;
+    const rec = currentRecords();
+    if (!rec || !rec.data) return;
+    const byArea = rec.data.byArea || {};
+    const perDay = {};
+    for (const a of Object.keys(byArea)) {
+      const bd = byArea[a].byDay || {};
+      for (const d of Object.keys(bd)) perDay[d] = (perDay[d] || 0) + (Number(bd[d].rows) || 0);
+    }
+    const days = Object.keys(perDay).sort();
+    if (!days.length) return;
+    const data = days.map((d) => perDay[d]);
+    state.homeCharts.ingest = new Chart(iEl, {
+      type: "bar",
+      data: { labels: days.map((d) => d.slice(5)), datasets: [{ data, backgroundColor: chartColors[2] }] },
+      options: {
+        onClick: (evt, els) => {
+          if (!els || !els.length) return;
+          const day = days[els[0].index];
+          if (!day) return;
+          state.ingestGroupBy = "date";
+          state.ingestOpenDay = day;
+          repaint();
+        },
+        onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? "pointer" : "default"; },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: {
+            title: (items) => days[items[0].dataIndex] || "",
+            label: (c) => `${c.parsed.y.toLocaleString("en-US")} registros`,
+          } },
+        },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+        maintainAspectRatio: false,
+      },
+    });
+  }
+
   function bindEvents() {
     const scanBtn = elements.contentPanel.querySelector("#ingestScanBtn");
     if (scanBtn) scanBtn.addEventListener("click", () => scanIngest());
@@ -349,6 +652,7 @@ export function createDatalakeModule(ctx) {
       btn.addEventListener("click", () => {
         if (state.ingestMetric === btn.dataset.ingestMetric) return;
         state.ingestMetric = btn.dataset.ingestMetric;
+        state.ingestOpenArea = null;
         repaint();
       });
     }
@@ -367,12 +671,25 @@ export function createDatalakeModule(ctx) {
     for (const tr of elements.contentPanel.querySelectorAll("[data-ingest-day]")) {
       tr.addEventListener("click", () => toggleIngestDay(tr.dataset.ingestDay));
     }
+    // Expandir un área dentro de un día (Registros · Por fecha) → sus tablas.
+    for (const btn of elements.contentPanel.querySelectorAll("[data-ingest-dayarea]")) {
+      btn.addEventListener("click", () => toggleDayArea(btn.dataset.ingestDayarea));
+    }
     // Orden de la tabla diaria por columna (Día / Archivos / Peso).
     for (const th of elements.contentPanel.querySelectorAll("[data-ingest-daysort]")) {
       th.addEventListener("click", () => {
         const k = th.dataset.ingestDaysort;
         if (daySortKey === k) daySortDir = daySortDir === "asc" ? "desc" : "asc";
         else { daySortKey = k; daySortDir = "desc"; }
+        repaint();
+      });
+    }
+    // Orden de la tabla de tablas (Registros · Por área): Tabla / Archivos / Peso / Registros.
+    for (const th of elements.contentPanel.querySelectorAll("[data-ingest-tablesort]")) {
+      th.addEventListener("click", () => {
+        const k = th.dataset.ingestTablesort;
+        if (tableSortKey === k) tableSortDir = tableSortDir === "asc" ? "desc" : "asc";
+        else { tableSortKey = k; tableSortDir = k === "name" ? "asc" : "desc"; }
         repaint();
       });
     }
@@ -400,6 +717,8 @@ export function createDatalakeModule(ctx) {
       repaint();
       ensureDetailForRange();
     });
+    // En modo registros, asegura el conteo del rango actual (cache o cálculo async).
+    if (state.ingestMetric === "records") ensureRecords();
   }
 
   // Con un rango activo, los totales por área se calculan del detalle: cárgalo.
@@ -413,6 +732,7 @@ export function createDatalakeModule(ctx) {
 
   // Chart.js ya está cargado por el módulo Inicio antes de llamar a drawChart.
   function drawChart() {
+    if (state.ingestMetric === "records") { drawRecordsChart(); return; }
     const Chart = window.Chart;
     if (!Chart) return;
     const iEl = elements.contentPanel.querySelector("#ingestChart");

@@ -15,7 +15,7 @@ La primera pantalla debe orientar sin convertirse en landing page: mostrar estad
 ## Layout general
 
 - Menú lateral con módulos habilitados.
-- Header con nombre de usuario, ambiente y acción de salida.
+- Header con ambiente y un menú de usuario tipo avatar (ícono circular, patrón estándar de apps web): al pulsarlo despliega el correo de la cuenta y la acción `Salir`. El menú se cierra al hacer clic fuera o con `Escape`.
 - Área principal enfocada en la tarea actual.
 - Estados vacíos claros y accionables.
 - Tablas densas pero legibles.

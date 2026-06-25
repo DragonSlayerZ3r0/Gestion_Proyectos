@@ -543,6 +543,18 @@ export class GestionProyectosStack extends Stack {
       integration,
       authorizer: jwtAuthorizer
     });
+    httpApi.addRoutes({
+      path: "/api/datalake/ingest/records",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+      authorizer: jwtAuthorizer
+    });
+    httpApi.addRoutes({
+      path: "/api/datalake/ingest/records/scan",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+      authorizer: jwtAuthorizer
+    });
 
     // ── Administración de usuarios ──────────────────────────────────────────
     // Requieren rol `admin` (validado en la Lambda) además del JWT Authorizer.

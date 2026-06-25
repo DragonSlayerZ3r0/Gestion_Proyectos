@@ -105,6 +105,9 @@ export function createAdminModule(ctx) {
         const isEditing = editingEmail === u.email;
         const editBody = isEditing ? `
               <div class="adminUserControls">
+                <label class="adminNameLabel">Nombre
+                  <input type="text" name="name" value="${escapeAttribute(u.name && u.name !== u.email ? u.name : "")}" placeholder="Nombre visible" />
+                </label>
                 <label>Rol
                   <select name="role">
                     <option value="user" ${u.role === "user" ? "selected" : ""}>Usuario</option>
@@ -243,6 +246,7 @@ export function createAdminModule(ctx) {
             const email = card.dataset.email;
             const modules = adminExpandSelectedModules(card, "[name=edit-mod]:checked");
             const body = {
+              name: card.querySelector("[name=name]").value.trim(),
               role: card.querySelector("[name=role]").value,
               status: card.querySelector("[name=status]").value,
               modules,

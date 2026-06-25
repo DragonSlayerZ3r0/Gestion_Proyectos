@@ -57,9 +57,38 @@ import "../styles/app.css";
             <h1 id="viewTitle">Inicio</h1>
           </div>
           <div class="session">
-            <span id="userLabel">Sin sesión</span>
             <button id="loginButton" type="button">Ingresar</button>
-            <button id="logoutButton" type="button" hidden>Salir</button>
+            <div id="userMenu" class="userMenu" hidden>
+              <button
+                id="userMenuButton"
+                class="userMenuButton"
+                type="button"
+                aria-haspopup="true"
+                aria-expanded="false"
+                aria-label="Abrir menú de usuario"
+              >
+                <svg class="userAvatarIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                </svg>
+              </button>
+              <div id="userMenuDropdown" class="userMenuDropdown" role="menu" hidden>
+                <div class="userMenuHeader">
+                  <svg class="userAvatarIcon lg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                  </svg>
+                  <div class="userMenuIdentity">
+                    <span id="userLabel" class="userMenuName">Sin sesión</span>
+                    <span class="userMenuMeta">Sesión activa</span>
+                  </div>
+                </div>
+                <button id="logoutButton" class="userMenuItem" type="button" role="menuitem">
+                  <svg class="userMenuItemIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
+                  </svg>
+                  Salir
+                </button>
+              </div>
+            </div>
           </div>
         </header>
 

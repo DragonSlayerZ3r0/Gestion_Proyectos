@@ -145,6 +145,10 @@
         ingestDetail: {},
         ingestDetailLoadingZone: null,
         ingestPollTimer: null,
+        ingestRecords: {},
+        ingestRecordsPollTimer: null,
+        ingestDayTables: {},
+        ingestOpenDayArea: null,
         catalogSelectedTable: null,
         catalogSearch: "",
         catalogSearchScope: ["table"],
@@ -168,6 +172,9 @@
         loginLandingEnvironment: document.querySelector("#loginLandingEnvironment"),
         loginButton: document.querySelector("#loginButton"),
         logoutButton: document.querySelector("#logoutButton"),
+        userMenu: document.querySelector("#userMenu"),
+        userMenuButton: document.querySelector("#userMenuButton"),
+        userMenuDropdown: document.querySelector("#userMenuDropdown"),
         userLabel: document.querySelector("#userLabel"),
         environmentLabel: document.querySelector("#environmentLabel"),
         statusPanel: document.querySelector("#statusPanel"),
@@ -205,6 +212,18 @@
         elements.loginButton.addEventListener("click", openLoginDialog);
         elements.landingLoginButton.addEventListener("click", openLoginDialog);
         elements.logoutButton.addEventListener("click", logout);
+        elements.userMenuButton.addEventListener("click", (event) => {
+          event.stopPropagation();
+          setUserMenuOpen(elements.userMenuDropdown.hidden);
+        });
+        document.addEventListener("click", (event) => {
+          if (!elements.userMenu.hidden && !elements.userMenu.contains(event.target)) {
+            setUserMenuOpen(false);
+          }
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") setUserMenuOpen(false);
+        });
         elements.sidebarToggleButton.addEventListener("click", toggleSidebar);
         elements.loginForm.addEventListener("submit", submitLogin);
         elements.cancelLoginButton.addEventListener("click", closeLoginDialog);
@@ -455,7 +474,13 @@
         await loadMe();
       }
 
+      function setUserMenuOpen(open) {
+        elements.userMenuDropdown.hidden = !open;
+        elements.userMenuButton.setAttribute("aria-expanded", String(Boolean(open)));
+      }
+
       function logout(sessionExpired) {
+        setUserMenuOpen(false);
         window.sessionStorage.removeItem("gestionProyectosAuth");
         window.sessionStorage.removeItem("gestionProyectosModule");
         state.user = null;
@@ -599,7 +624,8 @@
         elements.contentPanel.hidden = true;
         elements.statusPanel.hidden = true;
         elements.loginButton.hidden = false;
-        elements.logoutButton.hidden = true;
+        elements.userMenu.hidden = true;
+        setUserMenuOpen(false);
         elements.userLabel.textContent = "Sin sesión";
       }
 
@@ -609,7 +635,7 @@
         elements.app.classList.remove("loginOnly");
         elements.loginLanding.hidden = true;
         elements.loginButton.hidden = true;
-        elements.logoutButton.hidden = false;
+        elements.userMenu.hidden = false;
         elements.userLabel.textContent = state.profile.user.email;
         elements.environmentLabel.textContent = state.profile.environment;
         renderNav();
@@ -858,7 +884,8 @@
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = true;
         elements.loginButton.hidden = true;
-        elements.logoutButton.hidden = true;
+        elements.userMenu.hidden = true;
+        setUserMenuOpen(false);
         elements.userLabel.textContent = "Sin sesión";
         elements.landingLoginButton.disabled = true;
         elements.loginLandingMessage.textContent = message;

@@ -20,4 +20,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         DatalakeService().run_scan(event.get("bucket", ""))
         return {"ok": True}
 
+    # Conteo de filas por área/tabla (tabla de control vía Athena), acotado a un rango.
+    if event.get("action") == "datalake_records_scan":
+        from services.datalake import DatalakeService
+        DatalakeService().run_records_scan(
+            event.get("bucket", ""), event.get("zone", ""),
+            event.get("start", ""), event.get("end", ""))
+        return {"ok": True}
+
     return _router.dispatch(Request(event, context))

@@ -290,6 +290,12 @@ export function createCatalogModule(ctx) {
               <div class="catalogMainHeaderTop">
                 <p class="eyebrow">${catalogSelectedDb ? escapeHtml(catalogSelectedDb) : "Tablas"}</p>
                 ${!noCache ? `
+                <button class="catalogReportBtn iconTinyButton" type="button" title="Descargar reporte CSV (tablas y contexto de esta base de datos)" aria-label="Descargar reporte CSV de la base de datos">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 3v5h5"/><path d="M12 11.5v5"/><path d="M9.5 14l2.5 2.5 2.5-2.5"/>
+                  </svg>
+                </button>
                 <button class="catalogGraphBtn iconTinyButton" type="button" title="Ver grafo de relaciones entre tablas">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/>
@@ -521,6 +527,7 @@ export function createCatalogModule(ctx) {
 
         panel.querySelector(".syncAllBtn")?.addEventListener("click", syncCatalogAll);
         panel.querySelector(".catalogGraphBtn")?.addEventListener("click", openCatalogGraph);
+        panel.querySelector(".catalogReportBtn")?.addEventListener("click", downloadCatalogReport);
 
         // Carga perezosa del tamaño/archivos/frescura (S3) para no demorar la
         // apertura del detalle ni las precargas masivas.
@@ -808,6 +815,68 @@ export function createCatalogModule(ctx) {
           }
         });
         await Promise.all(workers);
+      }
+
+      // ── Reporte CSV de la base de datos (tablas + contexto) ───────────────────
+      // Una fila por columna, con el contexto de tabla repetido (cómodo para Excel
+      // / tablas dinámicas). Reusa el caché de detalle (carga las tablas que falten,
+      // igual que el grafo). Todo en el cliente: no requiere endpoint nuevo.
+      function csvCell(v) {
+        const s = (v === null || v === undefined) ? "" : String(v);
+        return /[",\n\r;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }
+      async function downloadCatalogReport() {
+        const db = state.catalogSelectedDb;
+        const tables = state.catalogTables || [];
+        if (!db || !tables.length) { alert("Selecciona una base de datos con tablas para generar el reporte."); return; }
+        const btn = elements.contentPanel.querySelector(".catalogReportBtn");
+        if (btn) { btn.disabled = true; btn.style.opacity = "0.5"; }
+        try {
+          await ensureCatalogTableDetails(tables);
+          const headers = [
+            "Base de datos", "Tabla", "Descripción tabla", "Uso principal", "Responsable",
+            "Dominio", "Sensibilidad tabla", "Estado", "Notas de uso", "Formato", "Ruta S3",
+            "Columna", "Tipo", "Partición", "Descripción columna", "Sensibilidad columna",
+            "Ejemplo", "Notas columna",
+          ];
+          const rows = [headers];
+          for (const t of tables) {
+            const full = state.catalogTableCache[`${t.database}::${t.name}`] || t;
+            const c = full.context || {};
+            const base = [
+              t.database, t.name, c.description, c.usagePrimary, c.responsible,
+              c.domain, c.sensitivity, c.status, c.usageNotes, full.format, full.location,
+            ];
+            const cols = full.columns || [];
+            if (!cols.length) {
+              rows.push([...base, "", "", "", "", "", "", ""]);
+              continue;
+            }
+            for (const col of cols) {
+              const cc = col.context || {};
+              rows.push([
+                ...base,
+                col.name, col.type, col.isPartition ? "Sí" : "",
+                cc.description, cc.sensitivity, cc.sampleValue, cc.notes,
+              ]);
+            }
+          }
+          const csv = rows.map(r => r.map(csvCell).join(",")).join("\r\n");
+          const today = new Date().toISOString().slice(0, 10);
+          const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `catalogo_${db}_${today}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          alert("No fue posible generar el reporte. Intenta de nuevo.");
+        } finally {
+          if (btn) { btn.disabled = false; btn.style.opacity = ""; }
+        }
       }
 
       async function openCatalogGraph() {

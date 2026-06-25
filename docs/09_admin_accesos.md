@@ -56,12 +56,12 @@ El módulo `admin` ya permite gestionar la **autorización** de usuarios desde l
 | --- | --- | --- |
 | `/api/admin/users` | GET | Listar usuarios con rol, estado y módulos |
 | `/api/admin/users` | POST | Crear perfil funcional (email, nombre, rol, módulos) |
-| `/api/admin/users/{email}` | PATCH | Editar rol, estado y módulos |
+| `/api/admin/users/{email}` | PATCH | Editar nombre, rol, estado y módulos |
 | `/api/admin/users/{email}` | DELETE | Eliminar perfil y todos sus accesos (con guard de auto-eliminación) |
 
 ### Frontend
 
-`renderAdmin()` en `frontend/src/scripts/modules/admin.ts`: lista de usuarios donde cada tarjeta está **colapsada** (resumen de rol/módulos) y se edita con el **ícono de lápiz**; dentro de la edición se despliegan rol, estado, casillas de módulos (con sub-casillas para las pestañas de Inicio: Resumen y Data Lake) y el **ícono de eliminar**. Incluye formulario de alta. El módulo solo es funcional para usuarios con rol `admin`.
+`renderAdmin()` en `frontend/src/scripts/modules/admin.ts`: lista de usuarios donde cada tarjeta está **colapsada** (resumen de rol/módulos) y se edita con el **ícono de lápiz**; dentro de la edición se despliegan nombre, rol, estado, casillas de módulos (con sub-casillas para las pestañas de Inicio: Resumen y Data Lake) y el **ícono de eliminar**. Incluye formulario de alta. El módulo solo es funcional para usuarios con rol `admin`.
 
 ### Pendiente
 
