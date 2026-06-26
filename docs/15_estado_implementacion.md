@@ -1,5 +1,22 @@
 # Estado de implementación
 
+## Últimos avances (monitoreo de cargas + mejoras de Inicio)
+
+- **Monitoreo de cargas del data lake** (pestaña Data Lake): histograma diario de **archivos y peso** por zona y área (Fase 1: listado S3 con colector intercambiable hacia S3 Inventory en Fase 2), escaneo asíncrono (`datalake_ingest_scan`), caché en DynamoDB (`DATALAKE#INGEST`) con TTL 12 h + botón "Escanear ahora". Sub-módulo frontend `modules/datalake.ts` compuesto por Inicio. Alcance inicial: `arc-enterprise-data` (landing/staging). Ver `docs/02_modulos_funcionales.md`.
+- **Inicio en pestañas** Resumen / Data Lake / Facturación, con visibilidad de pestañas por usuario (permisos `home_resumen`, `home_datalake`; Facturación es admin-only). Títulos de sección colapsables.
+- **Facturación mejorada**: cuentas **config-driven** (fuente única `costAccounts` en el stack → env `COST_ACCOUNTS`, selector + whitelist + IAM AssumeRole derivados), nombres reales de cuenta en el selector; **detalle por servicio** (desglose por `USAGE_TYPE` con unidad), **Detalle diario** (tabla Diario/Gasto/Variación con detección del día de mayor aumento y su servicio causante), **tendencia que respeta Neto/Bruto**, y "Actualizar ahora" que invalida toda la caché del periodo.
+- **Sesión**: renovación silenciosa del idToken con el refreshToken mientras el usuario está activo; aviso de expiración y regreso al login (sin pantalla congelada).
+
+## Avances previos (refactor a arquitectura modular + módulos nuevos)
+
+- **Módulo Inicio (dashboard)** implementado: pestañas Resumen (proyectos/tareas/personas + catálogo, con gráficas Chart.js) y Facturación (costos AWS, solo admin). Costos vía Cost Explorer con selector de cuenta **186281981036 (app)** y **396913696127 (hub, vía rol cross-account `gestion-proyectos-cost-reader` + AssumeRole)**, toggle bruto/neto, caché en DynamoDB (`HOME#COSTS`) con TTL diferenciado y botón "Actualizar ahora". Ver `docs/02_modulos_funcionales.md`.
+- **Módulo Administración funcional**: alta/edición/eliminación de usuarios (perfil + módulos + rol + estado) desde la UI; solo Cognito sigue manual. Guard de rol admin en backend. Ver `docs/09_admin_accesos.md`.
+- **Borrado** de proyectos, tareas, personas (dentro del panel de edición) y de usuarios (admin), con cascada y confirmación.
+- **Refactor SOLID (sin cambiar el contrato HTTP):**
+  - Backend: `handler.py` delgado + `core/router.py` (router por registro, autodescubrimiento de `modules/*_routes.py`), guards y errores centralizados, **un repositorio por dominio** (se eliminó la god-class `MainTableRepository`).
+  - Frontend: `app.ts` partido (4,328 → ~700 líneas) en módulos `scripts/modules/` (`home`, `workspace`, `catalog`, `admin`) por inyección de dependencias.
+  - Objetivo: agregar módulos desde una fuente independiente sin tocar el núcleo.
+
 ## Corte actual
 
 Primer entregable implementado y desplegado en `dev`:
@@ -22,6 +39,17 @@ Primer entregable implementado y desplegado en `dev`:
 - Repositorio DynamoDB para perfil funcional y módulos de usuario.
 - Infraestructura AWS CDK TypeScript para `dev`.
 - Seed automático en CDK para usuario inicial y módulos base.
+- Módulo `Catálogo Data Lake` implementado y desplegado: backend con `GlueRepository` y `CatalogService` (listado de bases/tablas, detalle de tabla, sync por tabla, por base y global), cache de metadata en DynamoDB, sync global asíncrono por auto-invocación de la Lambda (`action: catalog_sync_all`), y contexto funcional editable por tabla y columna.
+- Frontend de catálogo publicado: búsqueda con filtros de alcance (bases/tablas/columnas), detalle de tabla con columnas y contexto funcional, y grafo de relaciones D3.js con carga de columnas bajo demanda y exclusión de columnas de partición en las relaciones.
+- Migración del workspace a `pnpm` (`pnpm-workspace.yaml`); el build de frontend se ejecuta con `pnpm build` dentro de `frontend/`.
+- Branding actualizado en la portada de login con logo propio (`icono_gp.png`).
+- Pendiente de publicar (en local, rama `catalogo_datos`, junio 2026):
+  - Frontend: persistencia del módulo activo al recargar (`sessionStorage`); reescritura del grafo del catálogo a Canvas 2D (esferas de Fibonacci 3D proyectado, culling, LOD, quadtree, pan con dos dedos y zoom con pellizco, uniones visibles solo con foco, precarga de columnas al abrir, rotación trackball de 2 ejes con clic sostenido, doble clic para reorientar, "traer al frente" desde inspector/buscador); corrección de la búsqueda por `Columna`/`Desc. columna` para evaluar todas las tablas con precarga en segundo plano.
+  - Backend: sync de catálogo diferencial por `glueUpdatedAt` (`UpdateTime` de Glue, verificado en dev) con eliminación de tablas huérfanas; endpoints de sync devuelven `updated` y `removed`. Requiere publicar la Lambda. Primer sync tras publicar reescribe todo una vez (el caché previo no tiene `glueUpdatedAt`); desde el segundo es diferencial.
+  - Infra: se agregaron al stack CDK las 8 rutas de `/api/catalog/*` con `jwtAuthorizer` (antes existían solo en API Gateway por configuración manual = config drift; verificado que en vivo responden 401 sin token, pero no estaban versionadas). Requiere `npm run infra:deploy`. Sin esto, un `cdk deploy` podía borrarlas y el paso a producción no las habría creado.
+  - Infra: el rol de ejecución de la Lambda ahora se define explícito en CDK con nombre estable (`gestion-proyectos-dev-api-role`) y todos sus permisos en código (DynamoDB RW, logs, Glue read-only, auto-invocación) — elimina el drift de permisos puestos a mano y da ARN estable para grants externos (bucket policies cross-account, Lake Formation). En prod se sigue importando vía `apiRoleArn`. **Ojo al desplegar:** el `cdk deploy` reemplaza el rol autogenerado anterior por el nombrado; el permiso de Glue manual del rol viejo se pierde pero queda cubierto por el código. Cualquier grant externo apuntando al rol viejo debe repuntarse al nuevo ARN (última vez que cambia).
+  - Frontend: separación de responsabilidades — `index.astro` (cascarón), `src/scripts/app.ts` (SPA), `src/styles/app.css` (estilos).
+  - Detalle en `docs/07_catalogo_datalake.md` y `docs/18_servicios_y_runtime.md`.
 
 ## Recursos desplegados
 
@@ -36,6 +64,9 @@ Primer entregable implementado y desplegado en `dev`:
 | Cognito App Client | `uhquk1hakj8nifgi3j6hv8dbh` |
 | Cognito domain prefix | `gestion-proyectos-dev-186281981036` |
 | DynamoDB table | `gestion-proyectos-dev-main` |
+| Lambda API | `gestion-proyectos-dev-api` |
+| Rol de ejecución Lambda | `gestion-proyectos-dev-api-role` (ARN `arn:aws:iam::186281981036:role/gestion-proyectos-dev-api-role`) — nombre estable definido en CDK, **efectivo tras el próximo `infra:deploy`** (hoy en AWS sigue el rol autogenerado); usar este ARN para grants externos (S3 cross-account, Lake Formation) |
+| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) |
 | Usuario inicial | `usr041100@banrural.com.gt` |
 
 ## Recursos definidos por CDK
@@ -203,10 +234,31 @@ El archivo runtime `/config.json` debe contener solamente valores públicos del 
 - Invalidation CloudFront `I7777H87J0FYK53QIAO4W1VUCG` terminó en `Completed` para publicar la búsqueda con alcance de proyectos/tareas y búsqueda independiente de personas.
 - Verificación publicada de búsqueda: CloudFront devuelve `HTTP/2 200`, `/config.json` conserva valores runtime reales de `dev` y `CacheControl: no-store`; con sesión de prueba, buscar `rec` muestra `Proyecto Recuperación de cartera`, mantiene visibles las dos personas registradas y conserva opciones disponibles en `Agregar persona`; apagar `Proyectos` deja activo `Tareas` y no permite apagar ambos alcances; `Buscar persona` filtra solo la franja de personas y no oculta proyectos.
 
+## Publicación frontend vigente (2026-06)
+
+Tras la migración a `pnpm`, el flujo de publicación de frontend usado en la práctica es:
+
+```bash
+cd frontend
+pnpm build
+cp /tmp/config-prod.json dist/config.json
+aws s3 sync dist/ s3://gestion-proyectos-dev-frontend-186281981036 --delete --profile gestion-proyectos-dev --exclude config.json
+aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*" --profile gestion-proyectos-dev
+```
+
+`/tmp/config-prod.json` contiene los valores runtime públicos de `dev` (no versionado). El `--exclude config.json` evita que el sync borre el config publicado.
+
+## Catálogo Data Lake: visibilidad pendiente
+
+La Lambda `gestion-proyectos-dev-api` (rol `gestion-proyectos-dev-api-role` tras `infra:deploy`; antes el autogenerado por CDK) solo ve las bases Glue locales en modo legado `IAM_ALLOWED_PRINCIPALS` (`arc_dev`, `arc_sandbox_desa`, `default`). Las bases del data lake hub (cuenta `396913696127`) requieren, pendiente de ejecutar:
+
+1. Lado hub (perfil `bdr-fed`): grants Lake Formation `DESCRIBE` (base + `ALL_TABLES`) hacia la cuenta `186281981036` por cada base compartida.
+2. Lado consumidor (CDK): resource links por base compartida y grant `DESCRIBE` sobre cada link únicamente al rol de la Lambda, sin abrir visibilidad a otros usuarios o aplicaciones.
+
 ## Siguiente paso operativo
 
-1. Probar con sesión real la pantalla `Proyectos y tareas`: seleccionar persona, proyecto y tarea, editar desde el panel lateral y confirmar persistencia.
-2. Agregar comentarios simples a tareas si el flujo de edición queda aprobado.
-3. Iniciar integración de Catálogo Data Lake solo cuando la mesa operativa quede validada.
+1. Ejecutar los grants Lake Formation del lado hub y completar los resource links por CDK para que el catálogo vea todas las bases del data lake.
+2. Validar con sesión real el módulo de catálogo completo: búsqueda, detalle, grafo de relaciones y edición de contexto funcional.
+3. Agregar comentarios simples a tareas si el flujo de edición queda aprobado.
 
 Usuario inicial para prueba: `usr041100@banrural.com.gt`.

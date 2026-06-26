@@ -8,27 +8,44 @@
 - Boto3 para integraciones AWS.
 - Respuestas JSON estandar.
 
-## Estructura Lambda sugerida
+## Estructura del backend (modular, SOLID)
 
 ```text
-backend/
-  app/
-    handler.py
-    router.py
-    auth.py
-    permissions.py
-    responses.py
-    errors.py
-    audit.py
-    services/
-      users.py
-      projects.py
-      tasks.py
-      catalog.py
-      admin.py
-    repositories/
-      dynamodb.py
+backend/app/
+  handler.py            # delgado: arma el router (cold start) y despacha
+  auth.py               # identidad desde el JWT (email = userId)
+  responses.py          # success() / error() + serialización (Decimal)
+  core/
+    router.py           # Router por plantillas + guards + traducción de errores (DRY)
+    request.py          # Request: identidad perezosa, parseo de body
+    guards.py           # ensure_module_access / ensure_admin (declarativos)
+    errors.py           # ValidationError, UserNotConfiguredError (kernel)
+  modules/
+    manifest.py         # fuente única de módulos del sistema
+    identity_routes.py  # /health, /api/me
+    workspace_routes.py # proyectos, personas, tareas
+    catalog_routes.py   # catálogo + contexto funcional
+    home_routes.py      # resumen + costos
+    admin_routes.py     # gestión de usuarios
+  repositories/
+    base.py             # conexión a la tabla + helper _update genérico
+    users.py / workspace.py / catalog.py / home.py / glue.py
+  services/
+    users.py / workspace.py / catalog.py / home.py / admin.py
 ```
+
+**Pluggable**: para agregar un módulo basta crear `modules/<algo>_routes.py` con una
+función `register(router)`; `build_router()` lo **autodescubre** (`pkgutil`) sin tocar
+el handler ni el núcleo. Cada dominio tiene su propio repositorio (no hay god-class).
+El handler ya no es un router-dios: pasó de ~518 líneas a ~17.
+
+**Ruteo en API Gateway (proxy)**: el HTTP API usa **una sola ruta catch-all `/api/{proxy+}`**
+(GET/POST/PATCH/PUT/DELETE, con JWT authorizer) + `/health` pública. La Lambda resuelve
+cada endpoint con su router interno (por `rawPath`). Por eso **agregar un endpoint nuevo
+NO requiere tocar `infra/` ** — solo el router del backend. Esto evita el límite duro de
+20KB del *resource policy* del Lambda (antes cada ruta sumaba un `AWS::Lambda::Permission`).
+
+> **Cómo agregar un módulo nuevo (paso a paso, backend + frontend): ver `docs/21_guia_nuevo_modulo.md`.**
 
 ## Formato estandar de respuesta
 
@@ -55,6 +72,11 @@ Error:
 
 ## Manejo de errores
 
+Centralizado en `core/router.py`: las rutas lanzan excepciones de dominio y el
+router las traduce a HTTP en un solo lugar (se eliminó el `try/except` repetido en
+cada handler). Mapeo: `ValidationError`→400, fallo de JWT→401, `PermissionError`→403,
+`UserNotConfiguredError`→403 `USER_NOT_CONFIGURED`, `ValueError` de negocio→404, resto→500.
+
 - `400`: solicitud invalida.
 - `401`: no autenticado.
 - `403`: sin permiso funcional.
@@ -67,22 +89,40 @@ Error:
 ```text
 GET /api/me
 GET /api/workspace
+GET /api/home/summary
+GET /api/home/costs
+GET /api/home/cost-accounts
+GET /api/home/costs/detail
+GET /api/home/costs/daily
+GET /api/home/costs/responsibles
+GET /api/home/athena
+GET /api/datalake/buckets
+GET /api/datalake/ingest
+POST /api/datalake/ingest/scan
+GET /api/datalake/ingest/detail
+GET /api/datalake/ingest/records
+POST /api/datalake/ingest/records/scan
 POST /api/people
 PATCH /api/people/{personId}
+DELETE /api/people/{personId}
 POST /api/projects
 PATCH /api/projects/{projectId}
+DELETE /api/projects/{projectId}
 POST /api/projects/{projectId}/members
 PATCH /api/projects/{projectId}/members/{personId}
 DELETE /api/projects/{projectId}/members/{personId}
 POST /api/projects/{projectId}/tasks
 PATCH /api/projects/{projectId}/tasks/{taskId}
+DELETE /api/projects/{projectId}/tasks/{taskId}
 GET /api/catalog/databases
 GET /api/catalog/tables
 GET /api/catalog/{database}/{table}
 PUT /api/catalog/{database}/{table}/context
 PUT /api/catalog/{database}/{table}/columns/{column}/context
 GET /api/admin/users
-PUT /api/admin/users/{userId}/modules
+POST /api/admin/users
+PATCH /api/admin/users/{email}
+DELETE /api/admin/users/{email}
 GET /api/admin/audit
 ```
 

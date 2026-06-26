@@ -17,9 +17,35 @@ export interface GestionProyectosStackProps extends StackProps {
   appName: string;
   envName: string;
   initialUserEmail: string;
+  /**
+   * ARN de un rol de ejecución pre-creado para la Lambda. En cuentas gobernadas
+   * (producción), donde la identidad de despliegue no puede gestionar IAM, el
+   * admin crea el rol con privilegios mínimos (DynamoDB de la app + logs +
+   * Glue de solo lectura) y se pasa aquí; el stack lo consume sin tocar IAM.
+   * Si se omite (dev), el stack crea el rol como siempre.
+   */
+  apiRoleArn?: string;
 }
 
 const MODULES = ["home", "projects", "tasks", "catalog", "admin"];
+
+// Buckets del data lake que el catálogo lista (solo lectura) para calcular
+// tamaño/frescura. Los que viven en la cuenta hub 396913696127 requieren ADEMÁS
+// una bucket policy del lado del hub (cross-account); ver scripts/grant-datalake-s3.sh.
+// En cuenta APP (186): analytics-datafoundry-dev, arc-sandbox-desa.
+// En cuenta HUB (396): el resto.
+const DATA_LAKE_BUCKETS = [
+  "arc-enterprise-data",
+  "analytics-datafoundry-dev",
+  "arc-sandbox-desa",
+  "da-sandboxenv",
+  "arc-sandbox-dev",
+  "arc-archtest-tokenized",
+  "da-data-geolocation",
+  "arc-ingestioncontrol",
+  "arc-enterprise-data-security",
+  "aws-bdr-s3-datasync-destino",
+];
 
 export class GestionProyectosStack extends Stack {
   constructor(scope: Construct, id: string, props: GestionProyectosStackProps) {
@@ -186,25 +212,130 @@ export class GestionProyectosStack extends Stack {
       installLatestAwsSdk: false
     });
 
+    // Rol de ejecución de la Lambda. Dos modos:
+    //  - prod (cuenta gobernada): se importa un rol pre-creado por el admin vía
+    //    `apiRoleArn`; CDK no toca IAM (el deploy no necesita permisos de IAM).
+    //  - dev: el stack crea el rol con NOMBRE ESTABLE y todos sus permisos en
+    //    código (DynamoDB, logs, Glue read-only, auto-invocación). El nombre fijo
+    //    da un ARN estable para grants externos (bucket policies, Lake Formation)
+    //    y elimina la deriva de configuración (permisos puestos a mano).
+    const functionName = `${resourcePrefix}-api`;
+    const functionArn = `arn:aws:lambda:${this.region}:${this.account}:function:${functionName}`;
+    const importedRole = props.apiRoleArn
+      ? iam.Role.fromRoleArn(this, "ApiFunctionRole", props.apiRoleArn, { mutable: false })
+      : undefined;
+
+    const ownedRole = importedRole
+      ? undefined
+      : new iam.Role(this, "ApiFunctionRole", {
+          roleName: `${resourcePrefix}-api-role`,
+          assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com"),
+          description: "Rol de ejecución de la API de Gestión de Proyectos",
+        });
+
+    // ── Fuente ÚNICA de cuentas del dashboard de costos (módulo Inicio) ────────
+    // De aquí se derivan: la env var COST_ACCOUNTS que lee el backend (whitelist +
+    // routing) y los permisos sts:AssumeRole del rol de la Lambda. El selector del
+    // frontend también se arma desde esta lista (vía GET /api/home/cost-accounts).
+    //
+    // Para AGREGAR una cuenta nueva:
+    //   1) En la cuenta nueva, crear el rol cross-account de lectura de Cost
+    //      Explorer con scripts/grant-hub-cost-explorer.sh (ajustando ACCOUNT_ID).
+    //   2) Agregar una entrada en esta lista (mode "assume" + roleArn).
+    //   3) cdk deploy.
+    // mode "direct" = Cost Explorer de la propia cuenta de la Lambda (sin asumir
+    // rol); mode "assume" = otra cuenta vía sts:AssumeRole a roleArn.
+    const costAccounts: { id: string; name: string; mode: "direct" | "assume"; roleArn?: string }[] = [
+      { id: this.account, name: "aws-bdr-cta-analitica-fab-datos-desa", mode: "direct" },
+      {
+        id: "396913696127",
+        name: "aws-bdr-cta-analitica-fab-datos-prod",
+        mode: "assume",
+        roleArn: "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader",
+      },
+    ];
+    const assumeCostRoleArns = costAccounts
+      .filter((a) => a.mode === "assume" && a.roleArn)
+      .map((a) => a.roleArn!);
+
+    if (ownedRole) {
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "Logs",
+        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+        resources: ["*"],
+      }));
+      // Glue de SOLO LECTURA (metadata del data lake): nunca escribe ni borra.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "GlueReadOnly",
+        actions: ["glue:GetDatabases", "glue:GetDatabase", "glue:GetTables", "glue:GetTable", "glue:GetPartitions"],
+        resources: ["*"],
+      }));
+      // Auto-invocación asíncrona para el sync global del catálogo.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "SelfInvokeAsyncSync",
+        actions: ["lambda:InvokeFunction"],
+        resources: [functionArn],
+      }));
+      // S3 de SOLO LECTURA sobre los buckets del data lake (tamaño/frescura).
+      // Lado app del acceso cross-account: el lado hub (bucket policy) lo aplica
+      // el dueño del bucket en la cuenta 396913696127.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "DataLakeS3ReadOnly",
+        actions: ["s3:ListBucket", "s3:GetBucketLocation"],
+        resources: DATA_LAKE_BUCKETS.map(b => `arn:aws:s3:::${b}`),
+      }));
+      // Cost Explorer de la cuenta app (solo lectura) para el dashboard de Inicio.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "CostExplorerReadOnly",
+        actions: ["ce:GetCostAndUsage", "ce:GetCostForecast", "ce:GetDimensionValues", "ce:GetTags", "ce:ListCostAllocationTags"],
+        resources: ["*"],
+      }));
+      // CloudTrail (solo lectura) para el panel de "Responsables" de facturación
+      // en la cuenta app. Para el hub se usa el rol cross-account (ver script).
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "CloudTrailLookup",
+        actions: ["cloudtrail:LookupEvents"],
+        resources: ["*"],
+      }));
+      // AssumeRole a los roles cross-account de Cost Explorer (cuentas "assume").
+      // Cada rol lo crea scripts/grant-hub-cost-explorer.sh en su cuenta.
+      if (assumeCostRoleArns.length) {
+        ownedRole.addToPolicy(new iam.PolicyStatement({
+          sid: "AssumeCostRoles",
+          actions: ["sts:AssumeRole"],
+          resources: assumeCostRoleArns,
+        }));
+      }
+    }
+
     const apiFunction = new lambda.Function(this, "ApiFunction", {
-      functionName: `${resourcePrefix}-api`,
+      functionName,
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: "handler.handler",
       code: lambda.Code.fromAsset("../backend/app"),
-      timeout: Duration.seconds(10),
-      memorySize: 256,
+      // 10s basta para las llamadas síncronas de la API (API Gateway corta a 29s
+      // de todos modos), pero el sync global se auto-invoca async en esta misma
+      // función y ahora lista S3 para calcular tamaño/frescura de cada tabla:
+      // necesita un presupuesto amplio o se mata a media ejecución y deja el
+      // estado en "syncing" sin escribir stats. 300s cubre data lakes grandes.
+      timeout: Duration.seconds(300),
+      memorySize: 512,
       logRetention: logs.RetentionDays.ONE_MONTH,
+      role: importedRole ?? ownedRole,
       environment: {
         ENV_NAME: props.envName,
         MAIN_TABLE_NAME: table.tableName,
-        DEFAULT_MODULES: MODULES.join(",")
+        DEFAULT_MODULES: MODULES.join(","),
+        // Fuente única de cuentas de costos (ver costAccounts arriba).
+        COST_ACCOUNTS: JSON.stringify(costAccounts)
       }
     });
-    table.grantReadWriteData(apiFunction);
-    apiFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
-      resources: ["*"]
-    }));
+
+    // DynamoDB de la app: RW solo cuando el stack es dueño del rol (dev). Con rol
+    // importado (prod) este permiso lo provee el admin en el rol pre-creado.
+    if (ownedRole) {
+      table.grantReadWriteData(ownedRole);
+    }
 
     const httpApi = new apigwv2.HttpApi(this, "HttpApi", {
       apiName: `${resourcePrefix}-api`,
@@ -236,63 +367,20 @@ export class GestionProyectosStack extends Stack {
       methods: [apigwv2.HttpMethod.GET],
       integration
     });
+
+    // Catch-all autenticado: UNA sola ruta para todo /api/* (el router interno de
+    // la Lambda resuelve cada endpoint). Evita que el resource policy del Lambda
+    // crezca con cada ruta (límite duro de 20KB de AWS). /health queda público.
     httpApi.addRoutes({
-      path: "/api/me",
-      methods: [apigwv2.HttpMethod.GET],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/workspace",
-      methods: [apigwv2.HttpMethod.GET],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/people",
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/people/{personId}",
-      methods: [apigwv2.HttpMethod.PATCH],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/projects",
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/projects/{projectId}",
-      methods: [apigwv2.HttpMethod.PATCH],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/projects/{projectId}/members",
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/projects/{projectId}/members/{personId}",
-      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/projects/{projectId}/tasks",
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-      authorizer: jwtAuthorizer
-    });
-    httpApi.addRoutes({
-      path: "/api/projects/{projectId}/tasks/{taskId}",
-      methods: [apigwv2.HttpMethod.PATCH],
+      path: "/api/{proxy+}",
+      // Métodos explícitos (sin OPTIONS: el preflight CORS lo maneja corsPreflight).
+      methods: [
+        apigwv2.HttpMethod.GET,
+        apigwv2.HttpMethod.POST,
+        apigwv2.HttpMethod.PATCH,
+        apigwv2.HttpMethod.PUT,
+        apigwv2.HttpMethod.DELETE
+      ],
       integration,
       authorizer: jwtAuthorizer
     });

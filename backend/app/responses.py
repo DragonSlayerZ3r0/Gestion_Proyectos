@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from typing import Any
 
 
@@ -6,6 +7,12 @@ DEFAULT_HEADERS = {
     "content-type": "application/json",
     "cache-control": "no-store"
 }
+
+
+def _default(obj: Any) -> Any:
+    if isinstance(obj, Decimal):
+        return int(obj) if obj == obj.to_integral_value() else float(obj)
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
 def success(data: Any, status_code: int = 200) -> dict[str, Any]:
@@ -16,7 +23,7 @@ def success(data: Any, status_code: int = 200) -> dict[str, Any]:
             "ok": True,
             "data": data,
             "error": None
-        }, ensure_ascii=False)
+        }, ensure_ascii=False, default=_default)
     }
 
 
@@ -31,6 +38,6 @@ def error(code: str, message: str, status_code: int) -> dict[str, Any]:
                 "code": code,
                 "message": message
             }
-        }, ensure_ascii=False)
+        }, ensure_ascii=False, default=_default)
     }
 

@@ -79,7 +79,40 @@ SK = COLUMN#<columnName>
 AUDIT_EVENT
 PK = AUDIT#<date>
 SK = <timestamp>#<eventId>
+
+CATALOG_DB (caché de Glue)
+PK = CATALOG#DB
+SK = <database>
+
+CATALOG_TABLE (caché de Glue, incluye columnas y glueUpdatedAt)
+PK = CATALOG#<database>
+SK = TABLE#<table>
+
+CATALOG_SYNC (estado del sync global)
+PK = CATALOG#SYNC
+SK = META
+
+HOME_COSTS (caché de costos AWS por cuenta y periodo)
+PK = HOME#COSTS
+SK = <accountId>#<inicio>#<fin>
+
+DATALAKE_INGEST (caché del monitoreo de cargas del data lake)
+PK = DATALAKE#INGEST
+SK = <bucket>                  # overview: por zona y por día + estado/scannedAt
+SK = <bucket>#detail#<zona>    # detalle por área (byArea → byDay)
+SK = <bucket>#records#<zona>#<inicio>#<fin>   # registros (filas parquet) por área→tabla y área→día, cacheado por rango
+SK = <bucket>#recdaytbl#<zona>#<area>#<dia>   # tablas de un (área, día) bajo demanda (drill Por fecha)
 ```
+
+```text
+HOME_ATHENA (caché del monitoreo de consumo de Athena por usuario)
+PK = HOME#ATHENA
+SK = <inicio>#<fin>            # agregado por usuario + top consultas + estado/scannedAt (TTL 8h)
+```
+
+Los items `CATALOG_*` son caché de metadata técnica: el sync diferencial los escribe/elimina comparando `glueUpdatedAt` contra el `UpdateTime` de Glue. `TABLE_CONTEXT` y `COLUMN_CONTEXT` son contenido funcional escrito por usuarios y el sync nunca los toca, aunque la tabla desaparezca de Glue.
+
+`CATALOG_DB` incluye además `stats` (tamaño/objetos/frescura S3 agregados de la base, calculados en el sync). `HOME_COSTS` cachea el resultado de Cost Explorer con `fetchedAt`; TTL diferenciado (mes en curso 8 h, meses cerrados 30 días) y las cifras viajan como string (DynamoDB no acepta float). `DATALAKE_INGEST` cachea el histograma de cargas por día (archivos/bytes por zona y área) que el escaneo asíncrono escribe listando S3; `scannedAt` + `status` para frescura (TTL 12 h) y polling. Los items `#records#` cachean el conteo de **filas** (de la tabla de control de ingesta `stage_staging.ctl_ingestion_unstructured` consultada vía **Athena** asumiendo el rol del hub) por área→tabla y área→día, **acotado a un rango** (`#<inicio>#<fin>`) y calculado async con el mismo patrón de `status`/poll. Ver `docs/02_modulos_funcionales.md`.
 
 ## Patrones de consulta
 
