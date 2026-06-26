@@ -741,6 +741,57 @@ export function createHomeModule(ctx) {
         ms = Number(ms) || 0;
         return ms >= 60000 ? (ms / 60000).toFixed(1) + " min" : (ms / 1000).toFixed(1) + "s";
       }
+      // Etiquetas de antipatrones (espejo de _ANTIPATTERNS en el backend), para
+      // armar el resumen por usuario cuando solo llega el conteo por código.
+      const ANTIP_LABELS = {
+        select_star: "SELECT *", tabla_sin_db: "tabla sin base de datos",
+        sin_where: "sin filtro WHERE", order_sin_limit: "ORDER BY sin LIMIT",
+        no_parse: "no se pudo analizar",
+      };
+      function antipTitle(counts) {
+        const c = counts || {};
+        const parts = Object.keys(c).map((k) => `${ANTIP_LABELS[k] || k}: ${c[k]}`);
+        return parts.length ? parts.join(" · ") : "Sin antipatrones";
+      }
+      // Renderiza el SQL escapado, pintando en rojo los tramos marcados (rangos
+      // [inicio,fin] inclusivos sobre el texto). Robusto ante marcas fuera de rango.
+      function sqlHtml(sql, marks) {
+        if (!sql) return "";
+        const ranges = (marks || [])
+          .filter((m) => Array.isArray(m) && m.length === 2 && Number.isInteger(m[0]) && m[0] < sql.length)
+          .map((m) => [Math.max(0, m[0]), Math.min(sql.length - 1, m[1])])
+          .filter((m) => m[1] >= m[0])
+          .sort((a, b) => a[0] - b[0]);
+        let out = "", i = 0;
+        for (const [a, b] of ranges) {
+          if (a < i) continue;                       // marca solapada: la omite
+          out += escapeHtml(sql.slice(i, a));
+          out += `<span class="sqlBad">${escapeHtml(sql.slice(a, b + 1))}</span>`;
+          i = b + 1;
+        }
+        out += escapeHtml(sql.slice(i));
+        return out;
+      }
+      // Columnas de la tabla "Por usuario" (highlight table): cada una sabe leer y
+      // formatear su valor; el color tiñe la celda según su intensidad relativa.
+      function athUserCols() {
+        return [
+          { key: "queries",      label: "Consultas",    color: "#2a78d6", get: (u) => Number(u.queries) || 0,            fmt: (v) => v.toLocaleString("en-US") },
+          { key: "bytes",        label: "Escaneado",    color: "#1baf7a", get: (u) => Number(u.bytes) || 0,              fmt: (v) => formatBytes(v) },
+          { key: "costo",        label: "Costo ~",      color: "#eda100", get: (u) => (Number(u.bytes) || 0) / 1e12 * 5, fmt: (v) => "$" + fmtUsd(v) },
+          { key: "totalMs",      label: "Tiempo total", color: "#4a3aa7", get: (u) => Number(u.totalMs) || 0,            fmt: (v) => athMs(v) },
+          { key: "maxMs",        label: "Máx",          color: "#eb6834", get: (u) => Number(u.maxMs) || 0,              fmt: (v) => athMs(v) },
+          { key: "antipatterns", label: "Antipatrones", color: "#e34948", get: (u) => Number(u.antipatterns) || 0,       fmt: (v) => v.toLocaleString("en-US") },
+        ];
+      }
+      // Tinte de fondo por celda: intensidad relativa dentro de la columna, suavizada
+      // con raíz para que un outlier (p. ej. un rol de servicio) no aplane al resto.
+      function athTint(color, ratio) {
+        const a = ratio > 0 ? 0.07 + Math.sqrt(Math.min(ratio, 1)) * 0.5 : 0;
+        if (!a) return "";
+        const n = parseInt(color.slice(1), 16);
+        return `background:rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`;
+      }
       function ensureAthena(force) {
         if (state.athenaLoading) return;
         if (force || (!state.athenaData && !state.athenaScanning)) loadAthena();
@@ -803,15 +854,30 @@ export function createHomeModule(ctx) {
         } else {
           const users = d.users || [];
           const totals = `<span class="homeTopMeta">${(d.totalQueries || 0).toLocaleString("en-US")} consultas · ${formatBytes(d.totalBytes || 0)} escaneados · ~$${fmtUsd((d.totalBytes || 0) / 1e12 * 5)} <span class="homeCostAgo">(${escapeHtml(d.start)} a ${escapeHtml(d.end)})</span></span>`;
-          const userRows = users.map((u) => `<tr>
-              <td>${escapeHtml(u.user)}</td>
-              <td class="homeDayCellNum">${Number(u.queries).toLocaleString("en-US")}</td>
-              <td class="homeDayCellNum">${formatBytes(u.bytes)}</td>
-              <td class="homeDayCellNum">$${fmtUsd((u.bytes || 0) / 1e12 * 5)}</td>
-              <td class="homeDayCellNum">${athMs(u.totalMs)}</td>
-              <td class="homeDayCellNum">${athMs(u.maxMs)}</td>
-              <td class="homeDayCellNum">${Number(u.selectStar) ? `<span class="homeSpikeUp">${u.selectStar}</span>` : "0"}</td>
+          const cols = athUserCols().filter((c) => state.athenaCols[c.key] !== false);
+          const colMax = {};
+          for (const c of cols) colMax[c.key] = users.reduce((m, u) => Math.max(m, c.get(u)), 0) || 1;
+          const sort = state.athenaSort || { key: "bytes", dir: -1 };
+          const sortCol = cols.find((c) => c.key === sort.key);
+          const sorted = users.slice().sort((a, b) => {
+            if (sort.key === "user") return (a.user < b.user ? -1 : a.user > b.user ? 1 : 0) * sort.dir;
+            return sortCol ? (sortCol.get(a) - sortCol.get(b)) * sort.dir : 0;
+          });
+          const arrow = (k) => sort.key === k ? `<span class="athSortAr">${sort.dir < 0 ? "▾" : "▴"}</span>` : "";
+          const userRows = sorted.map((u) => `<tr>
+              <td class="athUserCell" title="${escapeAttribute(u.user)}">${escapeHtml(u.user)}</td>
+              ${cols.map((c) => {
+                const v = c.get(u);
+                const tip = c.key === "antipatterns" ? ` title="${escapeAttribute(antipTitle(u.issueCounts))}"` : "";
+                return `<td class="homeDayCellNum athHeat" style="${athTint(c.color, v / colMax[c.key])}"${tip}>${c.fmt(v)}</td>`;
+              }).join("")}
             </tr>`).join("");
+          const colChips = athUserCols().map((c) => {
+            const on = state.athenaCols[c.key] !== false;
+            return `<button type="button" class="athColChip${on ? "" : " off"}" data-ath-col="${c.key}"><span class="athColDot" style="background:${c.color}"></span><span class="athColLab">${c.label}</span></button>`;
+          }).join("");
+          const userHeaders = `<th class="athSortable${sort.key === "user" ? " act" : ""}" data-ath-sort="user">Usuario ${arrow("user")}</th>`
+            + cols.map((c) => `<th class="homeDayCellNum athSortable${sort.key === c.key ? " act" : ""}" data-ath-sort="${c.key}"${c.key === "antipatterns" ? ' title="Consultas con antipatrones (SELECT *, tabla sin base, sin WHERE, ORDER BY sin LIMIT)"' : ""}>${c.label} ${arrow(c.key)}</th>`).join("");
           const top = (d.topQueries || []).slice(0, 15).map((q) => {
             const full = q.qid ? state.athenaSqlCache[q.qid] : null;
             const open = state.athenaOpenQid === q.qid;
@@ -820,20 +886,25 @@ export function createHomeModule(ctx) {
             const btn = q.qid
               ? `<button type="button" class="textButton athenaFullBtn" data-athena-qid="${escapeAttribute(q.qid)}">${open ? "Ocultar" : "Ver consulta completa"}</button>`
               : "";
+            const badges = (q.issues || []).length
+              ? `<div class="antipBadges">${(q.issues || []).map((it) => `<span class="antipBadge">${escapeHtml(it.label)}</span>`).join("")}</div>`
+              : "";
             return `
             <div class="athenaQueryRow">
               <div class="athenaQueryMeta">
                 <span class="homeSvcName">${escapeHtml(q.user)} <span class="homeCostAgo">· ${escapeHtml(q.wg || "")}</span></span>
-                <span class="homeTopMeta">${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}${q.selectStar ? ` · <span class="homeSpikeUp">SELECT *</span>` : ""}</span>
+                <span class="homeTopMeta">${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}</span>
               </div>
-              <pre class="athenaSql${open ? " full" : ""}">${escapeHtml(sqlText)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
+              ${badges}
+              <pre class="athenaSql${open ? " full" : ""}">${sqlHtml(sqlText, q.marks)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
               ${btn}
             </div>`;
           }).join("");
           inner = `${totals}
             <div class="homeTopList"><h3>Por usuario</h3>
-              <table class="homeDailyTable">
-                <thead><tr><th>Usuario</th><th class="homeDayCellNum">Consultas</th><th class="homeDayCellNum">Escaneado</th><th class="homeDayCellNum">Costo ~</th><th class="homeDayCellNum">Tiempo total</th><th class="homeDayCellNum">Máx</th><th class="homeDayCellNum">SELECT *</th></tr></thead>
+              <div class="athColChips">${colChips}</div>
+              <table class="homeDailyTable athHeatTable">
+                <thead><tr>${userHeaders}</tr></thead>
                 <tbody>${userRows}</tbody>
               </table>
             </div>
@@ -888,6 +959,26 @@ export function createHomeModule(ctx) {
         if (athRefresh) athRefresh.addEventListener("click", () => ensureAthena(true));
         for (const b of elements.contentPanel.querySelectorAll("[data-athena-qid]")) {
           b.addEventListener("click", () => toggleAthenaQuery(b.dataset.athenaQid));
+        }
+        for (const th of elements.contentPanel.querySelectorAll("[data-ath-sort]")) {
+          th.addEventListener("click", () => {
+            const k = th.dataset.athSort;
+            const s = state.athenaSort || { key: "bytes", dir: -1 };
+            state.athenaSort = s.key === k ? { key: k, dir: -s.dir } : { key: k, dir: k === "user" ? 1 : -1 };
+            paintHome();
+          });
+        }
+        for (const ch of elements.contentPanel.querySelectorAll("[data-ath-col]")) {
+          ch.addEventListener("click", () => {
+            const k = ch.dataset.athCol;
+            const cols = state.athenaCols || {};
+            const on = cols[k] !== false;
+            // No dejar la tabla sin columnas de métrica.
+            if (on && Object.values(cols).filter((v) => v !== false).length <= 1) return;
+            state.athenaCols = { ...cols, [k]: !on };
+            if (state.athenaSort && state.athenaSort.key === k && on) state.athenaSort = { key: "user", dir: 1 };
+            paintHome();
+          });
         }
         const acct = elements.contentPanel.querySelector("#homeAccountSelect");
         if (acct) acct.addEventListener("change", () => { state.homeCostAccount = acct.value; loadHomeCosts(); });

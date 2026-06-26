@@ -137,6 +137,8 @@
         athenaPollTimer: null,
         athenaOpenQid: null,
         athenaSqlCache: {},
+        athenaSort: { key: "bytes", dir: -1 },
+        athenaCols: { queries: true, bytes: true, costo: true, totalMs: true, maxMs: true, antipatterns: true },
         ingestBucket: "arc-enterprise-data",
         ingestData: null,
         ingestScannedAt: null,

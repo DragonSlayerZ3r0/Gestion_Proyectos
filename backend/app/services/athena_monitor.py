@@ -1,5 +1,7 @@
 import json
+import os
 import re
+import sys
 from datetime import datetime, timezone
 from typing import Any
 
@@ -7,6 +9,17 @@ import boto3
 
 from core.errors import ValidationError
 from repositories.athena_monitor import AthenaMonitorRepository
+
+# sqlglot vendorizado (puro-Python, sin capa Lambda) para analizar el SQL por AST.
+_VENDOR = os.path.join(os.path.dirname(__file__), "..", "_vendor")
+if _VENDOR not in sys.path:
+    sys.path.insert(0, _VENDOR)
+try:
+    import sqlglot
+    from sqlglot import exp as _exp
+except Exception:        # pragma: no cover - si faltara el vendor, el lint queda inerte
+    sqlglot = None
+    _exp = None
 
 # Athena no expone el usuario que ejecutó cada consulta en su API; el "quién" sale
 # de CloudTrail (StartQueryExecution → userIdentity + queryExecutionId) y se une por
@@ -19,8 +32,69 @@ CACHE_TTL = 8 * 3600        # 8h: el historial reciente cambia seguido
 HUNG_AFTER = 20 * 60
 _CT_MAX_PAGES = 60          # tope CloudTrail (~3000 consultas por ventana)
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_SELECT_STAR = re.compile(r"select\s+\*", re.I)
 _TOP_N = 40                 # consultas más pesadas a devolver
+
+# Antipatrones de SQL que encarecen/lentifican Athena. code -> etiqueta (badge).
+_ANTIPATTERNS = {
+    "select_star": "SELECT *",
+    "tabla_sin_db": "tabla sin base de datos",
+    "sin_where": "sin filtro WHERE",
+    "order_sin_limit": "ORDER BY sin LIMIT",
+    "no_parse": "no se pudo analizar",
+}
+
+
+def _lint_sql(sql: str) -> dict[str, Any]:
+    """Detecta antipatrones en el SQL por AST (sqlglot, dialecto athena).
+    Devuelve {issues:[{code,label}], marks:[[start,end],...]} con rangos de
+    caracteres (inclusivos) sobre `sql` para resaltar lo problemático en rojo.
+    Nunca lanza: si el vendor falta o el SQL no parsea, degrada con elegancia."""
+    if not sql or sqlglot is None:
+        return {"issues": [], "marks": []}
+    issues: list[dict[str, str]] = []
+    marks: list[list[int]] = []
+    seen: set[str] = set()
+
+    def add(code: str) -> None:
+        if code not in seen:
+            seen.add(code)
+            issues.append({"code": code, "label": _ANTIPATTERNS.get(code, code)})
+
+    def mark(node: Any) -> None:
+        m = getattr(node, "meta", None) or {}
+        a, b = m.get("start"), m.get("end")
+        if isinstance(a, int) and isinstance(b, int) and b >= a:
+            marks.append([a, b])
+
+    try:
+        tree = sqlglot.parse_one(sql, read="athena")
+    except Exception:
+        return {"issues": [{"code": "no_parse", "label": _ANTIPATTERNS["no_parse"]}], "marks": []}
+
+    ctes = {c.alias_or_name.lower() for c in tree.find_all(_exp.CTE)}
+    # 1) SELECT * en la proyección (no confundir con count(*))
+    for star in tree.find_all(_exp.Star):
+        p = star.parent
+        if isinstance(p, _exp.Select) or (isinstance(p, _exp.Column) and isinstance(p.parent, _exp.Select)):
+            add("select_star"); mark(star)
+    # 2) tabla referenciada sin base de datos (excluye CTEs y subconsultas).
+    #    La posición vive en el identificador (t.this), no en el nodo Table.
+    for t in tree.find_all(_exp.Table):
+        if not t.db and t.name and t.name.lower() not in ctes:
+            add("tabla_sin_db"); mark(t.this if t.this is not None else t)
+    # 3) SELECT sobre tabla real sin WHERE (posible escaneo completo)
+    sel = tree.find(_exp.Select)
+    if sel and sel.find(_exp.From) and not sel.args.get("where") and any(
+            isinstance(s, _exp.Table) and s.name.lower() not in ctes
+            for s in sel.find_all(_exp.Table)):
+        add("sin_where")
+    # 4) ORDER BY sin LIMIT (ordena todo el resultado)
+    order = tree.find(_exp.Order)
+    if order and not tree.find(_exp.Limit):
+        add("order_sin_limit"); mark(order)
+
+    uniq = sorted({(a, b) for a, b in marks})
+    return {"issues": issues, "marks": [[a, b] for a, b in uniq]}
 
 
 class AthenaMonitorService:
@@ -167,21 +241,27 @@ class AthenaMonitorService:
                 b = int(st.get("DataScannedInBytes", 0) or 0)
                 ms = int(st.get("TotalExecutionTimeInMillis", 0) or 0)
                 sql = (q.get("Query") or "").strip()
-                star = bool(_SELECT_STAR.search(sql))
+                lint = _lint_sql(sql)
+                issues = lint["issues"]
                 u = users.setdefault(user, {
-                    "user": user, "queries": 0, "bytes": 0, "totalMs": 0, "maxMs": 0, "selectStar": 0})
+                    "user": user, "queries": 0, "bytes": 0, "totalMs": 0, "maxMs": 0,
+                    "antipatterns": 0, "issueCounts": {}})
                 u["queries"] += 1
                 u["bytes"] += b
                 u["totalMs"] += ms
                 if ms > u["maxMs"]:
                     u["maxMs"] = ms
-                if star:
-                    u["selectStar"] += 1
+                if issues:
+                    u["antipatterns"] += 1
+                    for it in issues:
+                        u["issueCounts"][it["code"]] = u["issueCounts"].get(it["code"], 0) + 1
                 top.append({
                     "qid": q.get("QueryExecutionId"),
                     "user": user, "bytes": b, "ms": ms, "wg": meta.get("wg", ""),
-                    "selectStar": star, "statementType": q.get("StatementType", ""),
-                    "sql": sql[:600],   # vista previa; el SQL completo se trae bajo demanda
+                    "issues": issues,          # antipatrones detectados (badges)
+                    "marks": lint["marks"],    # tramos a resaltar en rojo (sobre el SQL completo)
+                    "statementType": q.get("StatementType", ""),
+                    "sql": sql[:600],          # vista previa; el SQL completo se trae bajo demanda
                 })
 
         top.sort(key=lambda x: x["bytes"], reverse=True)
