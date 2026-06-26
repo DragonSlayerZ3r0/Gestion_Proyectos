@@ -24,6 +24,61 @@ export function createCatalogModule(ctx) {
         norm(col.context?.description).includes(nq) || norm(col.context?.notes).includes(nq)))
     );
   }
+  // Normaliza preservando un mapeo a los índices ORIGINALES, para resaltar la
+  // coincidencia en el texto real aunque el match haya sido sin acentos.
+  function normMap(s) {
+    let out = "", idx = [];
+    for (let i = 0; i < (s || "").length; i++) {
+      const n = s[i].toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      for (let j = 0; j < n.length; j++) { out += n[j]; idx.push(i); }
+    }
+    return { out, idx };
+  }
+  // Devuelve el texto con la coincidencia resaltada (snippet con ventana), o null.
+  function matchSnippet(text, nq) {
+    if (!text || !nq) return null;
+    const { out, idx } = normMap(text);
+    const pos = out.indexOf(nq);
+    if (pos < 0) return null;
+    const start = idx[pos], end = idx[pos + nq.length - 1] + 1;
+    const a = Math.max(0, start - 32), b = Math.min(text.length, end + 48);
+    return (a > 0 ? "… " : "") + escapeHtml(text.slice(a, start))
+      + `<mark class="catSearchHit">${escapeHtml(text.slice(start, end))}</mark>`
+      + escapeHtml(text.slice(end, b)) + (b < text.length ? " …" : "");
+  }
+  // Dónde coincidió la búsqueda (chip de alcance + campo + snippet resaltado).
+  const CTX_FIELDS = [["description","Descripción"],["usagePrimary","Uso principal"],["usageNotes","Notas"],["responsible","Responsable"],["domain","Dominio"],["sensitivity","Sensibilidad"],["status","Estado"]];
+  function matchReasons(t, nq, scopes) {
+    if (!nq) return [];
+    const reasons = [], c = t.context || {};
+    if (scopes.includes("table")) { const s = matchSnippet(t.name, nq); if (s) reasons.push(["Tabla", "", s]); }
+    if (scopes.includes("context")) {
+      const g = matchSnippet(t.description, nq); if (g) reasons.push(["Contexto", "Descripción (Glue)", g]);
+      for (const [f, lab] of CTX_FIELDS) { const s = matchSnippet(c[f], nq); if (s) reasons.push(["Contexto", lab, s]); }
+    }
+    const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
+    if (scopes.includes("column")) for (const col of cols) { const s = matchSnippet(col.name, nq); if (s) reasons.push(["Columna", col.name, s]); }
+    if (scopes.includes("colDesc")) for (const col of cols) {
+      const s = matchSnippet(col.context?.description, nq) || matchSnippet(col.context?.notes, nq);
+      if (s) reasons.push(["Desc. columna", col.name, s]);
+    }
+    return reasons.slice(0, 5);
+  }
+  // Tarjeta de tabla en la lista de resultados (compartida por el render inicial y
+  // el refinado en vivo). Si hay consulta, muestra DÓNDE coincidió, resaltado.
+  function tableCardHtml(t, nq, scopes) {
+    const selected = state.catalogSelectedTable && state.catalogSelectedTable.name === t.name && state.catalogSelectedTable.database === t.database;
+    const reasons = nq ? matchReasons(t, nq, scopes) : [];
+    const reasonsHtml = reasons.length
+      ? `<span class="catMatches">${reasons.map(([sc, f, sn]) => `<span class="catMatch"><span class="catMatchScope">${sc}</span><span class="catMatchText">${f ? `<span class="catMatchField">${escapeHtml(f)}: </span>` : ""}${sn}</span></span>`).join("")}</span>`
+      : "";
+    return `<button class="catalogTableCard${selected ? " active" : ""}" data-db="${escapeAttribute(t.database)}" data-table="${escapeAttribute(t.name)}" type="button">
+      <strong class="catalogTableName">${escapeHtml(t.name)}</strong>
+      <span class="catalogTableMeta">${t.columnCount} columnas${t.tableType ? ` · ${t.tableType}` : ""}</span>
+      ${(!reasons.length && t.description) ? `<span class="catalogTableDesc">${escapeHtml(t.description)}</span>` : ""}
+      ${reasonsHtml}
+    </button>`;
+  }
 
       async function renderCatalog() {
         elements.statusPanel.hidden = true;
@@ -262,16 +317,7 @@ export function createCatalogModule(ctx) {
           ? `<p class="catalogEmpty">Esta base de datos no tiene tablas accesibles.</p>`
           : !filteredTables.length
           ? `<p class="catalogEmpty">Sin resultados para "${escapeHtml(catalogSearch)}".</p>`
-          : filteredTables.map(t => {
-              const selected = catalogSelectedTable && catalogSelectedTable.name === t.name && catalogSelectedTable.database === t.database;
-              return `
-                <button class="catalogTableCard${selected ? " active" : ""}" data-db="${escapeAttribute(t.database)}" data-table="${escapeAttribute(t.name)}" type="button">
-                  <strong class="catalogTableName">${escapeHtml(t.name)}</strong>
-                  <span class="catalogTableMeta">${t.columnCount} columnas${t.tableType ? ` · ${t.tableType}` : ""}</span>
-                  ${t.description ? `<span class="catalogTableDesc">${escapeHtml(t.description)}</span>` : ""}
-                </button>
-              `;
-            }).join("");
+          : filteredTables.map(t => tableCardHtml(t, q, scopes)).join("");
 
         const detailHtml = renderCatalogDetail(catalogSelectedTable);
 
@@ -590,14 +636,7 @@ export function createCatalogModule(ctx) {
               : "";
 
             panel.querySelector(".catalogTableList").innerHTML = loadingNote + (tables.length
-              ? tables.map(t => {
-                  const selected = state.catalogSelectedTable && state.catalogSelectedTable.name === t.name;
-                  return `<button class="catalogTableCard${selected ? " active" : ""}" data-db="${escapeAttribute(t.database)}" data-table="${escapeAttribute(t.name)}" type="button">
-                    <strong class="catalogTableName">${escapeHtml(t.name)}</strong>
-                    <span class="catalogTableMeta">${t.columnCount} columnas${t.tableType ? ` · ${t.tableType}` : ""}</span>
-                    ${t.description ? `<span class="catalogTableDesc">${escapeHtml(t.description)}</span>` : ""}
-                  </button>`;
-                }).join("")
+              ? tables.map(t => tableCardHtml(t, q, scopes)).join("")
               : (state.catalogColsPreloading && needsCols ? "" : `<p class="catalogEmpty">Sin resultados para "${escapeHtml(state.catalogSearch)}".</p>`));
             panel.querySelectorAll(".catalogTableCard").forEach(btn => {
               btn.onclick = () => selectCatalogTable(btn.dataset.db, btn.dataset.table);
