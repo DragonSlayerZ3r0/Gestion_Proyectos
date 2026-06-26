@@ -34,6 +34,9 @@ coverage/
 .aws-sam/
 cdk.out/
 
+# Obsidian
+.obsidian/workspace.json
+
 # Package-specific build/cache paths
 frontend/dist/
 frontend/.astro/
