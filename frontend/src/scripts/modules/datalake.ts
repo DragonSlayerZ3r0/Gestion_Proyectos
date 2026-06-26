@@ -63,7 +63,10 @@ export function createDatalakeModule(ctx) {
   }
   function rangeControl() {
     const p = state.ingestRangePreset;
-    const presets = [["all", "Todo"], ["30d", "30 días"], ["90d", "90 días"], ["year", "Este año"]];
+    // "Todo" (sin límites) no aplica a Registros: el conteo se calcula vía Athena y
+    // exige un rango acotado. Para Archivos/Peso sí se ofrece (histórico completo).
+    const presets = [["all", "Todo"], ["30d", "30 días"], ["90d", "90 días"], ["year", "Este año"]]
+      .filter(([k]) => !(state.ingestMetric === "records" && k === "all"));
     const btns = presets.map(([k, l]) => `<button type="button" class="homeViewBtn ${p === k ? "active" : ""}" data-ingest-range="${k}">${l}</button>`).join("");
     return `
       <div class="ingestControls">
@@ -450,7 +453,7 @@ export function createDatalakeModule(ctx) {
             <span class="homeSvcName">${escapeHtml(a.area)}</span>
             <span class="homeTopMeta homeSvcAmount">${a.rows.toLocaleString("en-US")} registros · ${a.files.toLocaleString("en-US")} archivos</span>
           </div>
-          ${open ? `<div class="homeSvcDetail">${recordsTables(byArea[a.area])}</div>` : ""}
+          ${open ? `<div class="homeSvcDetail">${recordsTables(byArea[a.area], a.area)}</div>` : ""}
         </div>`;
     }).join("");
     return `<div class="homeTopList">${head}${rows}</div>`;
@@ -460,27 +463,56 @@ export function createDatalakeModule(ctx) {
     const arrow = active ? (tableSortDir === "asc" ? " ▲" : " ▼") : "";
     return `<th class="${numeric ? "num " : ""}sortableTh${active ? " active" : ""}" data-ingest-tablesort="${key}">${label}${arrow}</th>`;
   }
-  function recordsTables(areaObj) {
+  function recordsTables(areaObj, area) {
     const t = (areaObj && areaObj.tables) || {};
     const list = Object.values(t)
       .map((v) => ({ name: v.name || "", status: v.status || "", files: Number(v.files) || 0, rows: Number(v.rows) || 0 }));
-    list.sort((a, b) => {
-      const cmp = (tableSortKey === "name" || tableSortKey === "status")
-        ? (a[tableSortKey] < b[tableSortKey] ? -1 : a[tableSortKey] > b[tableSortKey] ? 1 : 0)
-        : a[tableSortKey] - b[tableSortKey];
+    return filesGroupTable(list, `area:${area || ""}`);
+  }
+  // Agrupa los archivos por NOMBRE: una fila por archivo con los totales sumados.
+  // Si un archivo tiene >1 estado, la celda Estado se despliega al detalle por estado
+  // (en vez de duplicar el nombre del archivo una vez por estado).
+  function filesGroupTable(list, ctxKey) {
+    const groups = {};
+    for (const x of list) {
+      const name = x.name || "";
+      const g = groups[name] || (groups[name] = { name, files: 0, rows: 0, statuses: [] });
+      g.files += Number(x.files) || 0;
+      g.rows += Number(x.rows) || 0;
+      g.statuses.push({ status: x.status || "", files: Number(x.files) || 0, rows: Number(x.rows) || 0 });
+    }
+    const key = (tableSortKey === "name" || tableSortKey === "files" || tableSortKey === "rows") ? tableSortKey : "rows";
+    const arr = Object.values(groups).sort((a, b) => {
+      const cmp = key === "name" ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a[key] - b[key];
       return tableSortDir === "asc" ? cmp : -cmp;
     });
-    if (!list.length) return `<p class="catalogEmpty">Sin archivos.</p>`;
+    if (!arr.length) return `<p class="catalogEmpty">Sin archivos.</p>`;
     return `
       <table class="homeSvcTable">
-        <thead><tr>${tableSortHeader("name", "Archivo", false)}${tableSortHeader("status", "Estado", false)}${tableSortHeader("files", "Archivos", true)}${tableSortHeader("rows", "Registros", true)}</tr></thead>
+        <thead><tr>${tableSortHeader("name", "Archivo", false)}<th>Estado</th>${tableSortHeader("files", "Archivos", true)}${tableSortHeader("rows", "Registros", true)}</tr></thead>
         <tbody>
-          ${list.map((x) => `<tr>
-            <td>${escapeHtml(x.name)}</td>
-            <td>${ingStatus(x.status)}</td>
-            <td class="homeSvcQty">${x.files.toLocaleString("en-US")}</td>
-            <td class="homeSvcQty">${x.rows.toLocaleString("en-US")}</td>
-          </tr>`).join("")}
+          ${arr.map((g) => {
+            const multi = g.statuses.length > 1;
+            const fkey = `${ctxKey}|${g.name}`;
+            const open = !!state.ingestOpenFiles[fkey];
+            const estado = multi
+              ? `<button type="button" class="fileStatusToggle ${open ? "open" : ""}" data-ingest-file="${escapeAttribute(fkey)}" aria-expanded="${open ? "true" : "false"}" title="Ver desglose por estado"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>${g.statuses.length} estados</button>`
+              : ingStatus(g.statuses[0].status);
+            const detail = (multi && open)
+              ? g.statuses.slice().sort((a, b) => b.rows - a.rows).map((s) => `<tr class="fileStatusRow">
+                  <td></td>
+                  <td>${ingStatus(s.status)}</td>
+                  <td class="homeSvcQty">${s.files.toLocaleString("en-US")}</td>
+                  <td class="homeSvcQty">${s.rows.toLocaleString("en-US")}</td>
+                </tr>`).join("")
+              : "";
+            return `<tr>
+              <td>${escapeHtml(g.name)}</td>
+              <td>${estado}</td>
+              <td class="homeSvcQty">${g.files.toLocaleString("en-US")}</td>
+              <td class="homeSvcQty">${g.rows.toLocaleString("en-US")}</td>
+            </tr>${detail}`;
+          }).join("")}
         </tbody>
       </table>`;
   }
@@ -557,20 +589,9 @@ export function createDatalakeModule(ctx) {
     const cur = state.ingestDayTables[key];
     if (!cur || cur.loading) return `<p class="catalogEmpty">Cargando archivos…</p>`;
     if (cur.error) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(cur.error)}</p>`;
-    const list = (cur.data || []).slice().sort((a, b) => b.rows - a.rows);
+    const list = (cur.data || []).map((x) => ({ name: x.name || "", status: x.status || "", files: Number(x.files) || 0, rows: Number(x.rows) || 0 }));
     if (!list.length) return `<p class="catalogEmpty">Sin archivos ese día.</p>`;
-    return `
-      <table class="homeSvcTable">
-        <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Archivos</th><th class="num">Registros</th></tr></thead>
-        <tbody>
-          ${list.map((x) => `<tr>
-            <td>${escapeHtml(x.name)}</td>
-            <td>${ingStatus(x.status)}</td>
-            <td class="homeSvcQty">${Number(x.files).toLocaleString("en-US")}</td>
-            <td class="homeSvcQty">${Number(x.rows).toLocaleString("en-US")}</td>
-          </tr>`).join("")}
-        </tbody>
-      </table>`;
+    return filesGroupTable(list, `day:${day}|area:${area}`);
   }
   function toggleDayArea(area) {
     if (state.ingestOpenDayArea === area) { state.ingestOpenDayArea = null; repaint(); return; }
@@ -654,6 +675,8 @@ export function createDatalakeModule(ctx) {
       btn.addEventListener("click", () => {
         if (state.ingestMetric === btn.dataset.ingestMetric) return;
         state.ingestMetric = btn.dataset.ingestMetric;
+        // "Todo" no aplica a Registros: si venías en "Todo", cae a 90 días.
+        if (state.ingestMetric === "records" && state.ingestRangePreset === "all") state.ingestRangePreset = "90d";
         state.ingestOpenArea = null;
         repaint();
       });
@@ -676,6 +699,15 @@ export function createDatalakeModule(ctx) {
     // Expandir un área dentro de un día (Registros · Por fecha) → sus tablas.
     for (const btn of elements.contentPanel.querySelectorAll("[data-ingest-dayarea]")) {
       btn.addEventListener("click", () => toggleDayArea(btn.dataset.ingestDayarea));
+    }
+    // Desplegar el detalle por estado de un archivo agrupado.
+    for (const btn of elements.contentPanel.querySelectorAll("[data-ingest-file]")) {
+      btn.addEventListener("click", () => {
+        const k = btn.dataset.ingestFile;
+        if (state.ingestOpenFiles[k]) delete state.ingestOpenFiles[k];
+        else state.ingestOpenFiles[k] = true;
+        repaint();
+      });
     }
     // Orden de la tabla diaria por columna (Día / Archivos / Peso).
     for (const th of elements.contentPanel.querySelectorAll("[data-ingest-daysort]")) {

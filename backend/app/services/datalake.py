@@ -19,6 +19,7 @@ INGEST_TARGETS: dict[str, list[str]] = {
 }
 
 SCAN_TTL = 12 * 3600          # frescura del histograma: 12 h (auto-refresh)
+RECENT_TTL = 30 * 60          # ventanas que incluyen HOY: el día en curso sigue creciendo
 SCAN_HUNG_AFTER = 20 * 60     # un "scanning" más viejo que esto se ignora (colgado)
 _MAX_PAGES = 500              # tope de seguridad por área (~500k objetos)
 
@@ -136,7 +137,7 @@ class DatalakeService:
         scanning = status == "scanning" and not self._is_hung(item)
 
         if (auto and function_name and not scanning
-                and (not item or status != "ok" or self._is_stale(scanned_at))):
+                and (not item or status != "ok" or self._is_stale(scanned_at, end))):
             self.start_records_scan(bucket, zone, start, end, function_name)
             scanning = True
 
@@ -356,9 +357,20 @@ class DatalakeService:
         return {"byArea": by_area, "start": start, "end": end}
 
     # ── Helpers de frescura/estado ───────────────────────────────────────────
-    def _is_stale(self, scanned_at: Any) -> bool:
+    def _is_stale(self, scanned_at: Any, end: str | None = None) -> bool:
         age = self._age_seconds(scanned_at)
-        return age is None or age > SCAN_TTL
+        if age is None:
+            return True
+        # Si la ventana incluye HOY, el día en curso sigue creciendo → TTL corto para
+        # que todos los rangos converjan; los rangos ya cerrados (fin < hoy) son
+        # inmutables y conservan el TTL largo. Sin `end` (overview) = comportamiento previo.
+        ttl = RECENT_TTL if self._includes_today(end) else SCAN_TTL
+        return age > ttl
+
+    def _includes_today(self, end: str | None) -> bool:
+        if not end:
+            return False
+        return end >= datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def _is_hung(self, item: dict[str, Any] | None) -> bool:
         if not item:

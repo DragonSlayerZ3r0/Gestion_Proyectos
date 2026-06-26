@@ -1,5 +1,6 @@
 from typing import Any
 
+import boto3
 from boto3.dynamodb.conditions import Key
 
 from repositories.base import BaseRepository
@@ -69,6 +70,28 @@ class CatalogRepository(BaseRepository):
     def get_table_context(self, database: str, table_name: str) -> dict[str, Any] | None:
         response = self._table.get_item(Key={"PK": f"TABLE#{database}#{table_name}", "SK": "CONTEXT"})
         return response.get("Item")
+
+    def batch_get_table_contexts(self, database: str, table_names: list[str]) -> dict[str, dict[str, Any]]:
+        """Contexto funcional (SK=CONTEXT) de varias tablas, leído EN VIVO en lotes de
+        100. Devuelve {nombre_tabla: item}. Al leerse en cada list_tables, la búsqueda
+        por contexto siempre refleja lo último guardado — sin índice que mantener ni
+        backfill (incluye las tablas que ya tienen contexto)."""
+        result: dict[str, dict[str, Any]] = {}
+        if not table_names:
+            return result
+        dynamodb = boto3.resource("dynamodb")
+        prefix = f"TABLE#{database}#"
+        for i in range(0, len(table_names), 100):
+            chunk = table_names[i:i + 100]
+            request: Any = {self._table.name: {"Keys": [{"PK": f"{prefix}{n}", "SK": "CONTEXT"} for n in chunk]}}
+            while request:
+                resp = dynamodb.batch_get_item(RequestItems=request)
+                for it in resp.get("Responses", {}).get(self._table.name, []):
+                    pk = it.get("PK", "")
+                    if pk.startswith(prefix):
+                        result[pk[len(prefix):]] = it
+                request = resp.get("UnprocessedKeys") or None
+        return result
 
     def list_column_contexts(self, database: str, table_name: str) -> list[dict[str, Any]]:
         response = self._table.query(

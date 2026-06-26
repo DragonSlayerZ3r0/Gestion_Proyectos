@@ -4,6 +4,27 @@
 export function createCatalogModule(ctx) {
   const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, catalogDateLabel } = ctx;
 
+  // Normaliza para buscar: minúsculas + sin acentos (así "recuperacion" encuentra
+  // "recuperación"). Se usa tanto para la consulta como para el texto indexado.
+  const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // Filtro de una tabla según la consulta (ya normalizada) y los alcances activos.
+  // "Contexto" busca en TODO el contexto funcional (no solo la descripción de Glue):
+  // descripción, uso principal, notas, responsable, dominio, sensibilidad y estado.
+  function tableMatches(t, nq, scopes) {
+    if (!nq) return true;
+    const c = t.context || {};
+    const ctxText = [t.description, c.description, c.usagePrimary, c.usageNotes, c.responsible, c.domain, c.sensitivity, c.status]
+      .map(norm).join("  ");
+    const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
+    return (
+      (scopes.includes("table")   && norm(t.name).includes(nq)) ||
+      (scopes.includes("context") && ctxText.includes(nq)) ||
+      (scopes.includes("column")  && cols.some(col => norm(col.name).includes(nq))) ||
+      (scopes.includes("colDesc") && cols.some(col =>
+        norm(col.context?.description).includes(nq) || norm(col.context?.notes).includes(nq)))
+    );
+  }
+
       async function renderCatalog() {
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
@@ -192,21 +213,9 @@ export function createCatalogModule(ctx) {
 
         const noCache = !catalogLoading && !catalogDatabases.length;
 
-        const q = catalogSearch.toLowerCase();
+        const q = norm(catalogSearch);
         const scopes = catalogSearchScope; // array
-        const filteredTables = catalogTables.filter(t => {
-          if (!q) return true;
-          const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
-          return (
-            (scopes.includes("table")   && t.name.toLowerCase().includes(q)) ||
-            (scopes.includes("context") && (t.description || "").toLowerCase().includes(q)) ||
-            (scopes.includes("column")  && cols.some(c => c.name.toLowerCase().includes(q))) ||
-            (scopes.includes("colDesc") && cols.some(c =>
-              (c.context?.description || "").toLowerCase().includes(q) ||
-              (c.context?.notes || "").toLowerCase().includes(q)
-            ))
-          );
-        });
+        const filteredTables = catalogTables.filter(t => tableMatches(t, q, scopes));
 
         const dbListHtml = catalogLoading
           ? `<p class="catalogEmpty">Cargando…</p>`
@@ -562,21 +571,9 @@ export function createCatalogModule(ctx) {
         const searchInput = panel.querySelector(".catalogSearchInput");
         if (searchInput) {
           const applySearch = () => {
-            const q = state.catalogSearch.toLowerCase();
+            const q = norm(state.catalogSearch);
             const scopes = state.catalogSearchScope;
-            const tables = state.catalogTables.filter(t => {
-              if (!q) return true;
-              const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
-              return (
-                (scopes.includes("table")   && t.name.toLowerCase().includes(q)) ||
-                (scopes.includes("context") && (t.description || "").toLowerCase().includes(q)) ||
-                (scopes.includes("column")  && cols.some(c => c.name.toLowerCase().includes(q))) ||
-                (scopes.includes("colDesc") && cols.some(c =>
-                  (c.context?.description || "").toLowerCase().includes(q) ||
-                  (c.context?.notes || "").toLowerCase().includes(q)
-                ))
-              );
-            });
+            const tables = state.catalogTables.filter(t => tableMatches(t, q, scopes));
             // Buscar por columna requiere el detalle de todas las tablas: se
             // precargan en segundo plano y la lista se refina conforme llegan
             const needsCols = q && (scopes.includes("column") || scopes.includes("colDesc"));
@@ -647,6 +644,10 @@ export function createCatalogModule(ctx) {
                 body: JSON.stringify(body),
               });
               if (state.catalogSelectedTable) state.catalogSelectedTable.context = body;
+              // Refleja el contexto recién guardado en la lista en memoria para que la
+              // búsqueda por contexto lo encuentre de inmediato (sin recargar la BD).
+              const listed = state.catalogTables.find(x => x.database === db && x.name === table);
+              if (listed) listed.context = body;
               notice.textContent = "Guardado.";
               notice.hidden = false;
               setTimeout(() => { notice.hidden = true; }, 2500);

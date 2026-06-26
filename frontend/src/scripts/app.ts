@@ -161,6 +161,7 @@
         ingestRecordsPollTimer: null,
         ingestDayTables: {},
         ingestOpenDayArea: null,
+        ingestOpenFiles: {},
         catalogSelectedTable: null,
         catalogSearch: "",
         catalogSearchScope: ["table"],

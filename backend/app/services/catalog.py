@@ -29,7 +29,14 @@ class CatalogService:
 
     def list_tables(self, database: str) -> list[dict[str, Any]]:
         items = self._db.list_catalog_tables(database)
-        return sorted([_format_table_cache(t) for t in items], key=lambda t: t["name"])
+        formatted = [_format_table_cache(t) for t in items]
+        # Adjunta el contexto funcional (item separado SK=CONTEXT) a cada tabla para
+        # que la búsqueda por "Contexto" funcione sin abrir la tabla. Lectura en vivo
+        # (BatchGetItem) → siempre refleja lo guardado, sin índice ni backfill.
+        ctx_map = self._db.batch_get_table_contexts(database, [t["name"] for t in formatted])
+        for t in formatted:
+            t["context"] = _format_table_context(ctx_map.get(t["name"]))
+        return sorted(formatted, key=lambda t: t["name"])
 
     def get_table(self, database: str, table_name: str, include_stats: bool = False) -> dict[str, Any]:
         item = self._db.get_catalog_table(database, table_name)

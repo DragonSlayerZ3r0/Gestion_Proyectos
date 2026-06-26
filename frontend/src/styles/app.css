@@ -2160,6 +2160,13 @@
   .homeSvcTable tbody tr:hover { background: #e8eef2; }
   .homeSvcTable tr:last-child td { border-bottom: none; }
   .homeSvcQty, .homeSvcAmt { text-align: right; white-space: nowrap; }
+  /* Archivo agrupado por estado: toggle en la celda Estado + filas de detalle. */
+  .fileStatusToggle { display: inline-flex; align-items: center; gap: 3px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.8rem; font-weight: 600; padding: 0; }
+  .fileStatusToggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .fileStatusToggle.open svg { transform: rotate(90deg); }
+  .fileStatusToggle:hover { color: var(--accent-strong, #0f766e); }
+  .homeSvcTable tr.fileStatusRow td { background: var(--surface-muted, #f1f5f9); padding-top: 4px; padding-bottom: 4px; }
+  .homeSvcTable tr.fileStatusRow td:first-child { border-left: 2px solid var(--line-strong, #c0ced2); }
   .homeSvcAmt { font-weight: 600; }
   .homeSvcUnit { color: var(--muted); font-weight: 500; }
   /* Panel "Responsables" (CloudTrail) dentro del drill día→servicio */

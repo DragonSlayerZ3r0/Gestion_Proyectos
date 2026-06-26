@@ -29,6 +29,7 @@ except Exception:        # pragma: no cover - si faltara el vendor, el lint qued
 HUB_ROLE_ARN = "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader"
 REGION = "us-east-1"
 CACHE_TTL = 8 * 3600        # 8h: el historial reciente cambia seguido
+RECENT_TTL = 30 * 60        # ventanas que incluyen HOY: el día en curso sigue creciendo
 HUNG_AFTER = 20 * 60
 _CT_MAX_PAGES = 60          # tope CloudTrail (~3000 consultas por ventana)
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -116,7 +117,7 @@ class AthenaMonitorService:
         scanned_at = item.get("scannedAt") if item else None
         scanning = status == "scanning" and not self._is_hung(item)
         if (auto and function_name and not scanning
-                and (not item or status != "ok" or self._is_stale(scanned_at))):
+                and (not item or status != "ok" or self._is_stale(scanned_at, end))):
             self.start_scan(start, end, function_name)
             scanning = True
         return {"start": start, "end": end, "data": item.get("data") if item else None,
@@ -150,9 +151,19 @@ class AthenaMonitorService:
             raise
 
     # ── Frescura ──────────────────────────────────────────────────────────────
-    def _is_stale(self, scanned_at: Any) -> bool:
+    def _is_stale(self, scanned_at: Any, end: str | None = None) -> bool:
         age = self._age(scanned_at)
-        return age is None or age > CACHE_TTL
+        if age is None:
+            return True
+        # Si la ventana incluye HOY, el día en curso aún cambia → TTL corto para que
+        # los rangos converjan; las ventanas ya cerradas (fin < hoy) conservan el largo.
+        ttl = RECENT_TTL if self._includes_today(end) else CACHE_TTL
+        return age > ttl
+
+    def _includes_today(self, end: str | None) -> bool:
+        if not end:
+            return False
+        return end >= datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def _is_hung(self, item: dict[str, Any] | None) -> bool:
         if not item:
