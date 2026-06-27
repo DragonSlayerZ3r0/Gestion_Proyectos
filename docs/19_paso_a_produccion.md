@@ -114,6 +114,8 @@ En dev, el stack crea el rol de ejecución con nombre estable (`gestion-proyecto
 - Si Lake Formation está *enforced* sobre esas bases, además hay que otorgar al rol grants `DESCRIBE`/`SELECT` de lectura desde Lake Formation (no basta la política IAM).
 - El rol debe confiar en `lambda.amazonaws.com` (trust policy) y respetar el permission boundary que exija la organización.
 
+> **Permisos del lado del hub:** el rol cross-account `gestion-proyectos-cost-reader` necesita, además de Cost Explorer + CloudTrail, una política Athena/Glue/S3 y un grant de Lake Formation (registros del data lake + monitoreo de Athena). El set COMPLETO por feature y los tres mecanismos están en **[permisos_hub.md](permisos_hub.md)**. Todo eso debe repetirse apuntando al ARN del rol de prod.
+
 **Acceso S3 al data lake (para tamaño/frescura de tablas):** requiere DOS lados, porque los buckets del lake viven en la cuenta hub `396913696127` (cross-account):
 - *Lado app (cuenta del rol):* `s3:ListBucket` + `s3:GetBucketLocation` sobre los buckets del lake. **En dev ya está en CDK** (constante `DATA_LAKE_BUCKETS` en el rol del stack; aplica tras `infra:deploy`). En prod, el admin lo incluye en el rol pre-creado.
 - *Lado hub (dueño del bucket):* fusionar una sentencia de solo lectura en la *bucket policy* (NO sobrescribir). Script: `scripts/grant-datalake-s3.sh <bucket> <role_arn> [perfil]`, o el comando manual equivalente. Debe correrse **después** de que el rol exista (S3 rechaza principals inexistentes) con un perfil admin del hub. Nota: `admin_dl` es un rol/usuario IAM dentro de `396913696127`, no un perfil de CLI; el perfil de CLI para esa cuenta es `bdr-fed`.

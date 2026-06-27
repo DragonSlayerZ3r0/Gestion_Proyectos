@@ -1,5 +1,11 @@
 # Permisos AWS actuales
 
+> **Permisos del lado del hub (cuenta 396913696127)**: este documento cubre la
+> cuenta de la app y Bedrock. Los permisos que el admin del hub debe otorgar
+> (rol cross-account `gestion-proyectos-cost-reader`, bucket policies y grants de
+> Lake Formation) están consolidados en **[permisos_hub.md](permisos_hub.md)** —
+> ahí está el set COMPLETO por feature y lo que hay que repetir para prod.
+
 ## Perfil validado
 
 - Perfil AWS CLI recomendado: `gestion-proyectos-dev`

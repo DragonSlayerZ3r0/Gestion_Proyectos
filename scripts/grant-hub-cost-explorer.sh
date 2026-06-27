@@ -13,6 +13,11 @@
 # Después: agregar la cuenta a costAccounts en infra/lib/gestion-proyectos-stack.ts
 # (mode "assume" + roleArn) y `cdk deploy`. Ver docs/02_modulos_funcionales.md.
 # El rol de la Lambda lo crea el stack de la app (gestion-proyectos-dev-api-role).
+#
+# OJO: este script otorga SOLO Cost Explorer + CloudTrail (suficiente para cuentas
+# de costo). El HUB (396913696127) necesita ADEMÁS Athena/Glue/S3 y el grant de
+# Lake Formation para "registros del data lake" y el monitoreo de Athena — eso NO
+# está aquí. Set COMPLETO del hub documentado en: docs/permisos_hub.md
 set -euo pipefail
 
 ROLE_NAME="gestion-proyectos-cost-reader"
