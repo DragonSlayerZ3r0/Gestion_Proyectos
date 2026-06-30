@@ -30,13 +30,24 @@ La aplicación debe mantenerse simple, clara y rápida. No busca replicar Jira n
 
 La plataforma no usa MVC clásico. La construcción actual usa una arquitectura serverless por capas con **módulos enchufables**: interfaz Astro (shell + módulos de UI por inyección de dependencias), adaptador HTTP en Lambda con **router por registro** (cada módulo registra sus rutas y se autodescubre), servicios de dominio, **un repositorio por dominio** e infraestructura CDK. Agregar un módulo nuevo no toca el núcleo — ver [`docs/21_guia_nuevo_modulo.md`](docs/21_guia_nuevo_modulo.md).
 
-→ **[Ver diagrama completo con capas, puertos y flujos](docs/arquitectura.excalidraw)**
+→ **[Abrir guía visual de arquitectura y runtime](docs/Guia%2002%20-%20Arquitectura%20y%20runtime.canvas)**
 
-Abrir con la extensión **Excalidraw** en VS Code, o importar en [excalidraw.com](https://excalidraw.com). El diagrama muestra las 7 capas (Cliente · CDN & Identidad · Presentación · API · Cómputo · Datos Operativos · Catálogo & Data Lake), los puertos (`:443`), los endpoints API, el Lambda modular (router → módulos → servicios → repos por dominio), el modelo DynamoDB (`PK/SK`), el **límite entre la cuenta app `186281981036` y el hub `396913696127`**, el sync asíncrono del catálogo y las integraciones con Glue, Athena (planeada), S3 Data Lake y Cost Explorer. Para regenerarlo: `python3 scripts/gen_arquitectura_excalidraw.py`.
+La guía muestra el flujo de una solicitud, los controles de identidad y autorización, la arquitectura modular de Lambda, los datos operativos, la ejecución asíncrona y el límite entre la cuenta app `186281981036` y el hub `396913696127`.
 
 Detalle de arquitectura, capas y flujo local/publicación: [`docs/01_arquitectura_aws.md`](docs/01_arquitectura_aws.md) · [`docs/17_desarrollo_local_publicacion.md`](docs/17_desarrollo_local_publicacion.md)
 
 ## Documentacion
+
+### Guías visuales
+
+Estas guías funcionan como punto de entrada navegable a la documentación del proyecto.
+
+1. [`Guía 01 - Mapa de documentación`](docs/Guia%2001%20-%20Mapa%20de%20documentacion.canvas): responde dónde encontrar cada decisión y separa fundamentos, diseño, dominios, operación y evolución.
+2. [`Guía 02 - Arquitectura y runtime`](docs/Guia%2002%20-%20Arquitectura%20y%20runtime.canvas): muestra cómo fluye una solicitud desde el navegador hasta los datos y dónde se aplican autenticación, autorización y controles del Data Lake.
+3. [`Guía 03 - Cambio a producción y evolución`](docs/Guia%2003%20-%20Cambio%20a%20produccion%20y%20evolucion.canvas): organiza implementación, validación, publicación, responsabilidades AWS, permisos cross-account y trabajo futuro.
+4. [`Guía 04 - Desarrollo y publicación`](docs/Guia%2004%20-%20Desarrollo%20y%20publicacion.canvas): presenta el flujo desde el desarrollo local hasta la publicación y verificación en AWS.
+
+Código de color común: azul para estructura o ejecución, rojo para controles obligatorios, verde para datos o estado confirmado y ámbar para antecedentes, pendientes o propuestas no implementadas.
 
 ### Ruta de lectura para desarrolladores
 

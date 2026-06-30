@@ -12,6 +12,9 @@ def _usage(req: Request):
         return success(AthenaMonitorService().get_query_sql(qid))
     start = req.query.get("start") or ""
     end = req.query.get("end") or ""
+    ap_user = req.query.get("apUser") or ""
+    if ap_user:
+        return success(AthenaMonitorService().get_user_antipatterns(start, end, ap_user))
     return success(AthenaMonitorService().get_usage(start, end, req.lambda_context.function_name))
 
 

@@ -2,19 +2,10 @@
 
 ## Arquitectura base
 
-```mermaid
-flowchart LR
-  usuario["Usuario interno"] --> cf["CloudFront"]
-  cf --> s3front["S3 privado\nfrontend Astro"]
-  usuario --> cognito["Cognito"]
-  s3front --> app["Astro app"]
-  app --> apigw["API Gateway\nJWT Authorizer"]
-  apigw --> lambda["Lambda Python"]
-  lambda --> dynamodb["DynamoDB"]
-  lambda -. "metadata técnica" .-> glue["Glue Catalog"]
-  lambda -. "preview controlado" .-> athena["Athena"]
-  athena -.-> datalake["S3 Data Lake"]
-```
+→ **[Abrir guía visual de arquitectura y runtime](Guia%2002%20-%20Arquitectura%20y%20runtime.canvas)**
+
+La guía muestra el flujo entre usuario, frontend, identidad, API, Lambda y datos;
+también separa los recursos de la cuenta de aplicación y los servicios de la cuenta hub.
 
 La estructura no es MVC clásico. El patrón actual es serverless por capas, con
 **módulos enchufables** tanto en backend como en frontend:

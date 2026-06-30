@@ -792,6 +792,97 @@ export function createHomeModule(ctx) {
         const n = parseInt(color.slice(1), 16);
         return `background:rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`;
       }
+      // Tarjeta de una consulta (badges de antipatrones + SQL resaltado + "ver
+      // completa"). Reusada por "Consultas más pesadas" y por el drill por usuario.
+      function athenaQueryCard(q, showUser) {
+        const full = q.qid ? state.athenaSqlCache[q.qid] : null;
+        const open = state.athenaOpenQid === q.qid;
+        const sqlText = (open && full && full.sql) ? full.sql : (q.sql || "");
+        const loadingFull = open && full && full.loading;
+        const btn = q.qid
+          ? `<button type="button" class="textButton athenaFullBtn" data-athena-qid="${escapeAttribute(q.qid)}">${open ? "Ocultar" : "Ver consulta completa"}</button>`
+          : "";
+        const badges = (q.issues || []).length
+          ? `<div class="antipBadges">${(q.issues || []).map((it) => `<span class="antipBadge">${escapeHtml(it.label)}</span>`).join("")}</div>`
+          : "";
+        const who = (showUser && q.user)
+          ? `<span class="homeSvcName">${escapeHtml(q.user)} <span class="homeCostAgo">· ${escapeHtml(q.wg || "")}</span></span>`
+          : `<span class="homeSvcName"><span class="homeCostAgo">${escapeHtml(q.wg || "")}</span></span>`;
+        return `
+        <div class="athenaQueryRow">
+          <div class="athenaQueryMeta">
+            ${who}
+            <span class="homeTopMeta">${q.count ? `×${Number(q.count).toLocaleString("en-US")} ejec. · ` : ""}${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}</span>
+          </div>
+          ${badges}
+          <pre class="athenaSql${open ? " full" : ""}">${sqlHtml(sqlText, q.marks)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
+          ${btn}
+        </div>`;
+      }
+      // Drill por usuario: sus consultas con antipatrones (bajo demanda, item aparte).
+      function athenaUserDetail(u) {
+        const ap = state.athenaUserAp[u.user];
+        if (!ap || ap.loading) return `<p class="catalogEmpty">Cargando consultas con antipatrones…</p>`;
+        if (ap.error) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(ap.error)}</p>`;
+        const qs = ap.queries || [];
+        if (!qs.length) return `<p class="catalogEmpty">Sin consultas con antipatrones en el rango.</p>`;
+        return `<div class="athUserApHead">
+            <span class="homeTopMeta">${escapeHtml(antipTitle(u.issueCounts))} · ${qs.length} patrón(es) · ordenados por escaneo</span>
+            <button type="button" class="textButton athUserCsvBtn" data-ath-csv="${escapeAttribute(u.user)}">Descargar CSV</button>
+          </div>`
+          + qs.map((q) => athenaQueryCard(q, false)).join("");
+      }
+      // Exporta los patrones con antipatrones del usuario (lo ya cargado en el drill) a CSV.
+      function downloadAthenaUserCsv(user) {
+        const ap = state.athenaUserAp[user];
+        const qs = (ap && ap.queries) || [];
+        const cell = (s) => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
+        const rows = [["usuario", "ejecuciones", "gb_escaneado_total", "costo_usd", "antipatrones", "sql_ejemplo"]];
+        for (const q of qs) {
+          rows.push([user, q.count || 1, ((q.bytes || 0) / 1e9).toFixed(2),
+            ((q.bytes || 0) / 1e12 * 5).toFixed(2),
+            (q.issues || []).map((i) => i.label).join(" | "),
+            (q.sql || "").replace(/\s+/g, " ")]);
+        }
+        const csv = rows.map((r) => r.map(cell).join(",")).join("\r\n");
+        const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `antipatrones_${user.replace(/[^a-z0-9._@-]/gi, "_")}.csv`;
+        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      }
+      function toggleAthenaUser(user) {
+        if (!user) return;
+        if (state.athenaOpenUser === user) { state.athenaOpenUser = null; paintHome(); return; }
+        state.athenaOpenUser = user;
+        const cached = state.athenaUserAp[user];
+        paintHome();
+        // Como solo se puede expandir a usuarios con antipatrones, un resultado en
+        // caché SIN consultas es siempre obsoleto (se pidió durante el escaneo, antes
+        // de que se escribiera su item) → re-pedir. (`[]` es "truthy", por eso antes
+        // se quedaba pegado en vacío.)
+        const stale = cached && !cached.loading && !cached.error && !(cached.queries && cached.queries.length);
+        if (!cached || cached.error || stale) loadAthenaUserAp(user);
+      }
+      async function loadAthenaUserAp(user) {
+        const { start, end } = athenaRange();
+        state.athenaUserAp[user] = { loading: true };
+        paintHome();
+        try {
+          const p = await apiRequest(`api/home/athena?apUser=${encodeURIComponent(user)}&start=${start}&end=${end}`);
+          state.athenaUserAp[user] = { queries: p.data.queries || [], loading: false };
+        } catch (err) {
+          state.athenaUserAp[user] = { error: err?.message || "No se pudieron cargar las consultas.", loading: false };
+        }
+        if (state.athenaOpenUser === user) paintHome();
+      }
+      // Filtro de la tabla por usuario sin re-render (no pierde foco del input).
+      function applyAthenaUserFilter() {
+        const f = (state.athenaUserFilter || "").toLowerCase();
+        for (const el of elements.contentPanel.querySelectorAll("[data-arow]")) {
+          el.style.display = (!f || el.dataset.arow.includes(f)) ? "" : "none";
+        }
+      }
       function ensureAthena(force) {
         if (state.athenaLoading) return;
         if (force || (!state.athenaData && !state.athenaScanning)) loadAthena();
@@ -864,45 +955,34 @@ export function createHomeModule(ctx) {
             return sortCol ? (sortCol.get(a) - sortCol.get(b)) * sort.dir : 0;
           });
           const arrow = (k) => sort.key === k ? `<span class="athSortAr">${sort.dir < 0 ? "▾" : "▴"}</span>` : "";
-          const userRows = sorted.map((u) => `<tr>
-              <td class="athUserCell" title="${escapeAttribute(u.user)}">${escapeHtml(u.user)}</td>
-              ${cols.map((c) => {
-                const v = c.get(u);
-                const tip = c.key === "antipatterns" ? ` title="${escapeAttribute(antipTitle(u.issueCounts))}"` : "";
-                return `<td class="homeDayCellNum athHeat" style="${athTint(c.color, v / colMax[c.key])}"${tip}>${c.fmt(v)}</td>`;
-              }).join("")}
-            </tr>`).join("");
+          const userRows = sorted.map((u) => {
+            const arow = (u.user || "").toLowerCase();
+            const hasAp = Number(u.antipatterns) > 0;
+            const openU = state.athenaOpenUser === u.user;
+            const nameCell = hasAp
+              ? `<td class="athUserCell"><button type="button" class="athUserToggle${openU ? " open" : ""}" data-athena-user="${escapeAttribute(u.user)}" title="Ver sus consultas con antipatrones"><span class="athUserChev">▸</span>${escapeHtml(u.user)}</button></td>`
+              : `<td class="athUserCell" title="${escapeAttribute(u.user)}">${escapeHtml(u.user)}</td>`;
+            const metricCells = cols.map((c) => {
+              const v = c.get(u);
+              const tip = c.key === "antipatterns" ? ` title="${escapeAttribute(antipTitle(u.issueCounts))}"` : "";
+              return `<td class="homeDayCellNum athHeat" style="${athTint(c.color, v / colMax[c.key])}"${tip}>${c.fmt(v)}</td>`;
+            }).join("");
+            let row = `<tr data-arow="${escapeAttribute(arow)}">${nameCell}${metricCells}</tr>`;
+            if (openU) row += `<tr class="athUserDetailTr" data-arow="${escapeAttribute(arow)}"><td colspan="${cols.length + 1}">${athenaUserDetail(u)}</td></tr>`;
+            return row;
+          }).join("");
           const colChips = athUserCols().map((c) => {
             const on = state.athenaCols[c.key] !== false;
             return `<button type="button" class="athColChip${on ? "" : " off"}" data-ath-col="${c.key}"><span class="athColDot" style="background:${c.color}"></span><span class="athColLab">${c.label}</span></button>`;
           }).join("");
           const userHeaders = `<th class="athSortable${sort.key === "user" ? " act" : ""}" data-ath-sort="user">Usuario ${arrow("user")}</th>`
             + cols.map((c) => `<th class="homeDayCellNum athSortable${sort.key === c.key ? " act" : ""}" data-ath-sort="${c.key}"${c.key === "antipatterns" ? ' title="Consultas con antipatrones (SELECT *, tabla sin base, sin WHERE, ORDER BY sin LIMIT)"' : ""}>${c.label} ${arrow(c.key)}</th>`).join("");
-          const top = (d.topQueries || []).slice(0, 15).map((q) => {
-            const full = q.qid ? state.athenaSqlCache[q.qid] : null;
-            const open = state.athenaOpenQid === q.qid;
-            const sqlText = (open && full && full.sql) ? full.sql : (q.sql || "");
-            const loadingFull = open && full && full.loading;
-            const btn = q.qid
-              ? `<button type="button" class="textButton athenaFullBtn" data-athena-qid="${escapeAttribute(q.qid)}">${open ? "Ocultar" : "Ver consulta completa"}</button>`
-              : "";
-            const badges = (q.issues || []).length
-              ? `<div class="antipBadges">${(q.issues || []).map((it) => `<span class="antipBadge">${escapeHtml(it.label)}</span>`).join("")}</div>`
-              : "";
-            return `
-            <div class="athenaQueryRow">
-              <div class="athenaQueryMeta">
-                <span class="homeSvcName">${escapeHtml(q.user)} <span class="homeCostAgo">· ${escapeHtml(q.wg || "")}</span></span>
-                <span class="homeTopMeta">${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}</span>
-              </div>
-              ${badges}
-              <pre class="athenaSql${open ? " full" : ""}">${sqlHtml(sqlText, q.marks)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
-              ${btn}
-            </div>`;
-          }).join("");
+          const top = (d.topQueries || []).slice(0, 15).map((q) => athenaQueryCard(q, true)).join("");
           inner = `${totals}
             <div class="homeTopList"><h3>Por usuario</h3>
+              <div class="athUserControls"><input type="search" id="athenaUserFilter" class="searchInput athUserFilter" placeholder="Filtrar usuario…" value="${escapeAttribute(state.athenaUserFilter || "")}" /></div>
               <div class="athColChips">${colChips}</div>
+              <p class="homeCostAgo athUserHint">Clic en un usuario con antipatrones para ver sus consultas.</p>
               <table class="homeDailyTable athHeatTable">
                 <thead><tr>${userHeaders}</tr></thead>
                 <tbody>${userRows}</tbody>
@@ -953,10 +1033,14 @@ export function createHomeModule(ctx) {
         if (athRange) athRange.addEventListener("change", () => {
           state.athenaRangeDays = Number(athRange.value) || 7;
           state.athenaData = null; state.athenaStatus = "empty";
+          state.athenaUserAp = {}; state.athenaOpenUser = null;  // el drill es por ventana
           ensureAthena(true);
         });
         const athRefresh = elements.contentPanel.querySelector("#athenaRefresh");
-        if (athRefresh) athRefresh.addEventListener("click", () => ensureAthena(true));
+        if (athRefresh) athRefresh.addEventListener("click", () => {
+          state.athenaUserAp = {}; state.athenaOpenUser = null;  // re-escanea → invalida el drill cacheado
+          ensureAthena(true);
+        });
         for (const b of elements.contentPanel.querySelectorAll("[data-athena-qid]")) {
           b.addEventListener("click", () => toggleAthenaQuery(b.dataset.athenaQid));
         }
@@ -979,6 +1063,20 @@ export function createHomeModule(ctx) {
             if (state.athenaSort && state.athenaSort.key === k && on) state.athenaSort = { key: "user", dir: 1 };
             paintHome();
           });
+        }
+        for (const b of elements.contentPanel.querySelectorAll("[data-athena-user]")) {
+          b.addEventListener("click", () => toggleAthenaUser(b.dataset.athenaUser));
+        }
+        for (const b of elements.contentPanel.querySelectorAll("[data-ath-csv]")) {
+          b.addEventListener("click", () => downloadAthenaUserCsv(b.dataset.athCsv));
+        }
+        const athUserFilter = elements.contentPanel.querySelector("#athenaUserFilter");
+        if (athUserFilter) {
+          athUserFilter.addEventListener("input", () => {
+            state.athenaUserFilter = athUserFilter.value;
+            applyAthenaUserFilter();   // sin re-render → no pierde el foco
+          });
+          applyAthenaUserFilter();      // re-aplica el filtro persistido tras cada paint
         }
         const acct = elements.contentPanel.querySelector("#homeAccountSelect");
         if (acct) acct.addEventListener("change", () => { state.homeCostAccount = acct.value; loadHomeCosts(); });

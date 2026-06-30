@@ -13,59 +13,10 @@ La separación principal es:
 
 ## Diagrama de componentes
 
-```mermaid
-flowchart TB
-  subgraph local["Desarrollo local"]
-    browser["Navegador\nhttp://127.0.0.1:4321"]
-    astro["Astro dev server\npuerto 4321"]
-    localConfig["frontend/public/config.json\nconfig local/runtime"]
-    browser --> astro
-    astro --> localConfig
-  end
+→ **[Abrir guía visual de desarrollo y publicación](Guia%2004%20-%20Desarrollo%20y%20publicacion.canvas)**
 
-  subgraph frontend["Frontend"]
-    page["frontend/src/pages/index.astro\nUI, sesión, workspace"]
-    assets["frontend/dist/\nHTML, CSS, JS"]
-    page --> assets
-  end
-
-  subgraph backend["Backend Lambda Python"]
-    handler["handler.py\nrouter/adaptador HTTP"]
-    auth["auth.py\nclaims e identidad"]
-    responses["responses.py\n{ ok, data, error }"]
-    userService["services/users.py\nperfil y módulos"]
-    workspaceService["services/workspace.py\npersonas, proyectos, tareas"]
-    repo["repositories/dynamodb.py\nlectura/escritura DynamoDB"]
-
-    handler --> auth
-    handler --> responses
-    handler --> userService
-    handler --> workspaceService
-    userService --> repo
-    workspaceService --> repo
-  end
-
-  subgraph aws["AWS dev us-east-1"]
-    cf["CloudFront\nHTTPS 443"]
-    s3["S3 privado frontend"]
-    cognito["Cognito User Pool"]
-    api["API Gateway HTTP API\nHTTPS 443"]
-    lambda["Lambda Python\ngestion-proyectos-dev-api"]
-    dynamodb["DynamoDB\ngestion-proyectos-dev-main"]
-    logs["CloudWatch Logs"]
-
-    cf --> s3
-    api --> lambda
-    lambda --> dynamodb
-    lambda --> logs
-    api --> cognito
-  end
-
-  assets --> s3
-  page --> api
-  page --> cognito
-  lambda --> handler
-```
+La guía separa el trabajo local, la validación, los cambios de backend o infraestructura,
+la publicación del frontend y la verificación final.
 
 ## Capas de backend
 

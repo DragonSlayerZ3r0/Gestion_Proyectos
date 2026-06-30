@@ -2399,14 +2399,14 @@
       "backgroundColor": "transparent",
       "strokeWidth": 1,
       "strokeStyle": "solid",
-      "text": "StartQuery (planeado)",
+      "text": "StartQuery controlado",
       "fontSize": 11,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "baseline": 11,
       "containerId": null,
-      "originalText": "StartQuery (planeado)",
+      "originalText": "StartQuery controlado",
       "lineHeight": 1.35
     },
     {
@@ -3045,14 +3045,14 @@
       "backgroundColor": "transparent",
       "strokeWidth": 1,
       "strokeStyle": "solid",
-      "text": "Integración planeada (Athena / Lake Formation)",
+      "text": "Integración gobernada / cross-account",
       "fontSize": 10,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "baseline": 10,
       "containerId": null,
-      "originalText": "Integración planeada (Athena / Lake Formation)",
+      "originalText": "Integración gobernada / cross-account",
       "lineHeight": 1.35
     },
     {

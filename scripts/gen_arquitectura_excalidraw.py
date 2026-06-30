@@ -169,7 +169,7 @@ arrow(300, 630, 235, 655, "Query / PutItem / UpdateItem")
 arrow(545, 630, 545, 655, "GetDatabases/Tables (sync)", color="#a21caf")
 
 # Lambda → Athena (dashed)
-arrow(800, 630, 845, 655, "StartQuery (planeado)", dashed=True, color="#6d28d9")
+arrow(800, 630, 845, 655, "StartQuery controlado", dashed=True, color="#6d28d9")
 
 # Lambda → Cost Explorer
 arrow(1010, 630, 1070, 775, "GetCostAndUsage", color="#be185d", lsize=9)
@@ -195,7 +195,7 @@ rect(60, 898, 1080, 38, "#f1f5f9", "#cbd5e1", sw=1, rx=True)
 arrow(80, 917, 130, 917, color="#455a64")
 txt(195, 917, "Flujo principal", size=10, color="#334155", w=100)
 arrow(310, 917, 360, 917, dashed=True, color="#7c3aed")
-txt(470, 917, "Integración planeada (Athena / Lake Formation)", size=10, color="#334155", w=270)
+txt(470, 917, "Integración gobernada / cross-account", size=10, color="#334155", w=270)
 txt(800, 917, "Frontend: https://d269paz1z7q1g0.cloudfront.net  ·  API: https://63ibnl13da.execute-api.us-east-1.amazonaws.com", size=9, color="#94a3b8", w=590)
 
 # ── Output ────────────────────────────────────────────────────────────────────

@@ -1,0 +1,50 @@
+{
+  "nodes": [
+    {"id":"title","type":"text","x":-40,"y":-150,"width":600,"height":100,"color":"1","text":"# ¿Cómo pasa un cambio desde la decisión hasta producción?\nCarriles por responsable. Flechas sólidas: secuencia obligatoria. Punteadas: trabajo externo o evolución separada."},
+    {"id":"gdev","type":"group","x":-80,"y":0,"width":2140,"height":300,"label":"Equipo de producto y desarrollo"},
+    {"id":"gaws","type":"group","x":-80,"y":350,"width":2140,"height":300,"label":"Cuenta de aplicación · AWS CDK y despliegue"},
+    {"id":"ghub","type":"group","x":-80,"y":700,"width":2140,"height":300,"label":"Administrador del hub de datos · permisos cross-account"},
+    {"id":"scope","type":"text","x":0,"y":70,"width":280,"height":130,"color":"4","text":"## 1 · Definir alcance\nContexto, guardrails y documento del módulo fijan la decisión."},
+    {"id":"change","type":"text","x":370,"y":70,"width":280,"height":130,"color":"5","text":"## 2 · Implementar\nMódulo frontend, rutas, servicio y repositorio por dominio."},
+    {"id":"validate","type":"text","x":740,"y":70,"width":280,"height":130,"color":"1","text":"## 3 · Validar\n`npm run check` cubre frontend, Python y síntesis CDK."},
+    {"id":"publish","type":"text","x":1110,"y":70,"width":280,"height":130,"color":"5","text":"## 4 · Publicar frontend\nBuild, config runtime separado, sync S3 e invalidación."},
+    {"id":"verify","type":"text","x":1480,"y":70,"width":280,"height":130,"color":"1","text":"## 5 · Verificar\nLogin, API, permisos, comportamiento publicado y documentación."},
+
+    {"id":"sts","type":"text","x":0,"y":420,"width":280,"height":130,"color":"1","text":"## Validar sesión\nSTS confirma cuenta y perfil antes de acciones AWS."},
+    {"id":"infra","type":"text","x":370,"y":420,"width":280,"height":130,"color":"5","text":"## Desplegar infraestructura\nCDK crea o actualiza recursos del ambiente objetivo."},
+    {"id":"isolated","type":"text","x":740,"y":420,"width":280,"height":130,"color":"2","text":"## Ambiente aislado\nCognito, DynamoDB, API, Lambda, bucket y config propios."},
+    {"id":"prodstatus","type":"text","x":1110,"y":420,"width":280,"height":130,"color":"3","text":"## Protecciones prod pendientes\nScript prod, RETAIN, PITR y termination protection siguen marcados PENDIENTE."},
+    {"id":"outputs","type":"text","x":1480,"y":420,"width":280,"height":130,"color":"5","text":"## Outputs del stack\nGeneran URLs e IDs para config.json y verificación."},
+
+    {"id":"appadmin","type":"text","x":0,"y":770,"width":280,"height":130,"color":"1","text":"## Admin cuenta app\nPrecrea el rol Lambda de prod cuando IAM está gobernado."},
+    {"id":"trust","type":"text","x":370,"y":770,"width":280,"height":130,"color":"1","text":"## Trust y AssumeRole\nEl hub confía únicamente en el ARN del rol de la app."},
+    {"id":"grants","type":"text","x":740,"y":770,"width":280,"height":130,"color":"1","text":"## Permisos del hub\nIAM, bucket policies y Lake Formation se aplican del lado dueño."},
+    {"id":"sync","type":"text","x":1110,"y":770,"width":280,"height":130,"color":"2","text":"## Sincronizar catálogo\nSe ejecuta después de tener visibilidad Glue y Lake Formation."},
+    {"id":"future","type":"text","x":1480,"y":770,"width":280,"height":130,"color":"3","text":"## Evolución separada\nLinaje, calidad y métricas son propuesta no implementada."},
+
+    {"id":"fnew","type":"file","file":"docs/21_guia_nuevo_modulo.md","x":0,"y":1060,"width":280,"height":130,"color":"5"},
+    {"id":"flocal","type":"file","file":"docs/17_desarrollo_local_publicacion.md","x":340,"y":1060,"width":280,"height":130,"color":"5"},
+    {"id":"fstate","type":"file","file":"docs/15_estado_implementacion.md","x":680,"y":1060,"width":280,"height":130,"color":"2"},
+    {"id":"fprod","type":"file","file":"docs/19_paso_a_produccion.md","x":1020,"y":1060,"width":280,"height":130,"color":"3"},
+    {"id":"fhub","type":"file","file":"docs/permisos_hub.md","x":1360,"y":1060,"width":280,"height":130,"color":"1"},
+    {"id":"froad","type":"file","file":"docs/20_roadmap_data_driven.md","x":1700,"y":1060,"width":280,"height":130,"color":"3"}
+  ],
+  "edges": [
+    {"id":"p1","fromNode":"scope","fromSide":"right","toNode":"change","toSide":"left"},
+    {"id":"p2","fromNode":"change","fromSide":"right","toNode":"validate","toSide":"left"},
+    {"id":"p3","fromNode":"validate","fromSide":"right","toNode":"publish","toSide":"left"},
+    {"id":"p4","fromNode":"publish","fromSide":"right","toNode":"verify","toSide":"left"},
+    {"id":"p5","fromNode":"validate","fromSide":"bottom","toNode":"sts","toSide":"top","label":"si toca AWS","color":"1"},
+    {"id":"p6","fromNode":"sts","fromSide":"right","toNode":"infra","toSide":"left","color":"1"},
+    {"id":"p7","fromNode":"infra","fromSide":"right","toNode":"isolated","toSide":"left"},
+    {"id":"p8","fromNode":"isolated","fromSide":"right","toNode":"prodstatus","toSide":"left","color":"3"},
+    {"id":"p9","fromNode":"prodstatus","fromSide":"right","toNode":"outputs","toSide":"left","color":"3"},
+    {"id":"p10","fromNode":"outputs","fromSide":"top","toNode":"publish","toSide":"bottom","label":"configura publicación"},
+    {"id":"p11","fromNode":"infra","fromSide":"bottom","toNode":"appadmin","toSide":"top","label":"rol gobernado","color":"1"},
+    {"id":"p12","fromNode":"appadmin","fromSide":"right","toNode":"trust","toSide":"left","color":"1"},
+    {"id":"p13","fromNode":"trust","fromSide":"right","toNode":"grants","toSide":"left","color":"1"},
+    {"id":"p14","fromNode":"grants","fromSide":"right","toNode":"sync","toSide":"left","color":"1"},
+    {"id":"p15","fromNode":"sync","fromSide":"top","toNode":"verify","toSide":"bottom","label":"habilita catálogo","color":"2"},
+    {"id":"p16","fromNode":"sync","fromSide":"right","toNode":"future","toSide":"left","label":"base existente","color":"3"}
+  ]
+}
