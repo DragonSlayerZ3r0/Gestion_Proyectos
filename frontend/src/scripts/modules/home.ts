@@ -870,7 +870,10 @@ export function createHomeModule(ctx) {
             <span class="homeTopMeta">${q.count ? `×${Number(q.count).toLocaleString("en-US")} ejec. · ` : ""}${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}${q.lastRun ? ` · últ. ${catalogSyncedLabel(q.lastRun)}` : ""}</span>
           </div>
           ${badges}${recoBlock}
-          <pre class="athenaSql${open ? " full" : ""}" data-sql-key="${escapeAttribute(q.qid || "")}">${sqlHtml(sqlText, activeMarks)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
+          <div class="athenaSqlWrap">
+            <pre class="athenaSql${open ? " full" : ""}" data-sql-key="${escapeAttribute(q.qid || "")}">${sqlHtml(sqlText, activeMarks)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
+            <button type="button" class="athenaCopyBtn" data-copy-sql aria-label="Copiar SQL" title="Copiar SQL">⧉</button>
+          </div>
           ${btn}
         </div>`;
       }
@@ -1185,6 +1188,23 @@ export function createHomeModule(ctx) {
             if (state.athenaOpenInfo[k]) delete state.athenaOpenInfo[k];
             else state.athenaOpenInfo[k] = true;
             paintHome();
+          });
+        }
+        // Copiar SQL: lee el texto ya renderizado del <pre> vecino (evita lidiar con
+        // comillas/saltos de línea en atributos) y da feedback visual sin re-render
+        // (no pasa por paintHome, así no se pierde el scroll ni el estado de badges).
+        for (const b of elements.contentPanel.querySelectorAll("[data-copy-sql]")) {
+          b.addEventListener("click", async () => {
+            const pre = b.parentElement && b.parentElement.querySelector(".athenaSql");
+            if (!pre) return;
+            const text = (pre.textContent || "").replace(/(\n\n— cargando consulta completa… —)?…?$/, "").trimEnd();
+            try {
+              await navigator.clipboard.writeText(text);
+              window.clearTimeout(b._copyTimer);
+              b.classList.add("copied");
+              b.textContent = "✓";
+              b._copyTimer = window.setTimeout(() => { b.classList.remove("copied"); b.textContent = "⧉"; }, 1400);
+            } catch {}
           });
         }
         const apSort = elements.contentPanel.querySelector("#athenaApSort");

@@ -2118,10 +2118,24 @@
   .homeTopList { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
   .athenaQueryRow { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: #ffffff; }
   .athenaQueryMeta { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
-  .athenaSql { margin: 6px 0 0; padding: 8px; background: #f6f8fa; border-radius: 6px; font-size: 0.78rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; color: #34454b; }
+  .athenaSql { margin: 6px 0 0; padding: 8px 34px 8px 8px; background: #f6f8fa; border-radius: 6px; font-size: 0.78rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; color: #34454b; user-select: text; }
   .athenaSql.full { max-height: 420px; }
   /* Tramo del SQL marcado como antipatrón (se ubica de un vistazo al leer el query). */
   .athenaSql .sqlBad { background: #fee2e2; color: #b91c1c; font-weight: 700; border-radius: 3px; padding: 0 2px; }
+  /* Botón "copiar SQL": flota sobre la esquina superior derecha del bloque, no
+     estorba la selección manual de texto ni el scroll interno del <pre>. */
+  .athenaSqlWrap { position: relative; margin-top: 6px; }
+  .athenaSqlWrap .athenaSql { margin-top: 0; }
+  .athenaCopyBtn {
+    position: absolute; top: 12px; right: 6px; z-index: 1;
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; line-height: 1; cursor: pointer; border-radius: 6px;
+    background: #eef1f4; color: #566069; border: 1px solid var(--line);
+    opacity: 0.55; transition: opacity 0.15s ease;
+  }
+  .athenaSqlWrap:hover .athenaCopyBtn { opacity: 1; }
+  .athenaCopyBtn:hover { background: #e2e6ea; }
+  .athenaCopyBtn.copied { opacity: 1; background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
   .antipBadges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .antipBadge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
   /* Badge compuesto: la etiqueta es un interruptor (marca/desmarca en el query) y el

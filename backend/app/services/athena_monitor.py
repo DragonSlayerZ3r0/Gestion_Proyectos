@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -171,12 +172,15 @@ def _lint_sql(sql: str, get_partcols: Any = None, get_format: Any = None) -> dic
     for t in tree.find_all(_exp.Table):
         if not t.db and t.name and t.name.lower() not in ctes:
             add("tabla_sin_db"); mark(t.this if t.this is not None else t, "tabla_sin_db")
-    # 3) SELECT sobre tabla real sin WHERE (posible escaneo completo)
+    # 3) SELECT sobre tabla real sin WHERE (posible escaneo completo). Se marca la
+    # tabla en el FROM (igual que "sin_particion") para ubicar dónde falta el filtro
+    # aunque el query sea largo.
     sel = tree.find(_exp.Select)
-    if sel and sel.find(_exp.From) and not sel.args.get("where") and any(
-            isinstance(s, _exp.Table) and s.name.lower() not in ctes
-            for s in sel.find_all(_exp.Table)):
-        add("sin_where")
+    if sel and sel.find(_exp.From) and not sel.args.get("where"):
+        real_tables = [s for s in sel.find_all(_exp.Table) if (s.name or "").lower() not in ctes]
+        if real_tables:
+            add("sin_where")
+            mark(real_tables[0].this if real_tables[0].this is not None else real_tables[0], "sin_where")
     # 4) ORDER BY sin LIMIT (ordena todo el resultado). Se excluye el ORDER BY
     #    de una función de ventana (ROW_NUMBER() OVER (... ORDER BY ...)): ese no
     #    ordena el resultado completo, solo define el orden dentro de cada partición.
@@ -501,67 +505,80 @@ class AthenaMonitorService:
         def get_format(db: str, table: str) -> str:
             return _table_meta(db, table).get("format") or ""
 
-        for i in range(0, len(ids), 50):
-            chunk = ids[i:i + 50]
+        # 2b) Trae los lotes de 50 EN PARALELO (I/O-bound, libera el GIL durante la
+        # llamada de red) — antes eran secuenciales y ahí se iba la mayor parte del
+        # tiempo del scan. El boto3 client es thread-safe para hacer llamadas.
+        chunks = [ids[i:i + 50] for i in range(0, len(ids), 50)]
+
+        def _fetch_chunk(chunk: list[str]) -> list[dict[str, Any]]:
             try:
-                res = ath.batch_get_query_execution(QueryExecutionIds=chunk).get("QueryExecutions", [])
+                return ath.batch_get_query_execution(QueryExecutionIds=chunk).get("QueryExecutions", [])
             except Exception:
-                res = []
-            for q in res:
-                meta = qid_meta.get(q.get("QueryExecutionId"), {})
-                user = meta.get("user", "desconocido")
-                st = q.get("Statistics", {})
-                b = int(st.get("DataScannedInBytes", 0) or 0)
-                ms = int(st.get("TotalExecutionTimeInMillis", 0) or 0)
-                sub = q.get("Status", {}).get("SubmissionDateTime")
-                sub_iso = sub.isoformat() if sub else ""   # cuándo se ejecutó
-                sql = (q.get("Query") or "").strip()
-                lint = _lint_sql(sql, get_partcols, get_format)
-                issues = lint["issues"]
-                u = users.setdefault(user, {
-                    "user": user, "queries": 0, "bytes": 0, "totalMs": 0, "maxMs": 0,
-                    "antipatterns": 0, "issueCounts": {}})
-                u["queries"] += 1
-                u["bytes"] += b
-                u["totalMs"] += ms
-                if ms > u["maxMs"]:
-                    u["maxMs"] = ms
-                item = {
-                    "qid": q.get("QueryExecutionId"),
-                    "user": user, "bytes": b, "ms": ms, "wg": meta.get("wg", ""),
-                    "lastRun": sub_iso,        # última ejecución (para ordenar por reciente)
-                    "issues": issues,          # antipatrones detectados (badges)
-                    "marks": lint["marks"],    # tramos a resaltar en rojo (sobre el SQL completo)
-                    "marksByCode": lint["marksByCode"],  # tramos por antipatrón (resaltado selectivo)
-                    "statementType": q.get("StatementType", ""),
-                    "sql": sql[:600],          # vista previa; el SQL completo se trae bajo demanda
-                }
-                top.append(item)
-                if issues:
-                    u["antipatterns"] += 1
-                    for it in issues:
-                        u["issueCounts"][it["code"]] = u["issueCounts"].get(it["code"], 0) + 1
-                    # Dedup por huella: agrupa ejecuciones repetidas del MISMO patrón
-                    # (ej. Tableau corriendo lo mismo cientos de veces).
-                    fp = _fingerprint(sql)
-                    bucket = user_ap.setdefault(user, {})
-                    pat = bucket.get(fp)
-                    if pat is None:
-                        pat = {"qid": item["qid"], "wg": item["wg"], "count": 0,
-                               "bytes": 0, "maxBytes": 0, "ms": 0, "lastRun": "",
-                               "issues": issues, "marks": lint["marks"],
-                               "marksByCode": lint["marksByCode"], "sql": item["sql"]}
-                        bucket[fp] = pat
-                    pat["count"] += 1
-                    pat["bytes"] += b               # total escaneado por el patrón (impacto)
-                    if sub_iso > pat["lastRun"]:    # última ejecución del patrón
-                        pat["lastRun"] = sub_iso
-                    if b >= pat["maxBytes"]:        # representante = ejecución más pesada
-                        pat["maxBytes"] = b
-                        pat["qid"], pat["sql"], pat["marks"], pat["marksByCode"], pat["issues"] = (
-                            item["qid"], item["sql"], lint["marks"], lint["marksByCode"], issues)
-                    if ms > pat["ms"]:
-                        pat["ms"] = ms
+                return []
+
+        executions: list[dict[str, Any]] = []
+        if chunks:
+            with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as pool:
+                for res in pool.map(_fetch_chunk, chunks):
+                    executions.extend(res)
+
+        # El lint (sqlglot) y el resto del armado sí quedan secuenciales: mutan
+        # diccionarios compartidos (`users`, `user_ap`) y son CPU, no I/O.
+        for q in executions:
+            meta = qid_meta.get(q.get("QueryExecutionId"), {})
+            user = meta.get("user", "desconocido")
+            st = q.get("Statistics", {})
+            b = int(st.get("DataScannedInBytes", 0) or 0)
+            ms = int(st.get("TotalExecutionTimeInMillis", 0) or 0)
+            sub = q.get("Status", {}).get("SubmissionDateTime")
+            sub_iso = sub.isoformat() if sub else ""   # cuándo se ejecutó
+            sql = (q.get("Query") or "").strip()
+            lint = _lint_sql(sql, get_partcols, get_format)
+            issues = lint["issues"]
+            u = users.setdefault(user, {
+                "user": user, "queries": 0, "bytes": 0, "totalMs": 0, "maxMs": 0,
+                "antipatterns": 0, "issueCounts": {}})
+            u["queries"] += 1
+            u["bytes"] += b
+            u["totalMs"] += ms
+            if ms > u["maxMs"]:
+                u["maxMs"] = ms
+            item = {
+                "qid": q.get("QueryExecutionId"),
+                "user": user, "bytes": b, "ms": ms, "wg": meta.get("wg", ""),
+                "lastRun": sub_iso,        # última ejecución (para ordenar por reciente)
+                "issues": issues,          # antipatrones detectados (badges)
+                "marks": lint["marks"],    # tramos a resaltar en rojo (sobre el SQL completo)
+                "marksByCode": lint["marksByCode"],  # tramos por antipatrón (resaltado selectivo)
+                "statementType": q.get("StatementType", ""),
+                "sql": sql[:600],          # vista previa; el SQL completo se trae bajo demanda
+            }
+            top.append(item)
+            if issues:
+                u["antipatterns"] += 1
+                for it in issues:
+                    u["issueCounts"][it["code"]] = u["issueCounts"].get(it["code"], 0) + 1
+                # Dedup por huella: agrupa ejecuciones repetidas del MISMO patrón
+                # (ej. Tableau corriendo lo mismo cientos de veces).
+                fp = _fingerprint(sql)
+                bucket = user_ap.setdefault(user, {})
+                pat = bucket.get(fp)
+                if pat is None:
+                    pat = {"qid": item["qid"], "wg": item["wg"], "count": 0,
+                           "bytes": 0, "maxBytes": 0, "ms": 0, "lastRun": "",
+                           "issues": issues, "marks": lint["marks"],
+                           "marksByCode": lint["marksByCode"], "sql": item["sql"]}
+                    bucket[fp] = pat
+                pat["count"] += 1
+                pat["bytes"] += b               # total escaneado por el patrón (impacto)
+                if sub_iso > pat["lastRun"]:    # última ejecución del patrón
+                    pat["lastRun"] = sub_iso
+                if b >= pat["maxBytes"]:        # representante = ejecución más pesada
+                    pat["maxBytes"] = b
+                    pat["qid"], pat["sql"], pat["marks"], pat["marksByCode"], pat["issues"] = (
+                        item["qid"], item["sql"], lint["marks"], lint["marksByCode"], issues)
+                if ms > pat["ms"]:
+                    pat["ms"] = ms
 
         top.sort(key=lambda x: x["bytes"], reverse=True)
         users_list = sorted(users.values(), key=lambda x: x["bytes"], reverse=True)
