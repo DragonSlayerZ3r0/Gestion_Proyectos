@@ -4,7 +4,7 @@
 import { createDatalakeModule } from "./datalake";
 
 export function createHomeModule(ctx) {
-  const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel } = ctx;
+  const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, mdLite } = ctx;
 
       // La lista de cuentas la entrega el backend (fuente única en el stack CDK).
       // Se carga EN PARALELO, sin bloquear la carga de costos: cuando llega,
@@ -860,6 +860,19 @@ export function createHomeModule(ctx) {
           const off = !!state.athenaMarkOff[`${q.qid}#${it.code}`];
           return off ? [] : (marksByCode[it.code] || []);
         });
+        const suggestState = q.qid ? state.athenaLlmSuggest[q.qid] : null;
+        // Ya generada: el mismo botón alterna mostrar/ocultar (sin volver a llamar
+        // al modelo). Solo mientras carga se deshabilita para no duplicar la llamada.
+        const suggestReady = suggestState && !suggestState.loading;
+        const suggestVisible = !suggestState || suggestState.visible !== false;
+        const suggestBtn = (issues.length && q.qid)
+          ? `<button type="button" class="textButton athenaSuggestBtn" data-llm-suggest="${escapeAttribute(q.qid)}" ${suggestState && !suggestReady ? "disabled" : ""}>${suggestReady ? (suggestVisible ? "Ocultar sugerencia" : "💡 Ver sugerencia") : "💡 Sugerencia"}</button>`
+          : "";
+        const suggestBlock = (!suggestState || !suggestVisible) ? "" : suggestState.loading
+          ? `<div class="athenaLlmBox athenaLlmLoading">Generando sugerencia…</div>`
+          : suggestState.error
+          ? `<div class="athenaLlmBox athenaLlmError">${escapeHtml(suggestState.error)}</div>`
+          : `<div class="athenaLlmBox"><div class="athenaLlmTitle">💡 Sugerencia</div>${mdLite(suggestState.text)}</div>`;
         const who = (showUser && q.user)
           ? `<span class="homeSvcName" title="${escapeAttribute(q.name ? `${q.name} · ${q.user}` : q.user)}">${escapeHtml(q.name || q.user)} <span class="homeCostAgo">· ${escapeHtml(q.wg || "")}</span></span>`
           : `<span class="homeSvcName"><span class="homeCostAgo">${escapeHtml(q.wg || "")}</span></span>`;
@@ -874,7 +887,8 @@ export function createHomeModule(ctx) {
             <pre class="athenaSql${open ? " full" : ""}" data-sql-key="${escapeAttribute(q.qid || "")}">${sqlHtml(sqlText, activeMarks)}${loadingFull ? "\n\n— cargando consulta completa… —" : (open ? "" : "…")}</pre>
             <button type="button" class="athenaCopyBtn" data-copy-sql aria-label="Copiar SQL" title="Copiar SQL">⧉</button>
           </div>
-          ${btn}
+          ${suggestBlock}
+          <div class="athenaQueryActions">${btn}${suggestBtn}</div>
         </div>`;
       }
       // Drill por usuario: sus consultas con antipatrones (bajo demanda, item aparte).
@@ -1112,6 +1126,33 @@ export function createHomeModule(ctx) {
         }
         if (state.athenaOpenQid === qid) paintHome();
       }
+      // Sugerencia del LLM para UNA consulta puntual (bajo demanda, no se precarga
+      // para todas). El backend relee el SQL completo por qid y vuelve a analizarlo
+      // — no manda el cliente el SQL ni los antipatrones, evita datos desalineados.
+      async function loadAthenaSuggestion(qid) {
+        if (!qid) return;
+        const cached = state.athenaLlmSuggest[qid];
+        // Ya está lista (o cargando): el botón es un toggle mostrar/ocultar, no
+        // dispara otra llamada al modelo.
+        if (cached && !cached.loading) {
+          cached.visible = cached.visible === false;
+          paintHome();
+          return;
+        }
+        if (cached && cached.loading) return;
+        state.athenaLlmSuggest[qid] = { loading: true, visible: true };
+        paintHome();
+        try {
+          const p = await apiRequest("api/home/athena/suggest", {
+            method: "POST",
+            body: JSON.stringify({ qid }),
+          });
+          state.athenaLlmSuggest[qid] = { text: p.data.suggestion || "Sin sugerencia.", loading: false, visible: true };
+        } catch (err) {
+          state.athenaLlmSuggest[qid] = { error: err?.message || "No se pudo generar la sugerencia.", loading: false, visible: true };
+        }
+        paintHome();
+      }
 
       function bindHomeEvents() {
         for (const btn of elements.contentPanel.querySelectorAll("[data-home-tab]")) {
@@ -1147,6 +1188,9 @@ export function createHomeModule(ctx) {
         });
         for (const b of elements.contentPanel.querySelectorAll("[data-athena-qid]")) {
           b.addEventListener("click", () => toggleAthenaQuery(b.dataset.athenaQid));
+        }
+        for (const b of elements.contentPanel.querySelectorAll("[data-llm-suggest]")) {
+          b.addEventListener("click", () => loadAthenaSuggestion(b.dataset.llmSuggest));
         }
         for (const th of elements.contentPanel.querySelectorAll("[data-ath-sort]")) {
           th.addEventListener("click", () => {

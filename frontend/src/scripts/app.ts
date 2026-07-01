@@ -8,15 +8,17 @@
       import { createAdminModule } from "./modules/admin";
       import { createWorkspaceModule } from "./modules/workspace";
       import { createCatalogModule } from "./modules/catalog";
+      import { createChatModule } from "./modules/chat";
 
       const defaultModules = [
         { key: "projects", label: "Proyectos y tareas" },
         { key: "home", label: "Inicio" },
         { key: "catalog", label: "Catálogo" },
+        { key: "chat", label: "Apoyo técnico" },
         { key: "admin", label: "Administración" }
       ];
 
-      const moduleOrder = ["projects", "home", "catalog", "admin"];
+      const moduleOrder = ["projects", "home", "catalog", "chat", "admin"];
 
       const viewCopy = {
         home: {
@@ -148,6 +150,14 @@
         athenaApSortDir: "desc",
         athenaApFilter: "",
         athenaInfoOpen: false,
+        athenaLlmSuggest: {},  // sugerencia del LLM por qid: {loading, text, error}
+        chatSessions: null,        // lista de conversaciones guardadas (null = sin cargar aún)
+        chatSessionsLoading: false,
+        chatActiveSessionId: null, // null = conversación nueva (sin crear todavía)
+        chatMessages: {},          // por sessionId: [{role, text, createdAt}]
+        chatMessagesLoading: {},   // por sessionId: bool (carga de historial)
+        chatSending: false,
+        chatError: "",
         ingestBucket: "arc-enterprise-data",
         ingestData: null,
         ingestScannedAt: null,
@@ -702,7 +712,7 @@
       // Módulo Inicio extraído a su propio archivo (patrón de módulos enchufables).
       // Recibe el estado y los helpers compartidos por inyección de dependencias.
       const homeModule = createHomeModule({
-        state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel,
+        state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, mdLite,
       });
       const adminModule = createAdminModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton,
@@ -713,6 +723,9 @@
       const catalogModule = createCatalogModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, catalogDateLabel,
       });
+      const chatModule = createChatModule({
+        state, elements, apiRequest, escapeHtml, escapeAttribute, mdLite,
+      });
 
       function renderModule(moduleKey) {
         moduleKey = normalizeModuleKey(moduleKey);
@@ -722,6 +735,10 @@
         }
         if (moduleKey === "catalog") {
           catalogModule.render();
+          return;
+        }
+        if (moduleKey === "chat") {
+          chatModule.render();
           return;
         }
         if (moduleKey === "admin") {
@@ -878,6 +895,42 @@
 
       function escapeAttribute(value) {
         return escapeHtml(value);
+      }
+
+      // Formateador de markdown ligero para respuestas del LLM (negritas, cursivas,
+      // código en línea, bloques ```lang```, listas, párrafos) — sin librería
+      // externa, solo lo que el modelo realmente usa. Todo el texto se escapa antes
+      // de insertar las etiquetas, sigue siendo seguro contra HTML/inyección.
+      // Compartido entre módulos (Athena → sugerencia de query, chat de apoyo técnico).
+      function mdInline(s) {
+        return escapeHtml(s)
+          .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+          .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<i>$1</i>")
+          .replace(/`([^`]+)`/g, "<code>$1</code>");
+      }
+      function mdBlock(text) {
+        const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+        return paragraphs.map((p) => {
+          const lines = p.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (lines.length && lines.every((l) => /^\d+[.)]\s/.test(l))) {
+            return `<ol>${lines.map((l) => `<li>${mdInline(l.replace(/^\d+[.)]\s/, ""))}</li>`).join("")}</ol>`;
+          }
+          if (lines.length && lines.every((l) => /^[-*]\s/.test(l))) {
+            return `<ul>${lines.map((l) => `<li>${mdInline(l.replace(/^[-*]\s/, ""))}</li>`).join("")}</ul>`;
+          }
+          return `<p>${lines.map(mdInline).join("<br>")}</p>`;
+        }).join("");
+      }
+      function mdLite(text) {
+        if (!text) return "";
+        const parts = String(text).split(/```(\w*)\n?([\s\S]*?)```/g);
+        let out = "";
+        for (let i = 0; i < parts.length; i++) {
+          const mod = i % 3;
+          if (mod === 0 && parts[i]) out += mdBlock(parts[i]);
+          else if (mod === 2) out += `<pre class="llmCode">${escapeHtml(parts[i].trimEnd())}</pre>`;
+        }
+        return out;
       }
 
       function renderStatus(title, message) {

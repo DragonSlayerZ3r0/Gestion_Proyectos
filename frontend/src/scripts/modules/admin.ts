@@ -54,6 +54,7 @@ export function createAdminModule(ctx) {
         },
         { key: "projects", label: "Proyectos y tareas", keys: ["projects", "tasks"] },
         { key: "catalog", label: "Catálogo", keys: ["catalog"] },
+        { key: "chat", label: "Apoyo técnico", keys: ["chat"] },
         { key: "admin", label: "Administración", keys: ["admin"] },
       ];
 

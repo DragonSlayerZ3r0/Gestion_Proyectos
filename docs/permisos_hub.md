@@ -27,6 +27,7 @@ admin del hub; los de la **app** los crea el CDK al desplegar.
 | Cost Explorer + `cloudtrail:LookupEvents` | **Hub** | inline `CostExplorerReadOnly` del rol `cost-reader` | script `grant-hub-cost-explorer.sh` |
 | Athena + Glue + `lakeformation:GetDataAccess` + S3 (datos `arc-ingestioncontrol` + resultados `arc-athena-query-resultsdata`) | **Hub** | inline `AthenaIngestionControl` del rol `cost-reader` | **a mano** (sin script — Mec. 1c) |
 | `SELECT`/`DESCRIBE` sobre la tabla de control | **Hub** (Lake Formation) | grant LF al rol `cost-reader` | **a mano** (comando — Mec. 3) |
+| `bedrock:InvokeModel`/`Converse`/`ConverseStream` sobre `zai.glm-5` | **Hub** | inline `BedrockLLMInvoke` del rol `cost-reader` | **a mano** (sin script — Mec. 1d) |
 | Listar S3 del lake (histograma), lado dueño del bucket | **Hub** | bucket policy de cada bucket (`arc-ingestioncontrol`, `arc-enterprise-data`, …) | script `grant-datalake-s3.sh` / a mano (Mec. 2) |
 | Identidad de la Lambda: logs, Glue read, `s3:ListBucket` lake, CE, CloudTrail, `sts:AssumeRole`→`cost-reader`, DynamoDB RW | **App** 186281981036 | inline CDK `ApiFunctionRoleDefaultPolicy…` del rol app | **CDK** (automático en deploy) |
 
@@ -76,6 +77,41 @@ Datos clave (constantes del código en `backend/app/services/datalake.py`,
 `athena_monitor.py`): workgroup `primary` (su *OutputLocation* real es
 `s3://arc-athena-query-resultsdata/rendicion_cuentas/`), base `stage_staging`,
 tabla `ctl_ingestion_unstructured`.
+
+### 1d. Inline `BedrockLLMInvoke` — sugerencias LLM (Athena) y chat técnico
+
+**Aplicada a mano el 2026-07-01** con `perfil_admin_dl`, sin script (análoga a 1c).
+Motivo: dar sugerencias sobre queries con antipatrones (módulo Athena de Inicio) y,
+más adelante, un módulo de chat técnico — ambos vía llamada directa a un modelo de
+Bedrock (`Converse`), sin Bedrock Agent (no hace falta orquestación/herramientas
+para este caso). Ver `docs/02_modulos_funcionales.md` para el diseño completo.
+
+**Por qué no Claude:** la SCP de la organización (`p-d6a8uuwd`, en la OU que
+contiene ambas cuentas) solo permite `aws:RequestedRegion` en `us-east-1` o
+`ca-central-1`. Los modelos Claude en Bedrock **exigen** un *inference profile*
+cross-region (`us.anthropic...` / `global.anthropic...`), que siempre intenta
+enrutar a otras regiones (`us-east-2` u otra) → queda bloqueado por la SCP,
+verificado en vivo (`AccessDeniedException` con **explicit deny** de esa SCP,
+tanto desde la cuenta app como desde el hub). Por eso se eligió un modelo de otro
+proveedor que sí soporta invocación **on-demand** (sin inference profile,
+sin salir de `us-east-1`): **GLM 5** (Z.AI), tras comparar benchmarks de código
+contra DeepSeek V3.2, Kimi K2.5 y Qwen3-Coder disponibles en la cuenta.
+
+Contenido real (1 sentencia, `Resource` acotado a un solo modelo — ampliar aquí si
+se agrega otro modelo vetted):
+
+| Sid | Acciones | Resource |
+| --- | --- | --- |
+| `BedrockLLMInvoke` | `bedrock:InvokeModel`, `bedrock:Converse`, `bedrock:ConverseStream` | `arn:aws:bedrock:us-east-1::foundation-model/zai.glm-5` |
+
+> Nota sobre el agente existente `agent-gad-analitica-bdr` (normalizador de
+> direcciones, hub): su configuración (DRAFT) referencia Claude Opus 4.6 vía
+> inference profile — **nunca se ha invocado con éxito** (0 eventos en
+> CloudTrail para `bedrock-agent-runtime`), casi seguro bloqueado por esta misma
+> SCP. La **versión publicada** (alias `gad`, versión `1`, la que sí corre en
+> producción) en realidad usa **`openai.gpt-oss-120b-1:0`** — el mismo patrón
+> "modelo on-demand sin cross-region" que se replicó aquí para el LLM de
+> sugerencias/chat.
 
 ---
 
@@ -165,6 +201,7 @@ Nada de esto rompe hoy, pero conviene depurarlo y **NO arrastrarlo a prod**:
 | Registros del data lake (Athena) | 1a + **1c** + **3** (LF) |
 | Monitoreo consumo de Athena | 1a + 1c (`cloudtrail:LookupEvents`, `athena:Batch/List/Get…`) |
 | Histograma de cargas (Archivos/Peso) | **2** (bucket policy al rol de la app) |
+| Sugerencias LLM sobre queries / chat técnico | 1a + **1d** (`bedrock:InvokeModel`/`Converse` sobre `zai.glm-5`) |
 
 ## Deuda de reproducibilidad (para prod)
 - La inline **1c** (`AthenaIngestionControl`) y el grant **3** (Lake Formation) se
@@ -172,3 +209,5 @@ Nada de esto rompe hoy, pero conviene depurarlo y **NO arrastrarlo a prod**:
   conocen todos los valores exactos: ver tabla 1c). 
 - El acceso a **`arc-enterprise-data`** se hizo por condición compartida, no por el
   script; documentar/decidir el patrón para prod.
+- La inline **1d** (`BedrockLLMInvoke`) también se aplicó a mano — mismo patrón,
+  candidata a script si se agregan más modelos vetted.

@@ -148,6 +148,10 @@ export class GestionProyectosStack extends Stack {
       sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecovery: true,
+      // Usado por los mensajes de chat (Apoyo técnico) para expirar solos tras
+      // MESSAGE_TTL_DAYS (services/chat.py); el resto de ítems no setea `ttl`,
+      // así que no les afecta.
+      timeToLiveAttribute: "ttl",
       removalPolicy: RemovalPolicy.DESTROY
     });
 

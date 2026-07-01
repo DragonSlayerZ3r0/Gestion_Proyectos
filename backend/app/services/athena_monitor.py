@@ -11,6 +11,7 @@ import boto3
 from core.errors import ValidationError
 from repositories.athena_monitor import AthenaMonitorRepository
 from repositories.catalog import CatalogRepository
+from services.llm import LlmService
 
 # sqlglot vendorizado (puro-Python, sin capa Lambda) para analizar el SQL por AST.
 _VENDOR = os.path.join(os.path.dirname(__file__), "..", "_vendor")
@@ -336,6 +337,75 @@ class AthenaMonitorService:
         ath = self._session().client("athena")
         q = ath.get_query_execution(QueryExecutionId=qid)["QueryExecution"]
         return {"qid": qid, "sql": q.get("Query") or ""}
+
+    def suggest_fix(self, qid: str) -> dict[str, Any]:
+        """Sugerencia de un LLM (no la recomendación estática por regla, esa vive
+        en el frontend) para UNA consulta concreta: relee el SQL completo por su
+        qid (fuente de verdad, no lo que mande el cliente), vuelve a analizarla con
+        `_lint_sql` para tener los antipatrones reales y el catálogo (particiones,
+        formato) de las tablas involucradas, y se lo da todo como contexto al
+        modelo. Si el query no tiene antipatrones, no llama al LLM (nada que
+        sugerir)."""
+        sql = self.get_query_sql(qid)["sql"]
+        cat = CatalogRepository()
+        _tcache: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def _table_meta(db: str, table: str) -> dict[str, Any]:
+            key = (db, table)
+            if key not in _tcache:
+                try:
+                    _tcache[key] = cat.get_catalog_table(db, table) or {}
+                except Exception:
+                    _tcache[key] = {}
+            return _tcache[key]
+
+        lint = _lint_sql(
+            sql,
+            get_partcols=lambda db, t: _table_meta(db, t).get("partitionKeys") or None,
+            get_format=lambda db, t: _table_meta(db, t).get("format") or "")
+        issues = lint["issues"]
+        if not issues:
+            return {"qid": qid, "suggestion": "", "issues": []}
+
+        labels = [_ANTIPATTERNS.get(i["code"], i["code"]) for i in issues]
+        catalog_lines = []
+        _MAX_COLS = 60  # tope para no inflar el prompt en tablas muy anchas
+        for key, meta in _tcache.items():
+            if not meta:
+                continue
+            db, table = key
+            parts = meta.get("partitionKeys") or []
+            fmt = meta.get("format") or "desconocido"
+            catalog_lines.append(
+                f"- {db}.{table}: formato={fmt}, particiones={', '.join(parts) or 'ninguna'}")
+            # Columnas con su tipo (ya vienen en el mismo item cacheado, sin costo
+            # extra) — es lo que le falta al modelo para antipatrones como
+            # "conversión de tipo en filtro" (hoy tiene que adivinar el tipo real).
+            cols = meta.get("columns") or []
+            if cols:
+                col_txt = ", ".join(f"{c.get('name')}:{c.get('type')}" for c in cols[:_MAX_COLS] if c.get("name"))
+                if len(cols) > _MAX_COLS:
+                    col_txt += f", … ({len(cols) - _MAX_COLS} columnas más)"
+                catalog_lines.append(f"  columnas: {col_txt}")
+        catalog_block = "\n".join(catalog_lines) or "(sin datos de catálogo disponibles)"
+
+        system = (
+            "Eres un experto en optimizar consultas SQL para Amazon Athena (motor "
+            "Presto/Trino). Respondes en español técnico, claro y breve (máximo "
+            "6-8 líneas). Te basas SOLO en el SQL y el catálogo que te dan — nunca "
+            "inventes columnas, tablas, tipos o particiones que no aparezcan ahí. "
+            "Usa el tipo real de cada columna (viene en el catálogo) para precisar "
+            "la sugerencia, por ejemplo al detectar conversiones de tipo "
+            "innecesarias. Si corresponde, incluye el fragmento de SQL corregido.")
+        prompt = (
+            f"Consulta SQL:\n```sql\n{sql}\n```\n\n"
+            f"Antipatrones detectados automáticamente: {', '.join(labels)}.\n\n"
+            f"Catálogo de las tablas referenciadas:\n{catalog_block}\n\n"
+            "Da una sugerencia concreta para ESTA consulta en particular (no una "
+            "explicación genérica del antipatrón), teniendo en cuenta la "
+            "estructura real del query y el catálogo de arriba.")
+        result = LlmService().complete(prompt, system=system, max_tokens=700)
+        return {"qid": qid, "suggestion": result["text"], "issues": issues}
 
     def start_scan(self, start: str, end: str, function_name: str) -> dict[str, Any]:
         self._validate(start, end)

@@ -7,6 +7,7 @@ MODULES = [
     {"key": "projects", "label": "Proyectos"},
     {"key": "tasks", "label": "Tareas"},
     {"key": "catalog", "label": "Catálogo"},
+    {"key": "chat", "label": "Apoyo técnico"},
     {"key": "admin", "label": "Administración"},
 ]
 
