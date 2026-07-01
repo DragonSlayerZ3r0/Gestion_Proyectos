@@ -12,7 +12,7 @@ Reutilizar la separación que ya existe en `CatalogService`:
 - **Caché propiedad del sync** (`CATALOG_*`): metadata técnica, refrescable, el sync
   escribe y elimina huérfanos comparando `glueUpdatedAt`.
 - **Contenido propiedad del usuario** (`*_CONTEXT`): contenido funcional escrito por
-  personas, el sync nunca lo toca aunque la tabla desaparezca de Glue.
+  personas, con ciclo de vida independiente a la presencia de la tabla en Glue.
 
 Cada capa nueva se clasifica en una de las dos. Esto mantiene el patrón actual y evita
 inventar mecánica nueva.
@@ -22,11 +22,12 @@ inventar mecánica nueva.
 Responde "¿de dónde sale esta tabla y a qué alimenta?". Dos orígenes, espejo de la
 separación caché/contenido:
 
-- **Observado** (caché del sync): derivado del SQL de las vistas. Glue ya entrega
-  `ViewOriginalText` en las tablas `VIRTUAL_VIEW`; parsear las tablas referenciadas da
-  aristas upstream sin infraestructura nueva. Refrescable en cada sync.
-- **Declarado** (contenido del usuario): aristas que una persona declara a mano
-  (p. ej. "esta tabla alimenta el dashboard X"). El sync nunca las borra.
+- **Observado** (caché del sync): derivado del SQL de las vistas. Glue entrega
+  `ViewOriginalText` en las tablas `VIRTUAL_VIEW`; el parser obtiene las tablas
+  referenciadas y genera aristas upstream durante cada sync.
+- **Declarado** (contenido del usuario): aristas que una persona registra manualmente
+  (p. ej. "esta tabla alimenta el dashboard X"). El contenido declarado conserva un
+  ciclo de vida independiente al sync técnico.
 
 Entidad `LINEAGE_EDGE`. Se escriben las dos direcciones denormalizadas para consultar
 los vecinos de una tabla con un solo `begins_with(SK, "LINEAGE#")`, sin GSI:
@@ -53,10 +54,10 @@ Responde "¿está fresca, completa, sana?". Separar en dos señales por costo:
 - **Frescura (barata, en el sync actual):** se calcula de la última partición o de
   `glueUpdatedAt` durante el sync de metadata que ya corre. Cero costo extra. Se puede
   enviar hoy.
-- **Reglas (Glue Data Quality, cadencia aparte):** nulos, rangos, unicidad vía DQDL.
-  La *evaluación* corre como job de Glue DQ (consume DPU), por eso va en cadencia
-  programada (EventBridge → `StartDataQualityRulesetEvaluationRun`), no en cada sync.
-  El catálogo solo **lee** el último resultado y lo cachea.
+- **Reglas (Glue Data Quality, cadencia aparte):** nulos, rangos y unicidad vía DQDL.
+  La *evaluación* corre como job de Glue DQ, consume DPU y utiliza una cadencia
+  programada con EventBridge → `StartDataQualityRulesetEvaluationRun`. El catálogo
+  lee el último resultado y lo cachea.
 
 Entidad `QUALITY_RESULT` (caché del sync):
 
@@ -78,7 +79,7 @@ El sync de calidad lee resultados con `glue.list_data_quality_results` /
 ## Capa semántica — métricas
 
 Responde "¿qué es un cliente activo? ¿qué es saldo en mora?". Definición única,
-certificada, propiedad del usuario (el sync nunca la toca). Entidad `METRIC_DEF`:
+certificada y administrada por usuarios con ciclo de vida independiente. Entidad `METRIC_DEF`:
 
 ```text
 METRIC_DEF (definición de métrica de negocio)

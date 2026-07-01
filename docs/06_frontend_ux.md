@@ -6,11 +6,11 @@ Nota de idioma: aunque se mantenga el término técnico `frontend`, toda la expe
 
 ## Principio de experiencia
 
-Interfaz simple, pocos botones, pantallas limpias y sin sobrecargar al usuario.
+La interfaz utiliza pocos botones, pantallas limpias y una carga visual controlada.
 
-La aplicación no debe parecer Jira. Debe sentirse como una herramienta interna clara, directa y liviana.
+La aplicación se presenta como una herramienta interna clara, directa y liviana, centrada en las operaciones cotidianas del equipo.
 
-La primera pantalla debe orientar sin convertirse en landing page: mostrar estado de sesión, módulos disponibles, estado del ambiente y próximos pasos operativos. Los módulos iniciales pueden usar paneles informativos mientras no exista CRUD completo, pero deben verse como una aplicación funcional y no como placeholders descuidados.
+La primera pantalla orienta mediante el estado de sesión, los módulos disponibles, el ambiente y los próximos pasos operativos. Durante la evolución de un módulo, sus paneles informativos muestran estado y acciones reales del sistema.
 
 ## Layout general
 
@@ -25,7 +25,7 @@ La primera pantalla debe orientar sin convertirse en landing page: mostrar estad
 
 El menú se construye desde la respuesta de `GET /api/me`. Solo debe mostrar módulos habilitados para el usuario.
 
-Ocultar opciones no reemplaza seguridad backend.
+El backend constituye la fuente de autorización; el menú refleja los permisos ya calculados.
 
 El menú debe reducir navegación innecesaria. Si el usuario tiene permisos de `projects` o `tasks`, el frontend debe mostrar una sola entrada llamada `Proyectos y tareas`, porque ambas acciones pertenecen a la misma mesa de trabajo.
 
@@ -47,7 +47,7 @@ Debe mostrar:
 - Acciones claras.
 - Filtros simples.
 - Busqueda cuando haya volumen.
-- Evitar tablas con demasiada informacion por fila.
+- Cada fila presenta la información esencial y lleva el detalle a una vista contextual.
 
 ## Formularios
 
@@ -59,7 +59,7 @@ Debe mostrar:
 
 ## Login
 
-La vista principal sin sesión debe ser una pantalla de acceso aislada y moderna. No debe mostrar menú lateral, módulos, tableros, paneles internos ni contenido operativo de la plataforma antes de autenticar al usuario.
+La vista principal previa a la autenticación muestra únicamente la portada de acceso. El menú, los módulos, los tableros y el contenido operativo se habilitan después de validar la sesión.
 
 La portada de acceso debe mostrar solamente:
 
@@ -68,7 +68,7 @@ La portada de acceso debe mostrar solamente:
 - Ambiente actual.
 - Acción principal `Ingresar`.
 
-En pantallas anchas, los bloques de marca e ingreso deben mantenerse como una unidad centrada con ancho máximo. La tarjeta de ingreso no debe desplazarse al extremo derecho del viewport.
+En pantallas anchas, los bloques de marca e ingreso forman una unidad centrada con ancho máximo y márgenes laterales equilibrados.
 
 El login visible al usuario debe estar en español. La ventana de credenciales debe incluir:
 
@@ -78,11 +78,11 @@ El login visible al usuario debe estar en español. La ventana de credenciales d
 - Acción secundaria para cancelar y volver a la pantalla anterior sin iniciar sesión.
 - Mensajes claros para credenciales incorrectas, usuario no configurado y cambio de contraseña inicial.
 
-Si Cognito exige cambio de contraseña inicial, el formulario debe mostrar el campo de nueva contraseña en el mismo flujo, sin enviar al usuario a una pantalla externa en inglés.
+Si Cognito exige cambio de contraseña inicial, el mismo formulario presenta el campo de nueva contraseña y mantiene todo el flujo en español.
 
 ## Modales
 
-Usarlos para acciones cortas. Evitar formularios largos en modales si una pantalla dedicada es mas clara.
+Los modales contienen acciones cortas. Los formularios extensos utilizan una pantalla o panel dedicado.
 
 ## Drag and drop
 
@@ -93,7 +93,7 @@ Para proyectos y tareas, drag and drop debe usarse en acciones que el usuario en
 - Arrastrar una tarea entre columnas de estado.
 - Reordenar tareas dentro de una columna solo si aporta claridad.
 
-Cada acción drag and drop debe tener una alternativa visible: botón `Agregar`, menú de responsable o selector de estado. El sistema no debe depender exclusivamente del arrastre.
+Cada acción drag and drop dispone de una alternativa visible: botón `Agregar`, menú de responsable o selector de estado.
 
 ## Pantalla de proyectos y tareas
 
@@ -108,11 +108,11 @@ La pantalla principal debe permitir trabajar sin cambiar de contexto:
 - Kanban simple dentro del proyecto solo cuando el usuario presione `Ver tablero` (oculto por defecto).
 - Panel de detalles para editar persona, proyecto o tarea sin salir de la pantalla.
 
-Esta pantalla debe ser la entrada operativa predeterminada cuando el usuario tenga acceso a proyectos o tareas. Evitar abrir Administración o Catálogo como primera vista solo por orden alfabético de permisos.
+Esta pantalla es la entrada operativa predeterminada cuando el usuario tiene acceso a proyectos o tareas. El orden de prioridad funcional determina el módulo inicial.
 
-El panel de detalle debe permanecer dentro de la misma pantalla, sin tapar el tablero ni bloquear el trabajo del usuario. No debe abrirse automáticamente al seleccionar una tarjeta; debe abrirse solo con una acción explícita como `Editar`. En escritorio debe comportarse como panel lateral derecho no modal alineado con el proyecto o tarea que se está editando; en móvil debe comportarse como bottom sheet con scroll interno.
+El panel de detalle permanece dentro de la misma pantalla y se abre mediante una acción explícita como `Editar`. En escritorio funciona como panel lateral derecho no modal, alineado con el proyecto o tarea; en móvil funciona como bottom sheet con scroll interno.
 
-La pantalla no debe depender de seleccionar un proyecto arriba para ver tareas en una zona inferior. El usuario debe entender proyecto, responsable, personas y tareas sin hacer clic. En esta mesa, `persona` significa integrante operativo asignable a proyectos y tareas; `usuario` se reserva para cuentas de acceso, autenticación y administración.
+Cada tarjeta integra proyecto, responsable, personas y resumen de tareas en el primer nivel de lectura. En esta mesa, `persona` significa integrante operativo asignable a proyectos y tareas; `usuario` se reserva para cuentas de acceso, autenticación y administración.
 
 La pantalla debe mostrar una franja compacta de `Personas registradas` para que el usuario pueda:
 
@@ -120,19 +120,19 @@ La pantalla debe mostrar una franja compacta de `Personas registradas` para que 
 - Arrastrar una persona a un proyecto para agregarla.
 - Abrir edición con un ícono de lápiz y actualizar área, estado, notas o vacaciones/disponibilidad sin navegar a Administración.
 
-La franja de personas no debe mostrar datos secundarios por defecto. Cada tarjeta debe ocupar poco espacio: nombre de la persona y acción de edición por ícono. Si una persona no tiene estado, no debe mostrarse badge ni texto de relleno.
+La franja de personas muestra tarjetas compactas con nombre y acción de edición por ícono. Los datos secundarios viven en el panel de detalle y los estados vacíos se omiten.
 
-La búsqueda principal no debe ocultar personas registradas ni impedir asignarlas a un proyecto. Las personas deben filtrarse únicamente desde `Buscar persona`, y el selector `Agregar persona` dentro de cada proyecto debe seguir mostrando las personas disponibles para ese proyecto.
+La búsqueda principal filtra proyectos y tareas. `Buscar persona` filtra exclusivamente la franja de personas, mientras `Agregar persona` conserva las opciones disponibles para cada proyecto.
 
-El listado de proyectos debe incluir filtros visibles por estado. Por defecto se muestran todos los estados. Cada tarjeta de proyecto debe mostrar su estado actual para evitar que el usuario tenga que abrir el detalle para entenderlo.
+El listado de proyectos incluye filtros visibles por estado y comienza mostrando todos. Cada tarjeta presenta su estado actual en el primer nivel de lectura.
 
-Por defecto la tarjeta no muestra ningún tablero: solo el resumen de conteos por estado dentro del bloque `Tareas`. Al presionar `Ver tablero` se muestra el Kanban completo del proyecto; con `Ocultar tablero` vuelve a ocultarse. Así se evita mostrar columnas o listas que parezcan un segundo tablero cuando el tablero real aún no se ha abierto.
+Por defecto, la tarjeta presenta el resumen de conteos por estado dentro del bloque `Tareas`. `Ver tablero` abre el Kanban completo del proyecto y `Ocultar tablero` restaura el resumen compacto.
 
-Los estados deben tener color contextual sobrio: proyectos cerrados en rojo suave, activos en verde, planificados en azul y pausados en ámbar. Las tareas y prioridades también deben mostrarse con badges o acentos de color para facilitar lectura rápida. Si un proyecto no tiene estado o una tarea no tiene prioridad, no se debe mostrar un badge vacío ni texto de relleno.
+Los estados utilizan color contextual sobrio: proyectos cerrados en rojo suave, activos en verde, planificados en azul y pausados en ámbar. Las tareas y prioridades usan badges o acentos equivalentes; los valores opcionales vacíos se omiten.
 
 Las acciones de guardado en paneles de detalle deben mostrar retroalimentación visible dentro del mismo panel. Por ejemplo, al guardar proyecto o tarea debe mostrarse una confirmación como `Proyecto guardado correctamente.` o `Tarea guardada correctamente.`
 
-La asignación de responsable de una tarea debe hacerse con una acción explícita `Asignar` o `Cambiar`, abriendo la edición enfocada en el selector `Responsable`. No se debe mostrar texto que indique arrastrar personas si no existe un panel visible de personas disponibles para esa acción.
+La asignación de responsable utiliza la acción explícita `Asignar` o `Cambiar`, que abre la edición enfocada en el selector `Responsable`. Las instrucciones de arrastre aparecen únicamente cuando las personas disponibles están visibles.
 
 Convención de verbos:
 
@@ -141,7 +141,7 @@ Convención de verbos:
 - `Guardar`: persiste cambios en un panel de edición.
 - `Cancelar`: abandona una creación rápida sin guardar.
 
-Los campos opcionales no deben generar ruido visual cuando están vacíos. Por ejemplo, un proyecto sin responsable no debe mostrar `Responsable: Sin responsable` en su cabecera.
+Los campos opcionales vacíos se omiten de la vista resumida. Por ejemplo, la cabecera presenta `Responsable` únicamente cuando existe una persona asignada.
 
 La creación rápida debe pedir solo lo mínimo:
 
@@ -149,7 +149,7 @@ La creación rápida debe pedir solo lo mínimo:
 - Proyecto: nombre.
 - Tarea: título.
 
-Los campos adicionales deben quedar disponibles como detalle opcional, no como requisito para crear.
+Los campos adicionales se completan desde el detalle opcional después de la creación rápida.
 
 ## Kanban simple
 
@@ -160,8 +160,8 @@ Estados sugeridos:
 - En revision.
 - Completada.
 
-El Kanban no debe incorporar configuraciones complejas al inicio.
+El Kanban inicial se concentra en columnas de estado, movimiento de tareas y acciones directas.
 
 ## Menú dinámico por permisos
 
-El frontend debe consumir permisos calculados desde backend. No debe codificar permisos sensibles solo en cliente.
+El frontend consume los permisos calculados por el backend y los utiliza para construir menú, módulos y acciones visibles. Lambda aplica la autorización efectiva.

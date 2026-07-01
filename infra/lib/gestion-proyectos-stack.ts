@@ -297,6 +297,13 @@ export class GestionProyectosStack extends Stack {
         actions: ["cloudtrail:LookupEvents"],
         resources: ["*"],
       }));
+      // Identity Center (solo lectura): resolver el nombre real de los usuarios que
+      // consultan Athena (monitoreo). El Identity Store vive en la cuenta de la app.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "IdentityStoreReadOnly",
+        actions: ["identitystore:GetUserId", "identitystore:DescribeUser"],
+        resources: ["*"],
+      }));
       // AssumeRole a los roles cross-account de Cost Explorer (cuentas "assume").
       // Cada rol lo crea scripts/grant-hub-cost-explorer.sh en su cuenta.
       if (assumeCostRoleArns.length) {

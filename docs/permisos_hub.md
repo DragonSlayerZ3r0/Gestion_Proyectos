@@ -128,8 +128,10 @@ ninguna administrada:
    deploy). Contiene: `logs:*` (create/put), `glue` read, `lambda:InvokeFunction`
    (a sí misma), `s3:ListBucket`+`s3:GetBucketLocation` sobre `DATA_LAKE_BUCKETS`,
    `ce:*` (incl. `GetTags`, `ListCostAllocationTags`), `cloudtrail:LookupEvents`,
-   `sts:AssumeRole` → `gestion-proyectos-cost-reader`, y **DynamoDB RW** (incl.
-   `BatchGetItem`) sobre `gestion-proyectos-dev-main`. *(El `BatchGetItem` confirma
+   `identitystore:GetUserId`/`DescribeUser` (resolver nombres reales en el monitoreo
+   de Athena, sid `IdentityStoreReadOnly`), `sts:AssumeRole` →
+   `gestion-proyectos-cost-reader`, y **DynamoDB RW** (incl. `BatchGetItem`) sobre
+   `gestion-proyectos-dev-main`. *(El `BatchGetItem` confirma
    que la búsqueda por contexto del catálogo funciona en dev.)*
 2. **`gestion-proyectos-dev-api-role`** (inline, **MANUAL / drift**): `cloudtrail:*`
    sobre `*`. **Redundante**: el CDK ya otorga `cloudtrail:LookupEvents` (lo único

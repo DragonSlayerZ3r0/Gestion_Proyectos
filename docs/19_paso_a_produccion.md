@@ -1,6 +1,6 @@
 # Paso a producción (cuenta AWS separada)
 
-Manual para desplegar la plataforma en una cuenta de producción distinta de `dev` (`186281981036`). La infraestructura CDK ya está parametrizada por ambiente: todos los nombres de recursos derivan del prefijo `{appName}-{envName}`, por lo que producción se crea **desde cero y aislada** — no comparte Cognito, DynamoDB, buckets ni API con dev.
+Manual para desplegar la plataforma en una cuenta de producción distinta de `dev` (`186281981036`). La infraestructura CDK está parametrizada por ambiente: todos los nombres derivan del prefijo `{appName}-{envName}` y producción crea recursos exclusivos de Cognito, DynamoDB, S3, Lambda y API Gateway.
 
 ## 1. Campos a definir antes de empezar
 
@@ -38,7 +38,7 @@ Los IDs/URLs que asigna AWS (pool, client, API URL, distribución CloudFront) sa
 
 ### Campos del `config.json` de producción
 
-El frontend lee su configuración en runtime desde `/config.json` (no viaja en el build). Para prod se construye con los outputs del stack:
+El frontend lee su configuración en runtime desde `/config.json`, publicado de forma independiente al build. Para prod se construye con los outputs del stack:
 
 ```json
 {
@@ -109,7 +109,7 @@ En dev, el stack crea el rol de ejecución con nombre estable (`gestion-proyecto
 }
 ```
 
-- **Solo lectura** sobre Glue: nunca escribe ni borra en el data lake (S3/Glue). La app solo escribe en su propia tabla DynamoDB.
+- **Solo lectura** sobre Glue y el Data Lake. La aplicación escribe datos operativos únicamente en su tabla DynamoDB.
 - `lambda:InvokeFunction` sobre sí misma: la usa el sync global asíncrono (`POST /api/catalog/sync` se auto-invoca).
 - Si Lake Formation está *enforced* sobre esas bases, además hay que otorgar al rol grants `DESCRIBE`/`SELECT` de lectura desde Lake Formation (no basta la política IAM).
 - El rol debe confiar en `lambda.amazonaws.com` (trust policy) y respetar el permission boundary que exija la organización.
@@ -118,7 +118,7 @@ En dev, el stack crea el rol de ejecución con nombre estable (`gestion-proyecto
 
 **Acceso S3 al data lake (para tamaño/frescura de tablas):** requiere DOS lados, porque los buckets del lake viven en la cuenta hub `396913696127` (cross-account):
 - *Lado app (cuenta del rol):* `s3:ListBucket` + `s3:GetBucketLocation` sobre los buckets del lake. **En dev ya está en CDK** (constante `DATA_LAKE_BUCKETS` en el rol del stack; aplica tras `infra:deploy`). En prod, el admin lo incluye en el rol pre-creado.
-- *Lado hub (dueño del bucket):* fusionar una sentencia de solo lectura en la *bucket policy* (NO sobrescribir). Script: `scripts/grant-datalake-s3.sh <bucket> <role_arn> [perfil]`, o el comando manual equivalente. Debe correrse **después** de que el rol exista (S3 rechaza principals inexistentes) con un perfil admin del hub. Nota: `admin_dl` es un rol/usuario IAM dentro de `396913696127`, no un perfil de CLI; el perfil de CLI para esa cuenta es `bdr-fed`.
+- *Lado hub (dueño del bucket):* fusionar una sentencia de solo lectura dentro de la *bucket policy* existente y preservar todas sus sentencias actuales. Script: `scripts/grant-datalake-s3.sh <bucket> <role_arn> [perfil]`, o el comando manual equivalente. Debe correrse **después** de que el rol exista (S3 rechaza principals inexistentes) con un perfil admin del hub. Nota: `admin_dl` es un rol/usuario IAM dentro de `396913696127`; el perfil CLI para esa cuenta es `bdr-fed`.
 
 **Nota — otros roles que el stack crea (CDK helpers):** además del rol de la Lambda, CDK provisiona roles para `logRetention` y para el custom resource del seed inicial. En una cuenta muy bloqueada estos también podrían requerir que el admin permita su creación, o reemplazarlos (LogGroup explícito en vez de `logRetention`; correr el seed manualmente). Validar con el equipo de plataforma antes del primer deploy.
 
@@ -183,12 +183,12 @@ aws cloudfront create-invalidation --distribution-id <DIST_ID_PROD> \
   --paths "/*" --profile <PERFIL_SSO_PROD>
 ```
 
-## 5. Datos y accesos (lo que NO viaja solo desde dev)
+## 5. Inicialización de datos y accesos en producción
 
-- **Usuarios Cognito**: prod arranca solo con `<CORREO_INICIAL>` (el seed lo crea con cambio de contraseña inicial). Los usuarios de dev no migran ni deben migrar. Los demás se crean desde el módulo Administración o por CLI.
+- **Usuarios Cognito**: prod arranca con `<CORREO_INICIAL>` y cambio de contraseña inicial. Los demás usuarios se crean expresamente desde Administración o por CLI para mantener separadas las identidades de cada ambiente.
 - **DynamoDB**: arranca vacía (salvo el seed). Decidir explícitamente si prod inicia limpio (recomendado) o si se migra algo de dev con export/import de DynamoDB.
 - **Catálogo**: ejecutar el sync (`POST /api/catalog/sync`) una vez haya permisos sobre Glue en prod.
-- **Lake Formation / Glue del hub**: el punto más delicado y con dependencia externa. Los grants `DESCRIBE` que la cuenta `<CUENTA_HUB>` haya dado a dev **no aplican a prod**: hay que solicitar grants hacia `<CUENTA_PROD>`, crear los resource links en la cuenta prod y otorgar `DESCRIBE` sobre los links al rol de la Lambda prod. Gestionarlo con anticipación (ver `docs/07_catalogo_datalake.md`, sección "Visibilidad pendiente").
+- **Lake Formation / Glue del hub**: producción requiere grants propios hacia `<CUENTA_PROD>`, resource links en la cuenta prod y permiso `DESCRIBE` sobre esos links para el rol Lambda prod. Gestionarlo con anticipación (ver `docs/07_catalogo_datalake.md`, sección "Visibilidad pendiente").
 
 ## 6. Deseable para producción (no bloqueante)
 

@@ -1,5 +1,12 @@
 # Permisos AWS actuales
 
+> Alcance del documento: permisos observados para el perfil de la cuenta de aplicación
+> y verificación de Bedrock. La tabla de servicios conserva la exploración inicial del
+> perfil y no funciona como inventario de recursos desplegados. El inventario vigente
+> del proyecto está en [`15_estado_implementacion.md`](15_estado_implementacion.md); los
+> permisos del hub, verificados el 2026-06-26, están en
+> [`permisos_hub.md`](permisos_hub.md).
+
 > **Permisos del lado del hub (cuenta 396913696127)**: este documento cubre la
 > cuenta de la app y Bedrock. Los permisos que el admin del hub debe otorgar
 > (rol cross-account `gestion-proyectos-cost-reader`, bucket policies y grants de
@@ -39,7 +46,7 @@ No solicitar bloques de `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` ni `AWS_SES
 
 El perfil tiene permisos suficientes para iniciar la construccion de la plataforma en AWS. La cuenta ya tiene bootstrap de CDK mediante stack `CDKToolkit`, por lo que es viable desplegar infraestructura con CloudFormation/CDK si se mantiene el mismo perfil o uno equivalente.
 
-## Servicios verificados por CLI
+## Capacidades verificadas por CLI durante la exploración inicial
 
 | Servicio | Resultado | Observacion |
 | --- | --- | --- |

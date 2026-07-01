@@ -7,7 +7,7 @@ El perfil operativo validado para iniciar construcción está documentado en `do
 - Uso: autenticación de usuarios.
 - Permisos IAM: configuración administrada fuera de Lambda salvo necesidades específicas.
 - Variables: `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_DOMAIN`.
-- Consideraciones: no mezclar autenticación con autorización funcional.
+- Consideraciones: Cognito autentica; DynamoDB y Lambda resuelven la autorización funcional.
 
 ## DynamoDB
 
@@ -21,28 +21,28 @@ El perfil operativo validado para iniciar construcción está documentado en `do
 - Uso: metadata técnica de Data Lake.
 - Permisos IAM: `glue:GetDatabases`, `glue:GetTables`, `glue:GetTable`, `glue:GetPartitions` si aplica.
 - Variables: `GLUE_CATALOG_ID` opcional.
-- Consideraciones: Glue no guarda contexto funcional de negocio.
+- Consideraciones: Glue guarda metadata técnica; DynamoDB guarda contexto funcional de negocio.
 
 ## Athena
 
 - Uso: preview y consultas controladas.
 - Permisos IAM: `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`.
 - Variables: `ATHENA_WORKGROUP`, `ATHENA_OUTPUT_LOCATION`.
-- Consideraciones: no permitir SQL libre desde frontend.
+- Consideraciones: los servicios backend construyen y ejecutan consultas controladas.
 
 ## S3
 
 - Uso: frontend estático privado, Data Lake y resultados Athena.
 - Permisos IAM: según bucket y función.
 - Variables: `DATA_LAKE_BUCKET`, `ATHENA_OUTPUT_BUCKET`.
-- Consideraciones: no usar buckets públicos para el frontend; servir por CloudFront.
+- Consideraciones: CloudFront sirve el frontend desde un bucket privado mediante OAC.
 
 ## CloudWatch
 
 - Uso: logs y métricas.
 - Permisos IAM: permisos básicos de Lambda para logs.
 - Variables: nivel de logging si aplica.
-- Consideraciones: no registrar secretos ni datos sensibles innecesarios.
+- Consideraciones: los logs incluyen contexto operativo y excluyen secretos y datos sensibles.
 
 ## IAM
 

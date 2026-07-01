@@ -14,7 +14,7 @@
 - **Borrado** de proyectos, tareas, personas (dentro del panel de edición) y de usuarios (admin), con cascada y confirmación.
 - **Refactor SOLID (sin cambiar el contrato HTTP):**
   - Backend: `handler.py` delgado + `core/router.py` (router por registro, autodescubrimiento de `modules/*_routes.py`), guards y errores centralizados, **un repositorio por dominio** (se eliminó la god-class `MainTableRepository`).
-  - Frontend: `app.ts` partido (4,328 → ~700 líneas) en módulos `scripts/modules/` (`home`, `workspace`, `catalog`, `admin`) por inyección de dependencias.
+  - Frontend: `app.ts` convertido en shell y lógica de dominio extraída a `scripts/modules/` (`home`, `workspace`, `catalog`, `admin`, `datalake`) por inyección de dependencias.
   - Objetivo: agregar módulos desde una fuente independiente sin tocar el núcleo.
 
 ## Corte actual
@@ -43,13 +43,17 @@ Primer entregable implementado y desplegado en `dev`:
 - Frontend de catálogo publicado: búsqueda con filtros de alcance (bases/tablas/columnas), detalle de tabla con columnas y contexto funcional, y grafo de relaciones D3.js con carga de columnas bajo demanda y exclusión de columnas de partición en las relaciones.
 - Migración del workspace a `pnpm` (`pnpm-workspace.yaml`); el build de frontend se ejecuta con `pnpm build` dentro de `frontend/`.
 - Branding actualizado en la portada de login con logo propio (`icono_gp.png`).
-- Pendiente de publicar (en local, rama `catalogo_datos`, junio 2026):
-  - Frontend: persistencia del módulo activo al recargar (`sessionStorage`); reescritura del grafo del catálogo a Canvas 2D (esferas de Fibonacci 3D proyectado, culling, LOD, quadtree, pan con dos dedos y zoom con pellizco, uniones visibles solo con foco, precarga de columnas al abrir, rotación trackball de 2 ejes con clic sostenido, doble clic para reorientar, "traer al frente" desde inspector/buscador); corrección de la búsqueda por `Columna`/`Desc. columna` para evaluar todas las tablas con precarga en segundo plano.
-  - Backend: sync de catálogo diferencial por `glueUpdatedAt` (`UpdateTime` de Glue, verificado en dev) con eliminación de tablas huérfanas; endpoints de sync devuelven `updated` y `removed`. Requiere publicar la Lambda. Primer sync tras publicar reescribe todo una vez (el caché previo no tiene `glueUpdatedAt`); desde el segundo es diferencial.
-  - Infra: se agregaron al stack CDK las 8 rutas de `/api/catalog/*` con `jwtAuthorizer` (antes existían solo en API Gateway por configuración manual = config drift; verificado que en vivo responden 401 sin token, pero no estaban versionadas). Requiere `npm run infra:deploy`. Sin esto, un `cdk deploy` podía borrarlas y el paso a producción no las habría creado.
-  - Infra: el rol de ejecución de la Lambda ahora se define explícito en CDK con nombre estable (`gestion-proyectos-dev-api-role`) y todos sus permisos en código (DynamoDB RW, logs, Glue read-only, auto-invocación) — elimina el drift de permisos puestos a mano y da ARN estable para grants externos (bucket policies cross-account, Lake Formation). En prod se sigue importando vía `apiRoleArn`. **Ojo al desplegar:** el `cdk deploy` reemplaza el rol autogenerado anterior por el nombrado; el permiso de Glue manual del rol viejo se pierde pero queda cubierto por el código. Cualquier grant externo apuntando al rol viejo debe repuntarse al nuevo ARN (última vez que cambia).
-  - Frontend: separación de responsabilidades — `index.astro` (cascarón), `src/scripts/app.ts` (SPA), `src/styles/app.css` (estilos).
-  - Detalle en `docs/07_catalogo_datalake.md` y `docs/18_servicios_y_runtime.md`.
+### Corte histórico previo a la publicación modular (junio de 2026)
+
+Este bloque conserva el estado local anterior a los despliegues documentados después.
+Sirve como trazabilidad y no define pendientes vigentes:
+
+- Frontend: persistencia del módulo activo al recargar (`sessionStorage`); reescritura del grafo del catálogo a Canvas 2D (esferas de Fibonacci 3D proyectado, culling, LOD, quadtree, pan con dos dedos y zoom con pellizco, uniones visibles solo con foco, precarga de columnas al abrir, rotación trackball de 2 ejes con clic sostenido, doble clic para reorientar, "traer al frente" desde inspector/buscador); corrección de la búsqueda por `Columna`/`Desc. columna` para evaluar todas las tablas con precarga en segundo plano.
+- Backend: sync de catálogo diferencial por `glueUpdatedAt` (`UpdateTime` de Glue, verificado en dev) con eliminación de tablas huérfanas; endpoints de sync devuelven `updated` y `removed`. Requiere publicar la Lambda. Primer sync tras publicar reescribe todo una vez (el caché previo no tiene `glueUpdatedAt`); desde el segundo es diferencial.
+- Infra: se agregaron al stack CDK las 8 rutas de `/api/catalog/*` con `jwtAuthorizer` (antes existían solo en API Gateway por configuración manual = config drift; verificado que en vivo responden 401 sin token, pero no estaban versionadas). Requiere `npm run infra:deploy`. Sin esto, un `cdk deploy` podía borrarlas y el paso a producción no las habría creado.
+- Infra: el rol de ejecución de la Lambda ahora se define explícito en CDK con nombre estable (`gestion-proyectos-dev-api-role`) y todos sus permisos en código (DynamoDB RW, logs, Glue read-only, auto-invocación) — elimina el drift de permisos puestos a mano y da ARN estable para grants externos (bucket policies cross-account, Lake Formation). En prod se sigue importando vía `apiRoleArn`. **Ojo al desplegar:** el `cdk deploy` reemplaza el rol autogenerado anterior por el nombrado; el permiso de Glue manual del rol viejo se pierde pero queda cubierto por el código. Cualquier grant externo apuntando al rol viejo debe repuntarse al nuevo ARN (última vez que cambia).
+- Frontend: separación de responsabilidades — `index.astro` (cascarón), `src/scripts/app.ts` (SPA), `src/styles/app.css` (estilos).
+- Detalle en `docs/07_catalogo_datalake.md` y `docs/18_servicios_y_runtime.md`.
 
 ## Recursos desplegados
 
@@ -65,7 +69,7 @@ Primer entregable implementado y desplegado en `dev`:
 | Cognito domain prefix | `gestion-proyectos-dev-186281981036` |
 | DynamoDB table | `gestion-proyectos-dev-main` |
 | Lambda API | `gestion-proyectos-dev-api` |
-| Rol de ejecución Lambda | `gestion-proyectos-dev-api-role` (ARN `arn:aws:iam::186281981036:role/gestion-proyectos-dev-api-role`) — nombre estable definido en CDK, **efectivo tras el próximo `infra:deploy`** (hoy en AWS sigue el rol autogenerado); usar este ARN para grants externos (S3 cross-account, Lake Formation) |
+| Rol de ejecución Lambda | `gestion-proyectos-dev-api-role` (ARN `arn:aws:iam::186281981036:role/gestion-proyectos-dev-api-role`), nombre estable definido en CDK y verificado en AWS el 2026-06-26; usar este ARN para grants externos (S3 cross-account, Lake Formation) |
 | Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) |
 | Usuario inicial | `usr041100@banrural.com.gt` |
 

@@ -26,24 +26,26 @@ backend/app/
     workspace_routes.py # proyectos, personas, tareas
     catalog_routes.py   # catálogo + contexto funcional
     home_routes.py      # resumen + costos
+    datalake_routes.py  # monitoreo de cargas y registros
+    athena_routes.py    # consumo y antipatrones de Athena
     admin_routes.py     # gestión de usuarios
   repositories/
     base.py             # conexión a la tabla + helper _update genérico
-    users.py / workspace.py / catalog.py / home.py / glue.py
+    users.py / workspace.py / catalog.py / home.py / datalake.py / athena_monitor.py / glue.py
   services/
-    users.py / workspace.py / catalog.py / home.py / admin.py
+    users.py / workspace.py / catalog.py / home.py / datalake.py / athena_monitor.py / admin.py
 ```
 
 **Pluggable**: para agregar un módulo basta crear `modules/<algo>_routes.py` con una
-función `register(router)`; `build_router()` lo **autodescubre** (`pkgutil`) sin tocar
-el handler ni el núcleo. Cada dominio tiene su propio repositorio (no hay god-class).
-El handler ya no es un router-dios: pasó de ~518 líneas a ~17.
+función `register(router)`; `build_router()` lo **autodescubre** (`pkgutil`) y mantiene
+estables el handler y el núcleo. Cada dominio tiene su propio repositorio. El handler
+se limita a adaptar eventos síncronos o asíncronos y delegar al router o servicio correspondiente.
 
 **Ruteo en API Gateway (proxy)**: el HTTP API usa **una sola ruta catch-all `/api/{proxy+}`**
 (GET/POST/PATCH/PUT/DELETE, con JWT authorizer) + `/health` pública. La Lambda resuelve
-cada endpoint con su router interno (por `rawPath`). Por eso **agregar un endpoint nuevo
-NO requiere tocar `infra/` ** — solo el router del backend. Esto evita el límite duro de
-20KB del *resource policy* del Lambda (antes cada ruta sumaba un `AWS::Lambda::Permission`).
+cada endpoint con su router interno (por `rawPath`). Un endpoint privado nuevo queda
+cubierto por el proxy al registrarlo en su módulo backend. Esta estructura mantiene
+estable `infra/` y controla el tamaño de 20 KB del *resource policy* de Lambda.
 
 > **Cómo agregar un módulo nuevo (paso a paso, backend + frontend): ver `docs/21_guia_nuevo_modulo.md`.**
 
@@ -138,7 +140,7 @@ Las rutas de edición del panel de detalle validan permisos en backend:
 - `projects` para quitar personas de proyectos.
 - `tasks` para editar tareas.
 
-En proyectos y tareas, los campos `ownerPersonId`, `assigneePersonId`, `project.status` y `task.priority` pueden enviarse como cadena vacía para representar `Ninguno` o `Ninguna`. El backend no debe imponer responsable, prioridad de tarea ni estado de proyecto por defecto.
+En proyectos y tareas, los campos `ownerPersonId`, `assigneePersonId`, `project.status` y `task.priority` aceptan una cadena vacía para representar `Ninguno` o `Ninguna`. El backend conserva estos valores como opcionales y aplica únicamente los valores enviados por el usuario.
 
 Si un usuario no tiene módulos funcionales configurados, el backend debe rechazar la operación con `403`.
 

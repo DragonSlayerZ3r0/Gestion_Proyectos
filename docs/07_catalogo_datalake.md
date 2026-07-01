@@ -52,13 +52,13 @@ Athena solo debe usarse para consultas controladas:
 
 - Límite de filas.
 - Columnas permitidas.
-- Sin SQL libre desde frontend.
+- Las consultas se construyen en servicios backend a partir de operaciones permitidas.
 - Validación previa de permisos.
 - Registro de auditoría cuando aplique.
 
 ## Visibilidad
 
-No todos los usuarios deben ver todo el catálogo. La visibilidad debe depender de permisos por módulo, proyecto, tabla o regla funcional definida.
+La visibilidad del catálogo se calcula por usuario a partir de permisos de módulo, proyecto, tabla y reglas funcionales.
 
 ## Estado implementado
 
@@ -67,7 +67,7 @@ No todos los usuarios deben ver todo el catálogo. La visibilidad debe depender 
 - `backend/app/repositories/glue.py`: `GlueRepository` lee bases, tablas y detalle de tabla con `boto3.client("glue")` sobre el catálogo de la cuenta local.
 - `backend/app/services/catalog.py`: `CatalogService` con `list_databases`, `list_tables`, `get_table`, `sync_table`, `sync_database`, `start_sync_all`, `run_sync_all`, `save_table_context` y `save_column_context`.
 - La metadata sincronizada se guarda como cache en DynamoDB (`CatalogRepository.put_catalog_database/put_catalog_table/put_catalog_sync_meta`); el frontend lee desde el cache, no desde Glue en línea.
-- El sync es **diferencial**: cada tabla de Glue se compara por `UpdateTime` (guardado como `glueUpdatedAt` en el item de caché) y solo se reescriben las tablas nuevas o modificadas — diseñado para data lakes grandes en crecimiento. Las tablas que ya no existen en Glue (**huérfanas**) se eliminan del caché al final del sync de cada base. El contexto funcional vive en items separados (`TABLE#db#tabla / CONTEXT|COLUMN#...`) y nunca es tocado por el sync. Los endpoints de sync devuelven `updated` y `removed` además de `tableCount`.
+- El sync es **diferencial**: cada tabla de Glue se compara por `UpdateTime` (guardado como `glueUpdatedAt` en el item de caché) y solo se reescriben las tablas nuevas o modificadas — diseñado para data lakes grandes en crecimiento. Las tablas que ya no existen en Glue (**huérfanas**) se eliminan del caché al final del sync de cada base. El contexto funcional vive en items separados (`TABLE#db#tabla / CONTEXT|COLUMN#...`) y mantiene un ciclo de vida administrado por usuarios. Los endpoints de sync devuelven `updated` y `removed` además de `tableCount`.
 - El sync global es asíncrono: `POST /api/catalog/sync` auto-invoca la Lambda con `InvocationType=Event` y payload `{"action": "catalog_sync_all"}`. No hay regla de EventBridge (pendiente acordado); `handler.py` acepta `source == "aws.events"` como entrada futura.
 
 ### Rutas API
@@ -104,7 +104,7 @@ En el detalle de tabla y en cada base de datos del sidebar se muestra una ficha 
 
 #### Reporte CSV (por base de datos)
 
-En el encabezado de la base de datos seleccionada, un botón con ícono de documento+descarga (a la izquierda del ícono del grafo) genera un **CSV descargable para Excel** (`catalogo_<base>_<fecha>.csv`, con BOM UTF-8 para acentos). Alcance = la base seleccionada: **todas sus tablas** y **una fila por columna** con el contexto de tabla repetido (cómodo para tablas dinámicas). Columnas: Base de datos, Tabla, Descripción tabla, Uso principal, Responsable, Dominio, Sensibilidad tabla, Estado, Notas de uso, Formato, Ruta S3, Columna, Tipo, Partición, Descripción columna, Sensibilidad columna, Ejemplo, Notas columna. Antes de exportar precarga el detalle de las tablas que falten en caché (reusa `ensureCatalogTableDetails`, el mismo helper del grafo). **Se construye 100% en el cliente** (`downloadCatalogReport` en `catalog.ts`), sin endpoint nuevo — a propósito: el resource policy del Lambda ya está al tope de 20KB y no admite más rutas en API Gateway.
+En el encabezado de la base de datos seleccionada, un botón con ícono de documento+descarga (a la izquierda del ícono del grafo) genera un **CSV descargable para Excel** (`catalogo_<base>_<fecha>.csv`, con BOM UTF-8 para acentos). Alcance = la base seleccionada: **todas sus tablas** y **una fila por columna** con el contexto de tabla repetido (cómodo para tablas dinámicas). Columnas: Base de datos, Tabla, Descripción tabla, Uso principal, Responsable, Dominio, Sensibilidad tabla, Estado, Notas de uso, Formato, Ruta S3, Columna, Tipo, Partición, Descripción columna, Sensibilidad columna, Ejemplo, Notas columna. Antes de exportar precarga el detalle de las tablas que falten en caché (reusa `ensureCatalogTableDetails`, el mismo helper del grafo). La exportación se construye completamente en el cliente (`downloadCatalogReport` en `catalog.ts`) a partir de los datos ya cargados y evita procesamiento adicional en Lambda.
 
 #### Grafo de relaciones (Canvas 2D)
 
@@ -114,7 +114,7 @@ Arquitectura del render (`renderGraphModal` en `frontend/src/pages/index.astro`)
 
 - Layout: clusters por base de datos; cada tabla es una esfera con sus columnas distribuidas por espiral de Fibonacci (3D proyectado: hemisferio trasero detrás de la tabla, frontal delante, tamaño y opacidad según profundidad `z`). Solo las tablas participan en la simulación de fuerzas; las columnas van ancladas rígidamente a su esfera.
 - Rendimiento: culling por viewport, render bajo demanda (dirty flag, 0% CPU en reposo), LOD de etiquetas (tablas siempre; columnas solo en foco/hover o zoom > 1.5x con presupuesto de 500 por frame), picking con quadtree, HiDPI hasta 2x.
-- Interacción: scroll o dos dedos = pan; pellizco o Cmd/Ctrl+rueda = zoom; clic = seleccionar; Shift+clic = ruta BFS entre dos nodos; clic derecho = abrir la tabla en el catálogo; Esc = cerrar. La esfera nunca gira por hover: se gira tipo trackball con clic sostenido sobre el núcleo de la tabla, arrastrando en cualquier dirección (horizontal, vertical o diagonal; cada tabla acumula su orientación en una matriz 3×3 y al soltar queda donde se dejó). Doble clic en el núcleo restaura la orientación original. Seleccionar una columna desde el inspector o el buscador gira la esfera (animado, eje-ángulo) hasta traerla al borde frontal visible.
+- Interacción: scroll o dos dedos = pan; pellizco o Cmd/Ctrl+rueda = zoom; clic = seleccionar; Shift+clic = ruta BFS entre dos nodos; clic derecho = abrir la tabla en el catálogo; Esc = cerrar. La rotación tipo trackball se activa con clic sostenido sobre el núcleo y admite arrastre horizontal, vertical o diagonal; cada tabla acumula su orientación en una matriz 3×3. Doble clic restaura la orientación original. Seleccionar una columna desde el inspector o el buscador gira la esfera mediante animación eje-ángulo hasta traerla al borde frontal visible.
 - Estados visuales: sin selección, las uniones FK/compartidas están ocultas (vista limpia); aparecen al seleccionar, buscar o trazar ruta. Parallax 2.5D transitorio de la capa de columnas al desplazarse. Minimapa navegable, inspector lateral y filtros por tipo de relación y base de datos.
 - Relaciones heurísticas: FK por sufijo `_id` contra nombres de tabla; columnas compartidas por nombre igual entre tablas. Las columnas de partición se excluyen para no generar relaciones falsas.
 - Al abrir el grafo se precargan los detalles de todas las tablas (misma caché que la búsqueda), así abre completo con las relaciones ya detectadas.

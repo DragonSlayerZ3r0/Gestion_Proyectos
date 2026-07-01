@@ -1,36 +1,35 @@
 # Guardrails
 
-Estas reglas no deben romperse durante la construcción.
+Estas reglas son controles obligatorios durante la construcción.
 
 ## Producto
 
-- No hacer una interfaz tipo Jira.
-- No sobrecargar pantallas con botones o configuraciones.
-- No introducir módulos complejos antes de validar el flujo básico.
-- No mezclar objetivos de gestión de proyectos con una consola técnica AWS.
+- Construir una experiencia interna ligera, centrada en proyectos, personas, tareas y datos.
+- Mantener pantallas limpias, acciones evidentes y configuración proporcional al flujo.
+- Validar el flujo básico de cada módulo antes de ampliar su complejidad.
+- Presentar los servicios AWS mediante funciones del producto y abstraer su operación técnica.
 - Mantener todo texto visible al usuario en español claro. Solo conservar términos en inglés cuando sean nombres técnicos, servicios AWS, comandos, rutas o identificadores de código.
 
 ## Seguridad
 
-- No confiar solo en ocultar menús.
-- Validar siempre permisos en Lambda.
-- No mezclar autenticación con autorización.
-- No exponer credenciales AWS.
-- No usar S3 publico para el frontend.
-- No mostrar todo el catalogo a todos los usuarios.
-- No crear demasiados roles al inicio.
+- Aplicar autorización efectiva en Lambda y usar el menú únicamente como reflejo de permisos.
+- Separar autenticación en Cognito y autorización funcional en DynamoDB/Lambda.
+- Obtener credenciales AWS mediante SSO y mantenerlas fuera del código, logs e interfaz.
+- Servir el frontend mediante CloudFront con S3 privado.
+- Calcular la visibilidad del catálogo para cada usuario.
+- Mantener pocos roles globales y permisos granulares por módulo y proyecto.
 
 ## Data Lake
 
-- No permitir SQL libre desde frontend.
-- No usar Athena para CRUD.
-- No guardar contexto funcional en Glue Catalog.
-- No asumir que metadata técnica equivale a permiso funcional.
+- Ejecutar en Athena únicamente consultas controladas de lectura y monitoreo.
+- Realizar el CRUD operativo mediante servicios y repositorios DynamoDB.
+- Guardar metadata técnica en Glue Catalog y contexto funcional en DynamoDB.
+- Resolver los permisos funcionales de forma independiente a la metadata técnica.
 
 ## Implementación
 
 - Mantener documentación sincronizada con comportamiento real.
-- Documentar decisiones funcionales en español. Evitar mezclar inglés operativo en pantallas, mensajes, títulos o labels funcionales.
+- Documentar decisiones funcionales en español y reservar el inglés para nombres técnicos, comandos, rutas e identificadores.
 - Preferir estructuras simples antes que abstracciones prematuras.
 - Auditar cambios sensibles.
 - Separar decisiones actuales de ideas futuras.

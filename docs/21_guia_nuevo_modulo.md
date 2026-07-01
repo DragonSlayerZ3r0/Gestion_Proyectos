@@ -1,7 +1,7 @@
 # Guía: agregar un módulo nuevo
 
-Arquitectura modular: un módulo se agrega **sin tocar el núcleo**. Backend y frontend
-siguen el mismo principio (módulos enchufables por registro / inyección de dependencias).
+La arquitectura incorpora módulos mediante puntos de extensión estables. Backend y
+frontend siguen el mismo principio: registro de rutas e inyección de dependencias.
 
 Ejemplo: un módulo nuevo `reports` (Reportes).
 
@@ -31,7 +31,7 @@ item `USER#<email> / MODULE#reports`).
    ```
 
    Hereda de `BaseRepository` (conexión a la tabla + helper `_update`). **Un repo por
-   dominio**, no se toca ningún otro.
+   dominio** y mantiene aislada su persistencia.
 
 3. **Rutas** `backend/app/modules/reports_routes.py` con una función `register(router)`:
 
@@ -50,18 +50,20 @@ item `USER#<email> / MODULE#reports`).
    ```
 
    `build_router()` (`modules/__init__.py`) **autodescubre** cualquier archivo
-   `*_routes.py` con `register`. No se edita `handler.py` ni `core/`.
+   `*_routes.py` con `register`; `handler.py` y `core/` permanecen estables.
 
    Guards declarativos en `router.add(...)`: `modules=[...]` exige el módulo habilitado;
    `admin=True` exige rol admin; `auth=False` para rutas públicas (como `/health`).
 
-4. **Infra** `infra/lib/gestion-proyectos-stack.ts`: registrar la ruta en API Gateway
-   (las rutas son explícitas con JWT Authorizer). Desplegar con `npm run infra:deploy`.
+4. **API Gateway**: la ruta catch-all `/api/{proxy+}` ya cubre los métodos privados
+   `GET`, `POST`, `PATCH`, `PUT` y `DELETE` con JWT Authorizer. Registrar la ruta en el
+   módulo backend la incorpora al API. `infra/` cambia únicamente cuando el módulo
+   requiere infraestructura, permisos IAM o configuración adicional.
 
 ## 3. Frontend — módulo de UI
 
 1. Crear `frontend/src/scripts/modules/reports.ts` con una factory que recibe sus
-   dependencias por **inyección** (no accede a globales del shell):
+   dependencias por **inyección** y trabaja únicamente con el contexto recibido:
 
    ```ts
    // @ts-nocheck
@@ -96,29 +98,30 @@ del shell. Ejemplo real: el **Monitoreo de cargas** vive en la pestaña Data Lak
 módulo Inicio, así que se extrajo a `frontend/src/scripts/modules/datalake.ts`
 (`createDatalakeModule(ctx)`) y el módulo Inicio lo instancia y le **delega**
 `sectionHtml()`, `bindEvents()`, `drawChart()` y `ensure()`, pasándole un callback
-`repaint` para re-renderizar. Así Inicio no se vuelve un "archivo dios" y la sección
-mantiene una sola responsabilidad. En backend sigue siendo un dominio normal
+`repaint` para re-renderizar. Así Inicio conserva la responsabilidad de composición y
+la sección mantiene una sola responsabilidad. En backend sigue siendo un dominio normal
 (`services/datalake.py`, `repositories/datalake.py`, `modules/datalake_routes.py`).
 
 ## 4. Validar y publicar
 
-- Backend: `python3 -m py_compile` de los archivos nuevos; desplegar (`npm run infra:deploy`);
-  validar invocando la Lambda o por API.
+- Backend: `python3 -m py_compile` de los archivos nuevos; publicar el código Lambda según
+  `docs/17_desarrollo_local_publicacion.md`; validar por API. Ejecutar
+  `npm run infra:deploy` cuando el módulo agregue infraestructura, variables o permisos.
 - Frontend: `pnpm build` (Vite falla ante imports no resueltos) **y prueba en navegador**
   (con `@ts-nocheck`, una referencia global no definida solo falla en runtime). Publicar
   según `docs/17_desarrollo_local_publicacion.md`.
 
-## Resumen de los puntos a tocar
+## Resumen de los puntos de extensión
 
-| Pieza | Archivo | ¿Toca el núcleo? |
+| Pieza | Archivo | Integración |
 | --- | --- | --- |
-| Clave del módulo | `backend/app/modules/manifest.py` | No (es la fuente única) |
-| Servicio | `backend/app/services/<x>.py` | No |
-| Repositorio | `backend/app/repositories/<x>.py` | No |
-| Rutas backend | `backend/app/modules/<x>_routes.py` | No (autodescubierto) |
-| Ruta API Gateway | `infra/lib/gestion-proyectos-stack.ts` | Sí (registro de ruta) |
-| Módulo frontend | `frontend/src/scripts/modules/<x>.ts` | No |
-| Wiring frontend | `frontend/src/scripts/app.ts` (3 líneas) | Mínimo |
+| Clave del módulo | `backend/app/modules/manifest.py` | Registro en la fuente única |
+| Servicio | `backend/app/services/<x>.py` | Archivo nuevo por dominio |
+| Repositorio | `backend/app/repositories/<x>.py` | Archivo nuevo por dominio |
+| Rutas backend | `backend/app/modules/<x>_routes.py` | Archivo autodescubierto |
+| API Gateway | `infra/lib/gestion-proyectos-stack.ts` | Proxy existente; cambia solo ante infraestructura o permisos nuevos |
+| Módulo frontend | `frontend/src/scripts/modules/<x>.ts` | Factory nueva por dominio |
+| Wiring frontend | `frontend/src/scripts/app.ts` | Importación, instancia y delegación |
 
 Referencias: `docs/05_api_backend.md` (estructura backend), `docs/18_servicios_y_runtime.md`
 (runtime), `docs/01_arquitectura_aws.md` (capas).

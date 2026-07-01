@@ -4,9 +4,9 @@
 
 ## Experiencia objetivo
 
-La gestión de proyectos y tareas debe concentrarse en una pantalla de trabajo simple. El usuario debe poder crear una persona, crear un proyecto, agregar personas al proyecto y crear tareas sin navegar por varias pantallas.
+La gestión de proyectos y tareas se concentra en una pantalla de trabajo simple. Desde ella, el usuario crea personas y proyectos, agrega integrantes y administra tareas.
 
-La pantalla debe sentirse como una vista general de proyectos con tareas visibles, no como Jira. El flujo principal debe permitir:
+La pantalla funciona como una vista general de proyectos con sus personas y tareas relacionadas. El flujo principal permite:
 
 - Registrar persona rápido con nombre y apellido como campos mínimos.
 - Completar datos opcionales solo si el usuario los necesita: área, notas, vacaciones u observaciones.
@@ -23,13 +23,13 @@ La pantalla debe sentirse como una vista general de proyectos con tareas visible
 - Mostrar el estado actual dentro de cada tarjeta de proyecto solo si fue definido.
 - Usar colores contextuales para estado de proyecto, estado de tarea y prioridad cuando existan.
 - Abrir formularios de persona y tarea solo cuando el usuario presione `Registrar persona` o `Crear tarea`, para mantener limpia la mesa de trabajo.
-- Abrir edición de tarea solo mediante un ícono de lápiz, no al seleccionar o arrastrar la tarjeta.
+- Abrir la edición de una tarea mediante su ícono de lápiz; seleccionar o arrastrar conserva el contexto operativo.
 - Mostrar confirmación visible al guardar cambios de proyecto o tarea desde el panel de detalle.
 - Mostrar confirmación breve al registrar persona, crear proyecto o crear tarea.
 
 Nota de lenguaje: en esta pantalla se usa `persona` para integrantes operativos que pueden participar en proyectos y tareas. `Usuario` queda reservado para cuentas de acceso a la aplicación web, autenticación, perfiles y administración.
 
-Regla de navegación: no separar `Proyectos` y `Tareas` en dos ventanas del menú. El usuario debe entenderlo como una sola mesa de trabajo: ver proyecto, responsable, personas y tareas en la misma tarjeta.
+Regla de navegación: `Proyectos y tareas` es una sola entrada del menú y una sola mesa de trabajo. Cada tarjeta reúne proyecto, responsable, personas y tareas.
 
 ## Pantalla de trabajo sugerida
 
@@ -37,11 +37,11 @@ La pantalla principal debe tener una jerarquía directa:
 
 - Barra superior: búsqueda de proyectos/tareas con alcance seleccionable, creación de proyecto, registro secundario de persona y filtros de estado.
 - Lista de proyectos: cada tarjeta muestra responsable, descripción (bajo el título, si existe), personas relacionadas y resumen de tareas por estado (conteos).
-- Tablero: oculto por defecto; se abre solo dentro del proyecto cuando el usuario presiona `Ver tablero` (Kanban completo con drag-and-drop) y se cierra con `Ocultar tablero`. Sin abrirlo, la tarjeta solo muestra el resumen de conteos, no las tareas, para no aparentar un tablero duplicado.
+- Tablero: comienza como resumen de conteos y se abre dentro del proyecto mediante `Ver tablero` para mostrar el Kanban completo; `Ocultar tablero` restaura el resumen.
 
-El usuario no debe llenar formularios largos para empezar. Los detalles extendidos se editan desde un panel contextual cuando haga falta, sin cubrir el tablero ni abrirse automáticamente. En escritorio, el detalle debe abrirse como panel lateral derecho no modal alineado con el proyecto o tarea seleccionada; en móvil, como bottom sheet con scroll interno.
+La creación rápida solicita los campos mínimos. Los detalles extendidos se editan desde un panel contextual abierto por una acción explícita. En escritorio aparece como panel lateral derecho no modal alineado con el elemento; en móvil, como bottom sheet con scroll interno.
 
-No debe existir un panel lateral fijo de `Personas / Equipo disponible` como bloque principal. Las personas deben verse dentro del proyecto donde participan. El menú lateral puede contraerse para liberar espacio horizontal durante el trabajo operativo.
+Las personas aparecen dentro del proyecto donde participan y en la franja compacta `Personas registradas`. El menú lateral puede contraerse para liberar espacio horizontal durante el trabajo operativo.
 
 ## Panel de detalle
 
@@ -51,7 +51,7 @@ La pantalla incluye un panel contextual. El panel se abre por acción explícita
 - Proyecto: nombre, descripción, estado opcional, responsable opcional y roles de miembros.
 - Tarea: título, estado, prioridad opcional, responsable opcional y notas.
 
-El panel debe complementar la creación rápida y el drag and drop, no reemplazarlos. Para tareas, el panel es la vía principal para asignar, cambiar o quitar responsable.
+El panel complementa la creación rápida y el drag and drop. Para tareas, constituye la vía principal para asignar, cambiar o quitar responsable.
 
 Los textos de acción deben ser consistentes: `Crear` para altas rápidas, `Editar` para abrir edición, `Guardar` para persistir cambios y `Cancelar` para abandonar una creación rápida.
 
@@ -68,13 +68,13 @@ Campos opcionales:
 - Notas.
 - Días de vacaciones u observaciones de disponibilidad.
 - Estado activo/inactivo.
-- El estado puede quedar en `Ninguno`; en ese caso no se muestra ningún badge en la tarjeta.
+- El estado puede quedar en `Ninguno`; la tarjeta omite el badge en ese caso.
 
 Si la persona ya existe, debe poder agregarse al proyecto desde el selector de personas de la tarjeta del proyecto.
 
-Si la persona ya está en el proyecto, debe mostrarse como persona relacionada dentro de la tarjeta del proyecto. No debe agregarse un panel lateral fijo ni un cuadro visible adicional que quite espacio al listado.
+Si la persona ya está en el proyecto, se muestra como persona relacionada dentro de la tarjeta correspondiente.
 
-La búsqueda principal de proyectos y tareas no debe ocultar la franja de personas registradas ni afectar el selector `Agregar persona`. Las personas se filtran únicamente desde el campo `Buscar persona`.
+La búsqueda principal filtra proyectos y tareas; `Buscar persona` filtra la franja de personas y el selector `Agregar persona` conserva las opciones disponibles.
 
 ## Proyectos
 
@@ -98,7 +98,7 @@ Estados iniciales sugeridos:
 - Pausado.
 - Cerrado.
 
-El estado del proyecto no es obligatorio. Si el usuario selecciona `Ninguno`, no debe mostrarse badge de estado en la tarjeta.
+El estado del proyecto es opcional. Si el usuario selecciona `Ninguno`, la tarjeta omite el badge de estado.
 
 ## Personas del proyecto
 
@@ -145,13 +145,13 @@ Prioridades recomendadas:
 - Alta.
 - Critica.
 
-La prioridad no es obligatoria. Si el usuario selecciona `Ninguna`, la tarea no debe mostrar badge de prioridad.
+La prioridad es opcional. Si el usuario selecciona `Ninguna`, la tarea omite el badge de prioridad.
 
 ## Regla de prioridad
 
 La prioridad de una tarea puede cambiarse en cualquier momento si el usuario tiene permiso.
 
-La prioridad no debe bloquear el cambio de estado. Una tarea puede cambiar de prioridad aunque este pendiente, en progreso, en revision o completada.
+La prioridad y el estado evolucionan de forma independiente. Una tarea puede cambiar de prioridad en cualquier estado.
 
 Todo cambio de prioridad debe registrarse en auditoría.
 

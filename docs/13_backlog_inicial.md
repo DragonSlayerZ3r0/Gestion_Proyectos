@@ -1,5 +1,10 @@
 # Backlog inicial
 
+> Estado documental: backlog de arranque. Sus elementos describen el alcance que dio
+> origen al primer corte; varios ya están implementados. Para trabajo pendiente y estado
+> vigente, consultar [`15_estado_implementacion.md`](15_estado_implementacion.md) y
+> [`20_roadmap_data_driven.md`](20_roadmap_data_driven.md).
+
 ## Base de proyecto
 
 - Crear estructura frontend Astro.

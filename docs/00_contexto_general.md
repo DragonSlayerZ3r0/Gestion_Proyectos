@@ -4,7 +4,7 @@
 
 Construir una plataforma interna para gestionar proyectos, tareas, accesos funcionales y contexto de datos disponibles en un Data Lake.
 
-La plataforma debe servir como una base modular para equipos internos. Debe permitir iniciar con gestión de proyectos y tareas, y luego crecer hacia catálogo de datos, tableros, solicitudes, auditoría y administración.
+La plataforma sirve como base modular para equipos internos. Integra gestión de proyectos y tareas, catálogo de datos, tableros operativos, auditoría y administración, con puntos de extensión para nuevos módulos.
 
 ## Problema que resuelve
 
@@ -30,17 +30,17 @@ Se permiten términos técnicos en inglés cuando sean nombres propios o convenc
 
 ## Filosofía de diseño
 
-La plataforma debe ser simple, clara y rápida. Debe priorizar pantallas limpias, pocos botones, navegación directa y acciones evidentes.
+La plataforma es simple, clara y rápida. Prioriza pantallas limpias, pocos botones, navegación directa y acciones evidentes.
 
-No debe parecer Jira. No debe obligar al usuario a entender una metodología compleja para crear una tarea, cambiar una prioridad o revisar un proyecto.
+Los flujos permiten crear una tarea, cambiar una prioridad o revisar un proyecto mediante acciones directas y lenguaje funcional del equipo.
 
-## Que no debe ser
+## Alcance y límites del producto
 
-- No debe ser un clon de Jira.
-- No debe ser un reemplazo completo de gobierno de datos.
-- No debe ser una consola técnica de AWS.
-- No debe permitir SQL libre desde el frontend.
-- No debe exponer todo el catálogo de datos a todos los usuarios.
+- La gestión de proyectos utiliza un modelo operativo ligero de proyectos, personas, tareas y Kanban.
+- El catálogo complementa el gobierno de datos con metadata técnica y contexto funcional.
+- Los servicios AWS se presentan mediante funciones del producto y permanecen abstraídos detrás del backend.
+- Las consultas de datos se ejecutan mediante operaciones controladas en el backend.
+- La visibilidad del catálogo se calcula según los permisos funcionales de cada usuario.
 
 ## Módulos esperados
 

@@ -1,8 +1,8 @@
 # Gestión de Proyectos
 
-Base de trabajo para una plataforma interna de gestión de proyectos, tareas, accesos funcionales y catálogo de Data Lake sobre AWS.
+Plataforma interna para gestionar proyectos, tareas, accesos funcionales y el catálogo del Data Lake sobre AWS.
 
-La aplicación debe mantenerse simple, clara y rápida. No busca replicar Jira ni convertirse en una herramienta pesada de seguimiento. Debe servir como base modular para equipos internos que necesitan coordinar proyectos, tareas, datos disponibles y permisos de acceso.
+La aplicación ofrece una experiencia simple, clara y rápida. Su base modular permite a equipos internos coordinar proyectos, tareas, datos disponibles y permisos de acceso mediante flujos directos.
 
 ## Proposito
 
@@ -14,21 +14,21 @@ La aplicación debe mantenerse simple, clara y rápida. No busca replicar Jira n
 
 ## Arquitectura esperada
 
-- Frontend: Astro + **TypeScript vanilla** (sin React/Vue/Angular).
+- Frontend: Astro + **TypeScript vanilla**, con render imperativo y módulos de UI.
 - Hosting: CloudFront sobre S3 privado.
 - Autenticacion: Amazon Cognito.
-- API: API Gateway con Lambda **Python 3.12** (sin framework web).
+- API: API Gateway con Lambda **Python 3.12** y router propio por registro.
 - Datos operativos: DynamoDB.
 - Catálogo técnico: Glue Catalog.
 - Consultas controladas: Athena.
 - Data Lake: S3.
 - Infraestructura: AWS CDK (TypeScript).
 
-> Stack tecnológico completo (lenguajes, frameworks, librerías y qué **no** se usa) en [`docs/01_arquitectura_aws.md`](docs/01_arquitectura_aws.md#stack-tecnológico).
+> Stack tecnológico completo, responsabilidades y modelo de ejecución en [`docs/01_arquitectura_aws.md`](docs/01_arquitectura_aws.md#stack-tecnológico).
 
 ## Diagrama de arquitectura
 
-La plataforma no usa MVC clásico. La construcción actual usa una arquitectura serverless por capas con **módulos enchufables**: interfaz Astro (shell + módulos de UI por inyección de dependencias), adaptador HTTP en Lambda con **router por registro** (cada módulo registra sus rutas y se autodescubre), servicios de dominio, **un repositorio por dominio** e infraestructura CDK. Agregar un módulo nuevo no toca el núcleo — ver [`docs/21_guia_nuevo_modulo.md`](docs/21_guia_nuevo_modulo.md).
+La plataforma utiliza una arquitectura serverless por capas con **módulos enchufables**: interfaz Astro organizada como shell y módulos de UI por inyección de dependencias, adaptador HTTP en Lambda con **router por registro**, servicios de dominio, **un repositorio por dominio** e infraestructura CDK. Los puntos de extensión mantienen estable el núcleo al incorporar módulos — ver [`docs/21_guia_nuevo_modulo.md`](docs/21_guia_nuevo_modulo.md).
 
 → **[Abrir guía visual de arquitectura y runtime](docs/Guia%2002%20-%20Arquitectura%20y%20runtime.canvas)**
 
@@ -54,12 +54,12 @@ Código de color común: azul para estructura o ejecución, rojo para controles 
 Si eres nuevo en el proyecto, lee en este orden:
 
 1. Este `README.md` — visión general, URLs y comandos.
-2. [`docs/00_contexto_general.md`](docs/00_contexto_general.md) — qué se construye, para quién y qué no debe ser.
+2. [`docs/00_contexto_general.md`](docs/00_contexto_general.md) — propósito, público, alcance y principios del producto.
 3. [`docs/01_arquitectura_aws.md`](docs/01_arquitectura_aws.md) — cómo está armado (capas, servicios, flujos).
 4. [`docs/18_servicios_y_runtime.md`](docs/18_servicios_y_runtime.md) — cómo se comporta en runtime: cada servicio AWS mapeado al código, sesión, cachés del catálogo y detalles no obvios.
 5. [`docs/17_desarrollo_local_publicacion.md`](docs/17_desarrollo_local_publicacion.md) — cómo desarrollar localmente y publicar.
-6. [`docs/12_guardrails.md`](docs/12_guardrails.md) — reglas que no deben romperse.
-7. [`docs/21_guia_nuevo_modulo.md`](docs/21_guia_nuevo_modulo.md) — cómo agregar un módulo nuevo (backend + frontend) sin tocar el núcleo.
+6. [`docs/12_guardrails.md`](docs/12_guardrails.md) — controles obligatorios de producto, seguridad y datos.
+7. [`docs/21_guia_nuevo_modulo.md`](docs/21_guia_nuevo_modulo.md) — cómo agregar un módulo nuevo mediante los puntos de extensión del backend y frontend.
 8. El doc del módulo que vayas a tocar (ver índice abajo: [07 catálogo](docs/07_catalogo_datalake.md), [08 proyectos y tareas](docs/08_proyectos_tareas.md), [09 administración](docs/09_admin_accesos.md)).
 
 Para trabajar con infraestructura AWS, suma [`docs/14_permisos_aws_actuales.md`](docs/14_permisos_aws_actuales.md) y [`docs/16_credenciales_aws_sso.md`](docs/16_credenciales_aws_sso.md). El archivo [`AGENTS.md`](AGENTS.md) contiene las reglas equivalentes para agentes de IA.
@@ -80,14 +80,14 @@ El contexto detallado vive en `docs/`:
 - [`docs/09_admin_accesos.md`](docs/09_admin_accesos.md): administracion de usuarios y accesos.
 - [`docs/10_integraciones_aws.md`](docs/10_integraciones_aws.md): integraciones AWS.
 - [`docs/11_fases_implementacion.md`](docs/11_fases_implementacion.md): roadmap inicial.
-- [`docs/12_guardrails.md`](docs/12_guardrails.md): reglas que no deben romperse.
+- [`docs/12_guardrails.md`](docs/12_guardrails.md): controles obligatorios de producto, seguridad, datos e implementación.
 - [`docs/13_backlog_inicial.md`](docs/13_backlog_inicial.md): tareas iniciales de construccion.
 - [`docs/14_permisos_aws_actuales.md`](docs/14_permisos_aws_actuales.md): perfil AWS validado, permisos encontrados y limitantes.
 - [`docs/15_estado_implementacion.md`](docs/15_estado_implementacion.md): estado actual del primer corte, comandos y pendientes.
 - [`docs/16_credenciales_aws_sso.md`](docs/16_credenciales_aws_sso.md): uso del perfil SSO para este proyecto.
 - [`docs/17_desarrollo_local_publicacion.md`](docs/17_desarrollo_local_publicacion.md): arquitectura por capas, puertos, desarrollo local y publicación.
 - [`docs/18_servicios_y_runtime.md`](docs/18_servicios_y_runtime.md): servicios AWS en contexto (servicio → código → configuración) y comportamiento en runtime (sesión, caché del catálogo, grafo heurístico, `config.json`).
-- [`docs/19_paso_a_produccion.md`](docs/19_paso_a_produccion.md): manual de despliegue a la cuenta de producción — campos a definir, ajustes previos, procedimiento, datos que no migran y checklist.
+- [`docs/19_paso_a_produccion.md`](docs/19_paso_a_produccion.md): manual de despliegue a producción — decisiones, procedimiento, inicialización de datos y checklist.
 - [`docs/20_roadmap_data_driven.md`](docs/20_roadmap_data_driven.md): roadmap orientado a datos.
 - [`docs/21_guia_nuevo_modulo.md`](docs/21_guia_nuevo_modulo.md): guía paso a paso para agregar un módulo nuevo (backend + frontend).
 
@@ -113,7 +113,7 @@ npm run infra:deploy
 Desarrollo local:
 
 - Frontend Astro: `http://127.0.0.1:4321/`.
-- Backend: no expone puerto local por defecto; se ejecuta como Lambda en AWS.
+- Backend: se ejecuta en la Lambda publicada del ambiente `dev`; la depuración utiliza CloudWatch Logs.
 - API publicada dev: `https://63ibnl13da.execute-api.us-east-1.amazonaws.com/`.
 - Frontend publicado dev: `https://d269paz1z7q1g0.cloudfront.net/`.
 

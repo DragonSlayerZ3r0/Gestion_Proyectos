@@ -15,7 +15,8 @@ def _usage(req: Request):
     ap_user = req.query.get("apUser") or ""
     if ap_user:
         return success(AthenaMonitorService().get_user_antipatterns(start, end, ap_user))
-    return success(AthenaMonitorService().get_usage(start, end, req.lambda_context.function_name))
+    force = bool(req.query.get("force"))
+    return success(AthenaMonitorService().get_usage(start, end, req.lambda_context.function_name, force=force))
 
 
 def register(router: Router) -> None:

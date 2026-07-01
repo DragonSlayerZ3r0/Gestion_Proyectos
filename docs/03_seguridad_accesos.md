@@ -8,8 +8,8 @@ Cognito dice quien es el usuario. DynamoDB dice que puede hacer. Lambda aplica l
 
 - Usar Amazon Cognito.
 - Validar JWT con API Gateway JWT Authorizer.
-- No aceptar llamadas anonimas a endpoints privados.
-- No manejar contraseñas en la aplicación.
+- Exigir identidad autenticada en todos los endpoints privados.
+- Delegar el manejo de credenciales y contraseñas a Amazon Cognito.
 
 ## Autorizacion funcional
 
@@ -23,7 +23,7 @@ La autorizacion debe vivir en DynamoDB y considerar:
 
 ## Validacion en Lambda
 
-Cada Lambda debe validar permisos antes de ejecutar acciones. No basta con que el menu frontend oculte una opcion.
+Cada operación valida permisos en Lambda antes de ejecutar acciones. El menú frontend refleja esa autorización para construir la experiencia visible.
 
 ## Roles globales iniciales
 
@@ -31,12 +31,12 @@ Cada Lambda debe validar permisos antes de ejecutar acciones. No basta con que e
 - `user`: usuario funcional base.
 - `project_owner`: administra proyectos donde tenga ese rol.
 
-Evitar crear demasiados roles al inicio. Preferir permisos concretos por modulo y proyecto.
+El modelo inicial utiliza pocos roles globales y permisos concretos por módulo y proyecto.
 
 ## Reglas de seguridad
 
-- No exponer credenciales AWS.
-- No usar S3 publico para el frontend.
-- No permitir SQL libre desde frontend.
-- No exponer todo el catalogo a todos los usuarios.
+- Obtener credenciales AWS mediante perfiles SSO y mantenerlas fuera del repositorio y la interfaz.
+- Servir el frontend mediante CloudFront con un bucket S3 privado.
+- Ejecutar consultas Athena definidas y controladas por servicios backend.
+- Calcular la visibilidad del catálogo según módulos, proyectos y permisos funcionales.
 - Auditar cambios de permisos, proyecto, tarea, prioridad y contexto funcional.

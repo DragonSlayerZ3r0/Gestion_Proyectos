@@ -44,3 +44,11 @@ class AthenaMonitorRepository(BaseRepository):
 
     def get_user_antipatterns(self, start: str, end: str, user: str) -> dict[str, Any] | None:
         return self._table.get_item(Key={"PK": _PK, "SK": self._sk_ap(start, end, user)}).get("Item")
+
+    # Mapa actor(email) -> nombre real (Identity Center), compartido entre ventanas.
+    def get_name_map(self) -> dict[str, str]:
+        item = self._table.get_item(Key={"PK": _PK, "SK": "NAMEMAP"}).get("Item")
+        return dict((item or {}).get("names") or {})
+
+    def put_name_map(self, names: dict[str, str]) -> None:
+        self._table.put_item(Item={"PK": _PK, "SK": "NAMEMAP", "entityType": "HOME_ATHENA_NAMES", "names": names})

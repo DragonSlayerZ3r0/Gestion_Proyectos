@@ -142,6 +142,12 @@
         athenaOpenUser: null,
         athenaUserAp: {},
         athenaUserFilter: "",
+        athenaMarkOff: {},   // antipatrones "desmarcados" (quitados del resaltado en el query)
+        athenaOpenInfo: {},  // recomendación desplegada (independiente del resaltado)
+        athenaApSort: "bytes",
+        athenaApSortDir: "desc",
+        athenaApFilter: "",
+        athenaInfoOpen: false,
         ingestBucket: "arc-enterprise-data",
         ingestData: null,
         ingestScannedAt: null,

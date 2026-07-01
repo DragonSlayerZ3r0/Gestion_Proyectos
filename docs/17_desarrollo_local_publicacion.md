@@ -2,7 +2,7 @@
 
 ## Resumen
 
-Este proyecto usa una arquitectura serverless por capas, no MVC clásico.
+Este proyecto utiliza una arquitectura serverless por capas.
 
 La separación principal es:
 
@@ -28,7 +28,7 @@ La Lambda se organiza por capas simples:
 - `repositories/`: encapsula DynamoDB y evita que la lógica funcional dependa de llamadas directas de bajo nivel.
 - `responses.py`: estandariza respuestas `{ ok, data, error }`.
 
-Regla: el frontend nunca accede directo a DynamoDB, Glue, Athena ni S3 Data Lake.
+Regla: el frontend accede a DynamoDB, Glue, Athena y S3 Data Lake exclusivamente mediante API Gateway y Lambda.
 
 ## Puertos y endpoints
 
@@ -36,7 +36,7 @@ Regla: el frontend nunca accede directo a DynamoDB, Glue, Athena ni S3 Data Lake
 | --- | --- |
 | Frontend local Astro | `http://127.0.0.1:4321/` |
 | Preview local Astro | `http://127.0.0.1:4321/` si el puerto está libre |
-| Backend local | No expone puerto local por defecto |
+| Backend durante desarrollo | Lambda publicada en el ambiente `dev`; depuración mediante CloudWatch Logs |
 | Frontend dev publicado | `https://d269paz1z7q1g0.cloudfront.net/` |
 | API dev publicada | `https://63ibnl13da.execute-api.us-east-1.amazonaws.com/` |
 | CloudFront/API Gateway | HTTPS `443` |
@@ -75,7 +75,7 @@ Para pruebas locales contra AWS dev, se pueden usar los valores públicos del am
 }
 ```
 
-No colocar secretos, tokens temporales ni credenciales AWS en `config.json`.
+`config.json` contiene exclusivamente valores públicos de runtime. Los secretos, tokens temporales y credenciales AWS permanecen en los servicios de identidad y perfiles SSO.
 
 ## Desarrollo local
 
@@ -110,6 +110,18 @@ npm run check
 - Compilación Python con `py_compile`.
 - `cdk synth`.
 
+## Dónde se desarrolla y dónde se despliega
+
+Existe un único working directory local para este proyecto: `/Users/josbel/Documents/Dev_Code/Gestion_Proyectos` (sin `git worktree` adicionales salvo que se cree uno explícitamente para una tarea puntual). No hay un ambiente de desarrollo "separado" del de despliegue: son la misma carpeta en disco.
+
+Punto clave para evitar confusión entre sesiones de trabajo (por ejemplo, una sesión de Claude Code donde se conversa/edita código y otra distinta donde se ejecuta el despliegue):
+
+- **Los comandos de despliegue** (`cdk deploy`, `scripts/deploy-frontend.sh`, `aws lambda update-function-code`) toman el código **tal como está en el filesystem en ese momento**. No dependen de qué sesión de chat lo escribió, ni de si hay un commit de por medio — leen los archivos del working directory directamente.
+- Por lo tanto, si el código se edita en una sesión y el despliegue se ejecuta en otra (u otra pestaña/terminal), **ambas ven exactamente el mismo estado** porque apuntan a la misma carpeta. No hay dos copias del código; "otra sesión despliega" no significa "otro código", significa que el despliegue se disparó desde otra conversación mientras el archivo ya tenía los cambios guardados en disco.
+- La confusión típica ocurre al revés: una sesión de desarrollo asume que "ya se desplegó" porque lo vio funcionar, cuando en realidad el despliegue ocurrió en una sesión anterior sobre un estado del código que **ya no es el actual** (se siguió editando después). El código nuevo queda escrito en disco pero no publicado hasta el próximo `cdk deploy` / `deploy-frontend.sh`.
+- **Antes de dar por hecho que algo "ya está en dev"**, correr `git status` / `git diff` para ver si hay cambios sin desplegar, y si es necesario, verificar directamente en AWS (`LastModified` de la Lambda, o el contenido real descargado) en vez de asumir por lo que se recuerda de otra conversación.
+- Recomendación operativa: cuando se sepa que el despliegue va a correr en otra sesión/terminal, dejarlo explícito en esa conversación (qué se cambió y por qué se debe publicar) en vez de asumir que "la otra sesión ya sabe".
+
 ## Validación AWS previa
 
 Antes de acciones AWS relevantes:
@@ -124,7 +136,7 @@ Si la sesión SSO expiró:
 aws sso login --sso-session bdr-fed
 ```
 
-No usar `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` ni `AWS_SESSION_TOKEN` como flujo normal del proyecto.
+Usar el perfil SSO `gestion-proyectos-dev` como flujo normal y mantener credenciales temporales fuera de archivos y comandos del proyecto.
 
 ## Publicación de backend
 
@@ -257,7 +269,7 @@ En este proyecto, algunos cambios operativos se publican con AWS CLI para evitar
 
 - Mantener textos visibles en español.
 - Mantener `docs/` sincronizado con cambios reales.
-- Validar permisos en backend, no solo ocultar controles en frontend.
-- No publicar buckets S3 como públicos.
-- No guardar secretos ni credenciales temporales en el repo.
+- Validar permisos en backend y reflejarlos en los controles visibles del frontend.
+- Servir el frontend mediante CloudFront desde un bucket S3 privado.
+- Mantener secretos y credenciales temporales fuera del repositorio.
 - Validar STS antes de publicar en AWS.

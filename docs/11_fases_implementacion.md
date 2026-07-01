@@ -1,5 +1,10 @@
 # Fases de implementación
 
+> Estado documental: plan inicial de construcción. Se conserva como antecedente de la
+> secuencia original y no representa el estado vigente. El avance confirmado está en
+> [`15_estado_implementacion.md`](15_estado_implementacion.md) y la evolución futura en
+> [`20_roadmap_data_driven.md`](20_roadmap_data_driven.md).
+
 ## Fase 1: Base técnica
 
 - Objetivo: crear estructura inicial de frontend, backend e infraestructura.
