@@ -38,10 +38,33 @@ export function createChatModule(ctx) {
     try {
       const p = await apiRequest(`api/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
       state.chatMessages[sessionId] = p.data.messages || [];
+      // Si se reabre una conversación con una respuesta aún en camino (p. ej.
+      // tras recargar la página a mitad de la generación), retoma el polling.
+      if (p.data.status === "generating" && !state.chatGenerating[sessionId]) {
+        state.chatGenerating[sessionId] = true;
+        pollReply(sessionId);
+      }
     } catch {
       state.chatMessages[sessionId] = [];
     }
     state.chatMessagesLoading[sessionId] = false;
+    if (state.chatActiveSessionId === sessionId) paintChat();
+  }
+
+  // Sondea hasta que el worker asíncrono guarde la respuesta (status deja de ser
+  // "generating"). El backend genera en segundo plano porque el razonador puede
+  // tardar más que los 30 s duros de API Gateway; aquí solo esperamos y refrescamos.
+  async function pollReply(sessionId) {
+    for (let i = 0; i < 150; i++) {                    // tope ~5 min (igual que la Lambda)
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const p = await apiRequest(`api/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
+        state.chatMessages[sessionId] = p.data.messages || [];
+        if (p.data.status !== "generating") break;
+        if (state.chatActiveSessionId === sessionId) paintChat();
+      } catch {}                                        // red intermitente: seguir intentando
+    }
+    delete state.chatGenerating[sessionId];
     if (state.chatActiveSessionId === sessionId) paintChat();
   }
 
@@ -74,10 +97,10 @@ export function createChatModule(ctx) {
   async function sendMessage() {
     const input = elements.contentPanel.querySelector("#chatInput");
     const text = (input?.value || "").trim();
-    if (!text || state.chatSending) return;
+    const sessionId = state.chatActiveSessionId;
+    if (!text || state.chatSending || (sessionId && state.chatGenerating[sessionId])) return;
     input.value = "";
 
-    const sessionId = state.chatActiveSessionId;
     const now = new Date().toISOString();
     if (sessionId) {
       state.chatMessages[sessionId] = [...(state.chatMessages[sessionId] || []), { role: "user", text, createdAt: now }];
@@ -87,6 +110,9 @@ export function createChatModule(ctx) {
     paintChat();
 
     try {
+      // El POST solo ENCOLA (regresa de inmediato con pending); la respuesta la
+      // genera un worker asíncrono y se recoge con pollReply — así el razonador
+      // puede tardar lo que necesite sin chocar con el timeout de API Gateway.
       const p = await apiRequest("api/chat/messages", {
         method: "POST",
         body: JSON.stringify({ sessionId, text }),
@@ -96,7 +122,7 @@ export function createChatModule(ctx) {
         // Era conversación nueva: se acaba de crear en el backend.
         state.chatMessages[newId] = [{ role: "user", text, createdAt: now }];
         state.chatSessions = [
-          { sessionId: newId, title: p.data.title, updatedAt: new Date().toISOString(), messageCount: 2 },
+          { sessionId: newId, title: p.data.title, updatedAt: new Date().toISOString(), messageCount: 1 },
           ...(state.chatSessions || []),
         ];
       } else {
@@ -110,8 +136,12 @@ export function createChatModule(ctx) {
           state.chatSessions[0] = { ...state.chatSessions[0], updatedAt: new Date().toISOString() };
         }
       }
-      state.chatMessages[newId] = [...(state.chatMessages[newId] || []), { role: "assistant", text: p.data.reply, createdAt: new Date().toISOString() }];
       state.chatActiveSessionId = newId;
+      state.chatGenerating[newId] = true;
+      state.chatSending = false;
+      paintChat();
+      await pollReply(newId);
+      return;
     } catch (err) {
       state.chatError = err?.message || "No se pudo enviar el mensaje.";
     }
@@ -184,7 +214,8 @@ export function createChatModule(ctx) {
         </div>`).join("")
       : `<div class="chatEmpty">Pregunta lo que necesites: dudas de SQL, AWS, cómo mejorar un query, o cualquier tema técnico de la plataforma.</div>`;
 
-    const typingHtml = state.chatSending
+    const busy = state.chatSending || (activeId && state.chatGenerating[activeId]);
+    const typingHtml = busy
       ? `<div class="chatMsg chatMsg-assistant"><div class="chatBubble chatTyping">Escribiendo…</div></div>`
       : "";
     const errorHtml = state.chatError
@@ -202,8 +233,8 @@ export function createChatModule(ctx) {
             <div class="chatMessages" id="chatMessages">${messagesHtml}${typingHtml}</div>
             ${errorHtml}
             <div class="chatInputRow">
-              <textarea id="chatInput" class="chatInput" placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter para salto de línea)" rows="1" ${state.chatSending ? "disabled" : ""}></textarea>
-              <button type="button" id="chatSendBtn" class="chatSendBtn" ${state.chatSending ? "disabled" : ""}>Enviar</button>
+              <textarea id="chatInput" class="chatInput" placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter para salto de línea)" rows="1" ${busy ? "disabled" : ""}></textarea>
+              <button type="button" id="chatSendBtn" class="chatSendBtn" ${busy ? "disabled" : ""}>Enviar</button>
             </div>
           </div>
         </div>

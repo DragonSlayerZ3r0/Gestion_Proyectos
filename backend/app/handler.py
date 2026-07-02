@@ -26,6 +26,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         AthenaMonitorService().run_scan(event.get("start", ""), event.get("end", ""))
         return {"ok": True}
 
+    # Respuesta del chat de apoyo técnico en segundo plano: el razonador puede
+    # tardar más que los 30 s de API Gateway, así que el POST encola y esto genera.
+    if event.get("action") == "chat_reply":
+        from services.chat import ChatService
+        ChatService().run_reply(event.get("userId", ""), event.get("sessionId", ""))
+        return {"ok": True}
+
     # Conteo de filas por área/tabla (tabla de control vía Athena), acotado a un rango.
     if event.get("action") == "datalake_records_scan":
         from services.datalake import DatalakeService

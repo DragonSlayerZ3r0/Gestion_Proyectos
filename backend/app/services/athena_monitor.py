@@ -326,8 +326,52 @@ class AthenaMonitorService:
                 and (force or (auto and (not item or status != "ok" or self._is_stale(scanned_at, end))))):
             self.start_scan(start, end, function_name)
             scanning = True
-        return {"start": start, "end": end, "data": item.get("data") if item else None,
-                "scannedAt": scanned_at, "scanning": scanning, "status": status}
+        result = {"start": start, "end": end, "data": item.get("data") if item else None,
+                  "scannedAt": scanned_at, "scanning": scanning, "status": status}
+        # Ventana recién nacida (p. ej. "últimos 7 días" al cambiar el día): aún no
+        # hay nada que mostrar y el primer escaneo tarda 1-2 min (CloudTrail va
+        # limitado a ~2 req/s). Mientras corre, se devuelven como PROVISIONALES los
+        # datos de la ventana previa más parecida — casi todos los datos coinciden
+        # — en vez de dejar la pantalla vacía.
+        if scanning and not result["data"]:
+            fb = self._fallback_window(start, end)
+            if fb:
+                result["data"] = fb["data"]
+                result["provisional"] = {"start": fb["start"], "end": fb["end"]}
+        return result
+
+    def _fallback_window(self, start: str, end: str) -> dict[str, Any] | None:
+        """Ventana cacheada más parecida a la pedida (mismo largo en días de
+        preferencia, fin más reciente, con datos OK y a lo sumo ~7 días de vieja)."""
+        try:
+            span = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days
+        except ValueError:
+            return None
+        best: tuple[int, str, str, str] | None = None   # (penalizacion, end, start, sk)
+        for w in self._db.list_usage_windows():
+            if w.get("status") != "ok":
+                continue
+            parts = (w.get("SK") or "").split("#")
+            if len(parts) != 2:
+                continue
+            w_start, w_end = parts
+            try:
+                w_span = (datetime.fromisoformat(w_end) - datetime.fromisoformat(w_start)).days
+                age_days = abs((datetime.fromisoformat(end) - datetime.fromisoformat(w_end)).days)
+            except ValueError:
+                continue
+            if age_days > 7:
+                continue
+            # Prioriza mismo largo de ventana; luego, la de fin más reciente.
+            penalty = abs(w_span - span)
+            if best is None or penalty < best[0] or (penalty == best[0] and w_end > best[1]):
+                best = (penalty, w_end, w_start, w.get("SK"))
+        if not best:
+            return None
+        full = self._db.get_usage(best[2], best[1])
+        if not full or not full.get("data"):
+            return None
+        return {"data": full["data"], "start": best[2], "end": best[1]}
 
     def get_query_sql(self, qid: str) -> dict[str, Any]:
         """SQL completo de una consulta por su queryExecutionId (bajo demanda, para
@@ -367,6 +411,39 @@ class AthenaMonitorService:
         if not issues:
             return {"qid": qid, "suggestion": "", "issues": []}
 
+        # Tablas SIN base en el query: se buscan por nombre en todas las bases
+        # cacheadas del catálogo (pocas bases → GetItems baratos). Así la
+        # sugerencia puede calificarlas con su base REAL (no un marcador tipo
+        # "tu_esquema") y traer sus columnas/particiones al contexto del modelo.
+        resolution_notes: list[str] = []
+        if sqlglot is not None:
+            try:
+                tree = sqlglot.parse_one(sql, read="athena")
+                ctes = {c.alias_or_name.lower() for c in tree.find_all(_exp.CTE)}
+                db_names: list[str] | None = None
+                seen_unqualified: set[str] = set()
+                for t in tree.find_all(_exp.Table):
+                    name = t.name or ""
+                    if not name or name.lower() in ctes or t.db or name.lower() in seen_unqualified:
+                        continue
+                    seen_unqualified.add(name.lower())
+                    if db_names is None:
+                        try:
+                            db_names = [d.get("database") for d in cat.list_catalog_databases() if d.get("database")]
+                        except Exception:
+                            db_names = []
+                    matches = [db for db in db_names if _table_meta(db, name)]
+                    if len(matches) == 1:
+                        resolution_notes.append(
+                            f"- `{name}` aparece SIN base en el query; según el catálogo vive en "
+                            f"`{matches[0]}` → califícala como `{matches[0]}.{name}`.")
+                    elif len(matches) > 1:
+                        resolution_notes.append(
+                            f"- `{name}` aparece SIN base y existe en varias bases del catálogo "
+                            f"({', '.join(matches)}); indica que el usuario debe confirmar cuál usar.")
+            except Exception:
+                pass
+
         labels = [_ANTIPATTERNS.get(i["code"], i["code"]) for i in issues]
         catalog_lines = []
         _MAX_COLS = 60  # tope para no inflar el prompt en tablas muy anchas
@@ -396,16 +473,48 @@ class AthenaMonitorService:
             "inventes columnas, tablas, tipos o particiones que no aparezcan ahí. "
             "Usa el tipo real de cada columna (viene en el catálogo) para precisar "
             "la sugerencia, por ejemplo al detectar conversiones de tipo "
-            "innecesarias. Si corresponde, incluye el fragmento de SQL corregido.")
+            "innecesarias. Athena NO usa índices (escanea archivos en S3): explica "
+            "los problemas en términos de partition pruning, estadísticas de "
+            "Parquet (min/max por bloque) y datos escaneados — nunca digas que "
+            "algo 'impide usar índices'. Para un LIKE con comodín al inicio "
+            "('%x%'), lo mejor es igualdad o IN con los valores reales del campo "
+            "si son conocidos; si no, anclar el prefijo ('x%'); conservar '%x%' "
+            "solo si de verdad se busca texto en cualquier posición. En el SQL "
+            "corregido usa SIEMPRE nombres reales del catálogo: si te indican la "
+            "base real de una tabla, califícala con esa base (nunca marcadores "
+            "como 'tu_esquema'); al reemplazar SELECT *, propón una lista "
+            "concreta con las columnas que el query ya usa (WHERE/JOIN/ORDER) más "
+            "las del catálogo que parezcan relevantes al propósito, aclarando en "
+            "una línea que el usuario ajuste esa lista a lo que realmente "
+            "necesita. REGLA DE COHERENCIA: todo problema que menciones debe "
+            "quedar corregido en el SQL que propongas; si decides no corregir "
+            "alguno, di explícitamente por qué lo dejaste igual. IMPORTANTE: si "
+            "el query es largo (más de ~30 líneas), NO lo reescribas completo — "
+            "muestra SOLO los fragmentos que cambian (cada uno con 1-2 líneas de "
+            "contexto e indicando en qué parte va); el usuario aplica los cambios "
+            "sobre su query original.")
+        resolution_block = ("\n\nTablas resueltas contra el catálogo:\n" + "\n".join(resolution_notes)) if resolution_notes else ""
         prompt = (
             f"Consulta SQL:\n```sql\n{sql}\n```\n\n"
             f"Antipatrones detectados automáticamente: {', '.join(labels)}.\n\n"
-            f"Catálogo de las tablas referenciadas:\n{catalog_block}\n\n"
+            f"Catálogo de las tablas referenciadas:\n{catalog_block}"
+            f"{resolution_block}\n\n"
             "Da una sugerencia concreta para ESTA consulta en particular (no una "
             "explicación genérica del antipatrón), teniendo en cuenta la "
             "estructura real del query y el catálogo de arriba.")
-        result = LlmService().complete(prompt, system=system, max_tokens=700)
-        return {"qid": qid, "suggestion": result["text"], "issues": issues}
+        # Tope de salida calibrado contra el timeout DURO de API Gateway (30 s, no
+        # configurable): generar ~2500 tokens tardaba >30 s en queries grandes y el
+        # navegador recibía el corte aunque la Lambda terminara bien. Por eso el
+        # prompt pide fragmentos (no reescribir el query completo) y el tope queda
+        # en un punto que da respuestas completas en <20 s.
+        # thinking=False: GLM 5 razona antes de responder y con queries grandes eso
+        # puede superar los 30 s del timeout de API Gateway; para esta tarea acotada
+        # la respuesta directa es suficiente.
+        result = LlmService().complete(prompt, system=system, max_tokens=1400, thinking=False)
+        suggestion = result["text"]
+        if result.get("stopReason") == "max_tokens":
+            suggestion += "\n\n*(La sugerencia se cortó por longitud; pide de nuevo enfocándote en una parte del query.)*"
+        return {"qid": qid, "suggestion": suggestion, "issues": issues}
 
     def start_scan(self, start: str, end: str, function_name: str) -> dict[str, Any]:
         self._validate(start, end)

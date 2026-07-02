@@ -10,7 +10,7 @@ def _list_sessions(req: Request):
 
 def _get_messages(req: Request):
     session_id = req.params.get("sessionId") or ""
-    return success({"messages": ChatService().get_messages(req.identity["userId"], session_id)})
+    return success(ChatService().get_conversation(req.identity["userId"], session_id))
 
 
 def _delete_session(req: Request):
@@ -23,7 +23,8 @@ def _send_message(req: Request):
     body = req.body()
     session_id = body.get("sessionId") or None
     text = body.get("text") or ""
-    return success(ChatService().send_message(req.identity["userId"], session_id, text))
+    return success(ChatService().send_message(
+        req.identity["userId"], session_id, text, req.lambda_context.function_name))
 
 
 def register(router: Router) -> None:

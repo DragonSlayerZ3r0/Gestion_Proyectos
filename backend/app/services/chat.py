@@ -1,6 +1,9 @@
+import json
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
+
+import boto3
 
 from core.errors import ValidationError
 from repositories.chat import ChatRepository
@@ -45,12 +48,29 @@ class ChatService:
         return [{"role": m.get("role"), "text": m.get("content", ""), "createdAt": m.get("createdAt", "")}
                 for m in msgs]
 
+    def get_conversation(self, user_id: str, session_id: str) -> dict[str, Any]:
+        """Mensajes + estado de la sesión, para el polling del frontend: mientras
+        `status` sea "generating" hay una respuesta en camino."""
+        session = self._db.get_session(user_id, session_id)
+        if not session:
+            raise ValidationError("La conversación no existe.")
+        return {
+            "messages": self.get_messages(user_id, session_id),
+            "status": session.get("status", "ready"),
+        }
+
     def delete_session(self, user_id: str, session_id: str) -> None:
         if not self._db.get_session(user_id, session_id):
             raise ValidationError("La conversación no existe.")
         self._db.delete_session(user_id, session_id)
 
-    def send_message(self, user_id: str, session_id: str | None, text: str) -> dict[str, Any]:
+    def send_message(self, user_id: str, session_id: str | None, text: str,
+                     function_name: str) -> dict[str, Any]:
+        """Encola el mensaje y dispara la generación EN SEGUNDO PLANO (self-invoke,
+        mismo patrón que el escaneo de Athena): la respuesta del razonador puede
+        tardar más que los 30 s duros de API Gateway, así que este POST regresa de
+        inmediato con `pending` y el frontend sondea los mensajes hasta que llegue
+        la respuesta del asistente."""
         text = (text or "").strip()
         if not text:
             raise ValidationError("El mensaje no puede estar vacío.")
@@ -61,29 +81,50 @@ class ChatService:
         is_new = not session_id
         if is_new:
             session_id = uuid4().hex
-            history: list[dict[str, Any]] = []
             title = text[:TITLE_MAX_CHARS] + ("…" if len(text) > TITLE_MAX_CHARS else "")
             created_at = now
+            message_count = 1
         else:
             session = self._db.get_session(user_id, session_id)
             if not session:
                 raise ValidationError("La conversación no existe.")
-            history = self.get_messages(user_id, session_id)
+            if session.get("status") == "generating":
+                raise ValidationError("Espera la respuesta anterior antes de enviar otro mensaje.")
             title = session.get("title") or text[:TITLE_MAX_CHARS]
             created_at = session.get("createdAt", now)
+            message_count = int(session.get("messageCount", 0)) + 1
 
         ttl = int(datetime.now(timezone.utc).timestamp()) + MESSAGE_TTL_DAYS * 86400
         self._db.put_message(session_id, "user", text, now, ttl)
+        self._db.put_session(user_id, session_id, title, created_at, now, message_count,
+                             status="generating")
+        boto3.client("lambda").invoke(
+            FunctionName=function_name, InvocationType="Event",
+            Payload=json.dumps({"action": "chat_reply", "userId": user_id,
+                                "sessionId": session_id}).encode())
+        return {"sessionId": session_id, "title": title, "pending": True}
 
-        convo = history[-MAX_HISTORY_MESSAGES:] + [{"role": "user", "text": text}]
-        # Tope más bajo que el default (chat.py): el historial se reenvía completo en
-        # CADA turno, así que el costo se acumula con la conversación — a diferencia
-        # de la sugerencia de Athena, que es una sola llamada.
-        result = LlmService().converse(convo, system=SYSTEM_PROMPT, max_tokens=900, max_prompt_chars=16000)
-        reply = result["text"]
-
+    def run_reply(self, user_id: str, session_id: str) -> None:
+        """Worker asíncrono: genera la respuesta con el razonador SIN límite de 30 s
+        (la Lambda tiene 300 s). Pase lo que pase deja la sesión fuera del estado
+        `generating` — si el modelo falla, guarda un mensaje de error visible para
+        que el usuario pueda reintentar, en vez de dejar el chat colgado."""
+        session = self._db.get_session(user_id, session_id)
+        if not session:
+            return
+        msgs = self.get_messages(user_id, session_id)
+        ttl = int(datetime.now(timezone.utc).timestamp()) + MESSAGE_TTL_DAYS * 86400
+        try:
+            convo = [{"role": m["role"], "text": m["text"]} for m in msgs[-MAX_HISTORY_MESSAGES:]]
+            result = LlmService().converse(convo, system=SYSTEM_PROMPT, max_tokens=1500,
+                                           max_prompt_chars=16000)
+            reply = result["text"]
+            if result.get("stopReason") == "max_tokens":
+                reply += "\n\n*(La respuesta se cortó por longitud; pídeme continuar o enfoca la pregunta.)*"
+        except Exception:
+            reply = "No pude generar la respuesta esta vez. Intenta enviar tu mensaje de nuevo."
         reply_at = _now()
         self._db.put_message(session_id, "assistant", reply, reply_at, ttl)
-        self._db.put_session(user_id, session_id, title, created_at, reply_at, len(history) + 2)
-
-        return {"sessionId": session_id, "reply": reply, "title": title}
+        self._db.put_session(user_id, session_id, session.get("title", ""),
+                             session.get("createdAt", reply_at), reply_at,
+                             len(msgs) + 1, status="ready")

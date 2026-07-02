@@ -22,12 +22,15 @@ class ChatRepository(BaseRepository):
         return resp.get("Item")
 
     def put_session(self, user_id: str, session_id: str, title: str, created_at: str,
-                     updated_at: str, message_count: int) -> None:
+                     updated_at: str, message_count: int, status: str = "ready") -> None:
+        # status: "generating" mientras el worker asíncrono produce la respuesta
+        # (el POST regresa antes de tenerla); "ready" cuando ya está guardada.
         self._table.put_item(Item={
             "PK": f"USER#{user_id}", "SK": f"CHAT#{session_id}",
             "entityType": "CHAT_SESSION",
             "sessionId": session_id, "userId": user_id, "title": title,
             "createdAt": created_at, "updatedAt": updated_at, "messageCount": message_count,
+            "status": status,
         })
 
     def delete_session(self, user_id: str, session_id: str) -> None:

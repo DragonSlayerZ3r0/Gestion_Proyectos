@@ -23,6 +23,16 @@ class AthenaMonitorRepository(BaseRepository):
     def get_usage(self, start: str, end: str) -> dict[str, Any] | None:
         return self._table.get_item(Key={"PK": _PK, "SK": self._sk(start, end)}).get("Item")
 
+    def list_usage_windows(self) -> list[dict[str, Any]]:
+        """Metadatos (sin `data`, que pesa) de todas las ventanas cacheadas — para
+        elegir una ventana previa como respaldo mientras se calcula una nueva."""
+        resp = self._table.query(
+            KeyConditionExpression=Key("PK").eq(_PK),
+            ProjectionExpression="SK, #st, scannedAt",
+            ExpressionAttributeNames={"#st": "status"})
+        return [i for i in resp.get("Items", [])
+                if "#ap#" not in i.get("SK", "") and i.get("SK") != "NAMEMAP"]
+
     def put_usage(self, start: str, end: str, data: dict[str, Any], scanned_at: str, status: str) -> None:
         self._table.put_item(Item={
             "PK": _PK, "SK": self._sk(start, end), "entityType": "HOME_ATHENA",

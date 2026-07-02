@@ -28,7 +28,7 @@ class LlmService:
             aws_session_token=creds["SessionToken"], region_name=REGION)
 
     def converse(self, messages: list[dict[str, str]], system: str = "", max_tokens: int = 800,
-                 max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS) -> dict[str, Any]:
+                 max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS, thinking: bool = True) -> dict[str, Any]:
         """Llamada directa (sin Bedrock Agent) a un modelo on-demand. Sin estado
         propio: `messages` es el historial completo ([{role: "user"|"assistant",
         text: "..."}]) — quien llama (p. ej. el chat) arma y guarda ese historial,
@@ -47,15 +47,22 @@ class LlmService:
         }
         if system:
             kwargs["system"] = [{"text": system}]
+        if not thinking:
+            # GLM 5 es un modelo razonador: con prompts grandes puede "pensar"
+            # decenas de segundos antes de responder. Para tareas acotadas servidas
+            # por HTTP síncrono (API Gateway corta a los 30 s) se desactiva.
+            kwargs["additionalModelRequestFields"] = {"thinking": {"type": "disabled"}}
         resp = client.converse(**kwargs)
         blocks = resp.get("output", {}).get("message", {}).get("content", [])
         text = "".join(b.get("text", "") for b in blocks)
-        return {"text": text, "usage": resp.get("usage", {})}
+        # stopReason "max_tokens" = la respuesta se cortó por el tope de salida;
+        # quien llama decide si avisar al usuario o reintentar con más espacio.
+        return {"text": text, "usage": resp.get("usage", {}), "stopReason": resp.get("stopReason", "")}
 
     def complete(self, prompt: str, system: str = "", max_tokens: int = 800,
-                 max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS) -> dict[str, Any]:
+                 max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS, thinking: bool = True) -> dict[str, Any]:
         prompt = (prompt or "").strip()
         if not prompt:
             raise ValidationError("El prompt no puede estar vacío.")
         return self.converse([{"role": "user", "text": prompt}], system=system, max_tokens=max_tokens,
-                              max_prompt_chars=max_prompt_chars)
+                              max_prompt_chars=max_prompt_chars, thinking=thinking)

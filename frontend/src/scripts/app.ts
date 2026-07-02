@@ -156,7 +156,8 @@
         chatActiveSessionId: null, // null = conversación nueva (sin crear todavía)
         chatMessages: {},          // por sessionId: [{role, text, createdAt}]
         chatMessagesLoading: {},   // por sessionId: bool (carga de historial)
-        chatSending: false,
+        chatSending: false,     // POST en vuelo (breve: solo encola)
+        chatGenerating: {},     // por sessionId: true mientras el worker genera la respuesta
         chatError: "",
         ingestBucket: "arc-enterprise-data",
         ingestData: null,

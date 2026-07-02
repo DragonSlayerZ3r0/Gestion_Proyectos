@@ -863,16 +863,19 @@ export function createHomeModule(ctx) {
         const suggestState = q.qid ? state.athenaLlmSuggest[q.qid] : null;
         // Ya generada: el mismo botón alterna mostrar/ocultar (sin volver a llamar
         // al modelo). Solo mientras carga se deshabilita para no duplicar la llamada.
-        const suggestReady = suggestState && !suggestState.loading;
+        const suggestReady = suggestState && !suggestState.loading && !suggestState.error;
         const suggestVisible = !suggestState || suggestState.visible !== false;
+        const suggestLabel = suggestState && suggestState.error ? "💡 Reintentar"
+          : suggestReady ? (suggestVisible ? "Ocultar sugerencia" : "💡 Ver sugerencia")
+          : "💡 Sugerencia";
         const suggestBtn = (issues.length && q.qid)
-          ? `<button type="button" class="textButton athenaSuggestBtn" data-llm-suggest="${escapeAttribute(q.qid)}" ${suggestState && !suggestReady ? "disabled" : ""}>${suggestReady ? (suggestVisible ? "Ocultar sugerencia" : "💡 Ver sugerencia") : "💡 Sugerencia"}</button>`
+          ? `<button type="button" class="textButton athenaSuggestBtn" data-llm-suggest="${escapeAttribute(q.qid)}" ${suggestState && suggestState.loading ? "disabled" : ""}>${suggestLabel}</button>`
           : "";
         const suggestBlock = (!suggestState || !suggestVisible) ? "" : suggestState.loading
           ? `<div class="athenaLlmBox athenaLlmLoading">Generando sugerencia…</div>`
           : suggestState.error
           ? `<div class="athenaLlmBox athenaLlmError">${escapeHtml(suggestState.error)}</div>`
-          : `<div class="athenaLlmBox"><div class="athenaLlmTitle">💡 Sugerencia</div>${mdLite(suggestState.text)}</div>`;
+          : `<div class="athenaLlmBox"><div class="athenaLlmTitle">💡 Sugerencia</div>${mdLite(suggestState.text)}<button type="button" class="athenaCopyBtn athenaLlmCopyBtn" data-copy-llm="${escapeAttribute(q.qid)}" aria-label="Copiar sugerencia" title="Copiar sugerencia">⧉</button></div>`;
         const who = (showUser && q.user)
           ? `<span class="homeSvcName" title="${escapeAttribute(q.name ? `${q.name} · ${q.user}` : q.user)}">${escapeHtml(q.name || q.user)} <span class="homeCostAgo">· ${escapeHtml(q.wg || "")}</span></span>`
           : `<span class="homeSvcName"><span class="homeCostAgo">${escapeHtml(q.wg || "")}</span></span>`;
@@ -994,6 +997,9 @@ export function createHomeModule(ctx) {
         state.athenaStatus = p.data.status || "empty";
         state.athenaScanning = !!p.data.scanning;
         state.athenaScannedAt = p.data.scannedAt || null;
+        // Ventana nueva sin datos aún: el backend presta los de la ventana previa
+        // más parecida mientras corre el primer escaneo (evita pantalla vacía).
+        state.athenaProvisional = p.data.provisional || null;
       }
       async function loadAthena(forceRescan) {
         state.athenaLoading = true; state.athenaError = "";
@@ -1035,6 +1041,9 @@ export function createHomeModule(ctx) {
               <button type="button" id="athenaRefresh" class="tinyButton" title="Recalcular consumo">↻ Actualizar</button>
             </div>
           </div>`;
+        const provisionalBanner = (d && state.athenaProvisional)
+          ? `<p class="athenaProvisional">Mostrando datos del rango <b>${escapeHtml(state.athenaProvisional.start)} a ${escapeHtml(state.athenaProvisional.end)}</b> mientras se calcula el rango actual — se actualiza solo al terminar.</p>`
+          : "";
         let inner;
         if (state.athenaError) {
           inner = `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.athenaError)}</p>`;
@@ -1093,7 +1102,7 @@ export function createHomeModule(ctx) {
             <div class="homeTopList"><h3>Consultas más pesadas</h3>${top || `<p class="catalogEmpty">Sin consultas.</p>`}</div>`;
         }
         const infoPanel = state.athenaInfoOpen ? athenaInfoPanel() : "";
-        return `<article class="panel homePanel">${header}${infoPanel}${inner}</article>`;
+        return `<article class="panel homePanel">${header}${infoPanel}${provisionalBanner}${inner}</article>`;
       }
       // Guía informativa del panel (se despliega con el ícono ⓘ del encabezado).
       function athenaInfoPanel() {
@@ -1132,9 +1141,9 @@ export function createHomeModule(ctx) {
       async function loadAthenaSuggestion(qid) {
         if (!qid) return;
         const cached = state.athenaLlmSuggest[qid];
-        // Ya está lista (o cargando): el botón es un toggle mostrar/ocultar, no
-        // dispara otra llamada al modelo.
-        if (cached && !cached.loading) {
+        // Con error previo NO se togglea: se limpia y se reintenta la llamada.
+        if (cached && !cached.loading && !cached.error) {
+          // Ya está lista: el botón es un toggle mostrar/ocultar, sin re-llamar.
           cached.visible = cached.visible === false;
           paintHome();
           return;
@@ -1149,7 +1158,13 @@ export function createHomeModule(ctx) {
           });
           state.athenaLlmSuggest[qid] = { text: p.data.suggestion || "Sin sugerencia.", loading: false, visible: true };
         } catch (err) {
-          state.athenaLlmSuggest[qid] = { error: err?.message || "No se pudo generar la sugerencia.", loading: false, visible: true };
+          // El mensaje genérico suele ser el timeout de API Gateway (30 s) en
+          // consultas muy grandes: se aclara y se deja reintentar (el botón
+          // vuelve a llamar porque el estado con error no bloquea el retry).
+          const msg = (err?.message && !err.message.includes("No fue posible completar"))
+            ? err.message
+            : "La sugerencia tardó demasiado en generarse. Vuelve a intentarlo.";
+          state.athenaLlmSuggest[qid] = { error: msg, loading: false, visible: true };
         }
         paintHome();
       }
@@ -1244,6 +1259,22 @@ export function createHomeModule(ctx) {
             const text = (pre.textContent || "").replace(/(\n\n— cargando consulta completa… —)?…?$/, "").trimEnd();
             try {
               await navigator.clipboard.writeText(text);
+              window.clearTimeout(b._copyTimer);
+              b.classList.add("copied");
+              b.textContent = "✓";
+              b._copyTimer = window.setTimeout(() => { b.classList.remove("copied"); b.textContent = "⧉"; }, 1400);
+            } catch {}
+          });
+        }
+        // Copiar sugerencia del LLM: copia el texto ORIGINAL (markdown con el bloque
+        // ```sql``` intacto) desde el estado, no el HTML renderizado — así al pegarlo
+        // en un editor conserva el formato. Mismo feedback sin re-render que el SQL.
+        for (const b of elements.contentPanel.querySelectorAll("[data-copy-llm]")) {
+          b.addEventListener("click", async () => {
+            const s = state.athenaLlmSuggest[b.dataset.copyLlm];
+            if (!s || !s.text) return;
+            try {
+              await navigator.clipboard.writeText(s.text);
               window.clearTimeout(b._copyTimer);
               b.classList.add("copied");
               b.textContent = "✓";
