@@ -165,3 +165,27 @@ El Kanban inicial se concentra en columnas de estado, movimiento de tareas y acc
 ## Menú dinámico por permisos
 
 El frontend consume los permisos calculados por el backend y los utiliza para construir menú, módulos y acciones visibles. Lambda aplica la autorización efectiva.
+
+## Responsive (teléfonos y tablets)
+
+La app debe verse y usarse bien en escritorio, tablet y teléfono. `index.astro` ya trae el `<meta name="viewport">` correcto; los breakpoints viven en `frontend/src/styles/app.css` y siguen esta estrategia por capas:
+
+| Breakpoint | Qué colapsa |
+| --- | --- |
+| `≤900px` | Catálogo: el layout de 3 columnas (sidebar/lista/detalle) pasa a 1 columna apilada; se ocultan minimapa e inspector del grafo. |
+| `≤860px` | Inicio: los gráficos (tareas/proyectos) pasan a 1 columna. |
+| `≤780px` | **Breakpoint principal**: el shell (sidebar+main) pasa a 1 columna (sidebar arriba, nav en 2 columnas), `contentGrid`/workspace/proyectos a 1 columna, el panel de detalle se vuelve *bottom sheet* fijo, formularios inline apilan el botón, Kanban a 1 columna. |
+| `≤720px` | Chat: el sidebar de conversaciones pasa arriba (compacto) y el chat usa todo el ancho. |
+
+**Bloque transversal (`≤780px`, al final de app.css):** cubre lo que los layouts por módulo no resuelven —
+- **Tablas anchas** (`homeSvcTable`, `homeDailyTable`, incluida la highlight table de Athena): `display:block; overflow-x:auto` → cada tabla se desplaza de lado dentro de su propio contenedor sin romper la página.
+- **Pestañas de Inicio** (hasta 5 con Facturación/Athena): scroll lateral en la fila de pestañas.
+- Metadatos de tarjetas de consultas Athena en columna; panel ⓘ a ancho completo; filas de seguimiento de proyectos con wrap.
+
+**Reglas al construir UI nueva:**
+1. Nada de anchos fijos en px para contenedores de contenido; usar grids con `minmax(0, 1fr)` y `flex-wrap`.
+2. Toda **tabla** nueva debe poder desplazarse horizontalmente en pantallas chicas (agregarla al bloque transversal o envolverla en un contenedor con `overflow-x:auto`).
+3. Toda fila de **controles** (filtros, selects, botones) debe llevar `flex-wrap: wrap`.
+4. En elementos con scroll interno propio (SQL, listas largas), preferir `max-height` + `overflow:auto` para que el scroll de la página no se rompa en táctil.
+5. Alturas de pantalla con `100dvh` (no solo `100vh`) donde el input inferior importe (chat), para que la barra del navegador móvil no lo tape.
+6. Verificar cada módulo nuevo al menos en 3 anchos: ~1280 (escritorio), ~768 (tablet) y ~390 (teléfono).

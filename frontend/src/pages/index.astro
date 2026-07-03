@@ -13,7 +13,10 @@ import "../styles/app.css";
     <link rel="icon" type="image/png" href="/icono_gp.png" />
   </head>
   <body>
-    <div id="app" class="shell loginOnly">
+    <!-- Arranca en "booting" (pantalla neutra de carga), NO en loginOnly: así al
+         recargar con sesión activa no destella la página de login mientras se
+         valida la sesión — app.ts decide el estado real y quita esta clase. -->
+    <div id="app" class="shell booting">
       <aside class="sidebar" aria-label="Módulos">
         <div class="brand">
           <img class="brandMark" src="/icono_gp.png" alt="Logo" />
@@ -78,6 +81,7 @@ import "../styles/app.css";
                   </svg>
                   <div class="userMenuIdentity">
                     <span id="userLabel" class="userMenuName">Sin sesión</span>
+                    <span id="userEmailLabel" class="userMenuEmail" hidden></span>
                     <span class="userMenuMeta">Sesión activa</span>
                   </div>
                 </div>

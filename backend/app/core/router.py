@@ -13,6 +13,7 @@ Handler = Callable[[Request], dict[str, Any]]
 class Route:
     def __init__(self, methods: list[str], template: str, handler: Handler,
                  modules: list[str] | None = None, admin: bool = False,
+                 home_tab: str | None = None,
                  auth: bool = True, error_msg: str = "Error inesperado.") -> None:
         self.methods = {m.upper() for m in methods}
         self.template = template
@@ -20,6 +21,7 @@ class Route:
         self.handler = handler
         self.modules = modules
         self.admin = admin
+        self.home_tab = home_tab   # pestaña granular de Inicio (guards.ensure_home_tab)
         self.auth = auth
         self.error_msg = error_msg
 
@@ -79,6 +81,8 @@ class Router:
                 guards.ensure_module_access(request.identity, route.modules)
             if route.admin:
                 guards.ensure_admin(request.identity)
+            if route.home_tab:
+                guards.ensure_home_tab(request.identity, route.home_tab)
             return route.handler(request)
         except UserNotConfiguredError as exc:
             return error("USER_NOT_CONFIGURED", str(exc), 403)

@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from modules.manifest import MODULES, HOME_TABS, HOME_TAB_KEYS
+from modules.manifest import (DEFAULT_NEW_USER_KEYS, HOME_TAB_KEYS, HOME_TABS,
+                              MODULES, admin_module_groups)
 from repositories.users import UsersRepository
 from services.workspace import ValidationError
 
@@ -83,9 +84,15 @@ class AdminService:
                 "updatedAt": profile.get("updatedAt", ""),
             })
         users.sort(key=lambda u: u["email"])
-        return {"users": users, "availableModules": [
-            {"key": k, "label": v} for k, v in MODULE_LABELS.items()
-        ]}
+        return {
+            "users": users,
+            "availableModules": [{"key": k, "label": v} for k, v in MODULE_LABELS.items()],
+            # Matriz de asignación derivada del manifiesto (fuente única): el
+            # frontend pinta las casillas desde aquí — módulo/pestaña nuevo en el
+            # manifiesto aparece solo, sin tocar admin.ts.
+            "moduleGroups": admin_module_groups(),
+            "defaultNewUserKeys": DEFAULT_NEW_USER_KEYS,
+        }
 
     def create_user(self, payload: dict[str, Any]) -> dict[str, Any]:
         email = self._normalize_email(payload.get("email"))

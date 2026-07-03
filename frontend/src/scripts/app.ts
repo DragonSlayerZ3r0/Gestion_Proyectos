@@ -87,6 +87,8 @@
           tasks: true
         },
         expandedBoardProjectId: null,
+        updateEditing: null,    // {projectId, updateId} entrada de seguimiento en edición
+        updatesExpanded: {},    // por projectId: true = mostrar todo el seguimiento (no solo lo último)
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
@@ -158,6 +160,7 @@
         chatMessagesLoading: {},   // por sessionId: bool (carga de historial)
         chatSending: false,     // POST en vuelo (breve: solo encola)
         chatGenerating: {},     // por sessionId: true mientras el worker genera la respuesta
+        chatDetected: {},       // por sessionId: antipatrones detectados al enviar (se muestran mientras genera)
         chatError: "",
         ingestBucket: "arc-enterprise-data",
         ingestData: null,
@@ -209,6 +212,7 @@
         userMenuButton: document.querySelector("#userMenuButton"),
         userMenuDropdown: document.querySelector("#userMenuDropdown"),
         userLabel: document.querySelector("#userLabel"),
+        userEmailLabel: document.querySelector("#userEmailLabel"),
         environmentLabel: document.querySelector("#environmentLabel"),
         statusPanel: document.querySelector("#statusPanel"),
         contentPanel: document.querySelector("#contentPanel"),
@@ -268,6 +272,7 @@
         });
 
         state.user = await getCurrentSession();
+        startDeployWatch();
         if (!state.user) {
           renderLoggedOut();
           return;
@@ -279,6 +284,59 @@
       async function loadConfig() {
         const response = await fetch("/config.json", { cache: "no-store" });
         return response.json();
+      }
+
+      // ── Aviso de despliegue en curso ─────────────────────────────────────
+      // Los scripts de deploy suben /deploy.json (status deploying|ok, ver
+      // scripts/deploy-flag.sh). Aquí se consulta cada minuto: mientras haya un
+      // despliegue activo se muestra un aviso discreto e intermitente para que
+      // los usuarios no guarden cambios justo en ese momento; cuando termina y
+      // el buildId cambió, se sugiere recargar. Archivo estático vía CloudFront
+      // → costo cero en Lambda. Banderas huérfanas (>30 min) se ignoran.
+      let deployBaselineBuildId = null;
+      function deployNoticeEl() {
+        let el = document.querySelector("#deployNotice");
+        if (!el) {
+          el = document.createElement("div");
+          el.id = "deployNotice";
+          el.className = "deployNotice";
+          el.hidden = true;
+          document.body.appendChild(el);
+        }
+        return el;
+      }
+      function startDeployWatch() {
+        const check = async () => {
+          let info = null;
+          try {
+            const r = await fetch("/deploy.json", { cache: "no-store" });
+            if (r.ok) info = await r.json();
+          } catch {}
+          const el = deployNoticeEl();
+          if (info?.status === "deploying") {
+            const started = Date.parse(info.startedAt || "") || Date.now();
+            if (Date.now() - started < 30 * 60 * 1000) {
+              el.innerHTML = `<span class="deployNoticeDot" aria-hidden="true"></span> Se está publicando una nueva versión — evita guardar cambios en este momento.`;
+              el.classList.remove("ready");
+              el.hidden = false;
+              return;
+            }
+          }
+          if (info?.status === "ok" && info.buildId) {
+            if (deployBaselineBuildId === null) {
+              deployBaselineBuildId = info.buildId;
+            } else if (info.buildId !== deployBaselineBuildId) {
+              el.innerHTML = `✓ Hay una versión nueva disponible. <button type="button" class="deployNoticeReload">Recargar</button>`;
+              el.classList.add("ready");
+              el.hidden = false;
+              el.querySelector(".deployNoticeReload")?.addEventListener("click", () => window.location.reload());
+              return;
+            }
+          }
+          el.hidden = true;
+        };
+        check();
+        window.setInterval(check, 60 * 1000);
       }
 
       function hasAuthConfig(config) {
@@ -647,6 +705,7 @@
       }
 
       function renderLoggedOut(sessionExpired) {
+        elements.app.classList.remove("booting");
         elements.app.classList.add("loginOnly");
         elements.loginLanding.hidden = false;
         elements.landingLoginButton.disabled = false;
@@ -665,11 +724,20 @@
       function renderApp() {
         state.sessionExpiredHandled = false;
         scheduleSessionWatchdog();
+        elements.app.classList.remove("booting");
         elements.app.classList.remove("loginOnly");
         elements.loginLanding.hidden = true;
         elements.loginButton.hidden = true;
         elements.userMenu.hidden = false;
-        elements.userLabel.textContent = state.profile.user.email;
+        // Nombre visible como línea principal; el correo (si es distinto) va en su
+        // propia línea con elipsis — evita el corte feo del email en dos líneas.
+        const uName = state.profile.user.name || state.profile.user.email;
+        elements.userLabel.textContent = uName;
+        elements.userLabel.title = state.profile.user.email;
+        const showEmail = uName !== state.profile.user.email;
+        elements.userEmailLabel.hidden = !showEmail;
+        elements.userEmailLabel.textContent = showEmail ? state.profile.user.email : "";
+        elements.userEmailLabel.title = state.profile.user.email;
         elements.environmentLabel.textContent = state.profile.environment;
         renderNav();
         renderModule(state.activeModule);
@@ -935,6 +1003,7 @@
       }
 
       function renderStatus(title, message) {
+        elements.app.classList.remove("booting");
         elements.app.classList.remove("loginOnly");
         elements.loginLanding.hidden = true;
         elements.statusPanel.hidden = false;
@@ -955,6 +1024,7 @@
       }
 
       function renderLoginUnavailable(message) {
+        elements.app.classList.remove("booting");
         elements.app.classList.add("loginOnly");
         elements.loginLanding.hidden = false;
         elements.statusPanel.hidden = true;

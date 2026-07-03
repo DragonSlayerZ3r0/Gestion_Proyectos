@@ -25,9 +25,11 @@ def _suggest(req: Request):
 
 
 def register(router: Router) -> None:
-    # Monitoreo de consumo de Athena por usuario (pestaña Athena de Inicio). Admin-only.
-    router.add(["GET"], "/api/home/athena", _usage, modules=["home"], admin=True,
+    # Monitoreo de consumo de Athena (pestaña Athena de Inicio): exige la pestaña
+    # "Inicio · Athena" asignada en Administración; sin configurar → solo admins
+    # (comportamiento previo, ver guards.ensure_home_tab).
+    router.add(["GET"], "/api/home/athena", _usage, modules=["home"], home_tab="home_athena",
                error_msg="Error al cargar el consumo de Athena.")
     # Sugerencia de un LLM para una consulta puntual con antipatrones (bajo demanda).
-    router.add(["POST"], "/api/home/athena/suggest", _suggest, modules=["home"], admin=True,
+    router.add(["POST"], "/api/home/athena/suggest", _suggest, modules=["home"], home_tab="home_athena",
                error_msg="Error al generar la sugerencia.")

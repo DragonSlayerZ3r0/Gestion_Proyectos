@@ -65,6 +65,7 @@ export function createChatModule(ctx) {
       } catch {}                                        // red intermitente: seguir intentando
     }
     delete state.chatGenerating[sessionId];
+    delete state.chatDetected[sessionId];   // la respuesta ya aborda los hallazgos
     if (state.chatActiveSessionId === sessionId) paintChat();
   }
 
@@ -138,6 +139,10 @@ export function createChatModule(ctx) {
       }
       state.chatActiveSessionId = newId;
       state.chatGenerating[newId] = true;
+      // Hallazgos inmediatos del detector (el POST los devuelve en ms): visibles
+      // mientras el modelo genera la respuesta completa.
+      if ((p.data.antipatterns || []).length) state.chatDetected[newId] = p.data.antipatterns;
+      else delete state.chatDetected[newId];
       state.chatSending = false;
       paintChat();
       await pollReply(newId);
@@ -174,9 +179,38 @@ export function createChatModule(ctx) {
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
       });
+      // Autosize: crece con el contenido (pensado para pegar queries largos) hasta
+      // un tope; después aparece el scroll interno del textarea.
       input.addEventListener("input", () => {
         input.style.height = "auto";
-        input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+        input.style.height = `${Math.min(input.scrollHeight, 320)}px`;
+      });
+      // Plantilla "mejorar un query": llena el input con la estructura que el
+      // asistente necesita para dar una buena sugerencia a la primera (mismos datos
+      // que pesan en el análisis de antipatrones). No envía: el usuario completa y
+      // decide. Si ya había texto, la agrega al final sin borrar nada.
+      const tplBtn = elements.contentPanel.querySelector("#chatTemplateBtn");
+      if (tplBtn) tplBtn.addEventListener("click", () => {
+        // Particiones/columnas/formato NO se piden: el backend las adjunta solo
+        // desde el catálogo al detectar las tablas del query (services/sql_context.py).
+        const tpl = [
+          "Quiero mejorar este query de Athena.",
+          "",
+          "Objetivo (qué busca el query): ",
+          "Base y tabla(s) que usa, si las conoces (base.tabla): ",
+          "Query:",
+          "```sql",
+          "(pega aquí tu query)",
+          "```",
+          "Volumen/rango que consulta (p. ej. últimos 30 días): ",
+          "¿Da error o es lento? (mensaje o tiempo): ",
+        ].join("\n");
+        input.value = input.value.trim() ? `${input.value.replace(/\s+$/, "")}\n\n${tpl}` : tpl;
+        input.dispatchEvent(new Event("input"));   // recalcula el autosize
+        input.focus();
+        // Deja el cursor en el primer campo a llenar (fin de "Objetivo ...: ").
+        const pos = input.value.indexOf("Objetivo (qué busca el query): ") + "Objetivo (qué busca el query): ".length;
+        input.setSelectionRange(pos, pos);
       });
     }
   }
@@ -215,8 +249,15 @@ export function createChatModule(ctx) {
       : `<div class="chatEmpty">Pregunta lo que necesites: dudas de SQL, AWS, cómo mejorar un query, o cualquier tema técnico de la plataforma.</div>`;
 
     const busy = state.chatSending || (activeId && state.chatGenerating[activeId]);
+    // Hallazgos del detector determinístico (llegan al instante en el POST): se
+    // muestran MIENTRAS el modelo genera, para que la espera se sienta corta y el
+    // usuario siempre reciba el resultado de la detección.
+    const detected = (activeId && state.chatDetected && state.chatDetected[activeId]) || [];
+    const detectedHtml = (busy && detected.length)
+      ? `<div class="chatMsg chatMsg-assistant"><div class="chatBubble chatDetected">🔎 <b>Antipatrones detectados</b> en tu query: ${detected.map((d) => escapeHtml(d)).join(" · ")}.<br>Preparando la sugerencia de mejora…</div></div>`
+      : "";
     const typingHtml = busy
-      ? `<div class="chatMsg chatMsg-assistant"><div class="chatBubble chatTyping">Escribiendo…</div></div>`
+      ? `${detectedHtml}<div class="chatMsg chatMsg-assistant"><div class="chatBubble chatTyping">Escribiendo…</div></div>`
       : "";
     const errorHtml = state.chatError
       ? `<div class="chatErrorBanner">${escapeHtml(state.chatError)}</div>`
@@ -233,7 +274,10 @@ export function createChatModule(ctx) {
             <div class="chatMessages" id="chatMessages">${messagesHtml}${typingHtml}</div>
             ${errorHtml}
             <div class="chatInputRow">
-              <textarea id="chatInput" class="chatInput" placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter para salto de línea)" rows="1" ${busy ? "disabled" : ""}></textarea>
+              <div class="chatInputWrap">
+                <textarea id="chatInput" class="chatInput" placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter para salto de línea)" rows="3" ${busy ? "disabled" : ""}></textarea>
+                <button type="button" id="chatTemplateBtn" class="chatTemplateBtn" title="Insertar plantilla: mejorar un query" aria-label="Insertar plantilla para mejorar un query" ${busy ? "disabled" : ""}>▤</button>
+              </div>
               <button type="button" id="chatSendBtn" class="chatSendBtn" ${busy ? "disabled" : ""}>Enviar</button>
             </div>
           </div>

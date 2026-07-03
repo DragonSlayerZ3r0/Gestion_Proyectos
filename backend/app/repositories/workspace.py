@@ -75,6 +75,23 @@ class WorkspaceRepository(BaseRepository):
     def delete_task(self, project_id: str, task_id: str) -> None:
         self._table.delete_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"TASK#{task_id}"})
 
+    # ── Seguimiento (bitácora del proyecto) ───────────────────────────────────
+    def list_project_updates(self, project_id: str) -> list[dict[str, Any]]:
+        response = self._table.query(
+            KeyConditionExpression=Key("PK").eq(f"PROJECT#{project_id}") & Key("SK").begins_with("UPDATE#")
+        )
+        return response.get("Items", [])
+
+    def get_project_update(self, project_id: str, update_id: str) -> dict[str, Any] | None:
+        response = self._table.get_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"UPDATE#{update_id}"})
+        return response.get("Item")
+
+    def update_project_update(self, project_id: str, update_id: str, values: dict[str, Any]) -> dict[str, Any]:
+        return self._update({"PK": f"PROJECT#{project_id}", "SK": f"UPDATE#{update_id}"}, values)
+
+    def delete_project_update(self, project_id: str, update_id: str) -> None:
+        self._table.delete_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"UPDATE#{update_id}"})
+
     def list_all_tasks(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         kwargs: dict[str, Any] = {

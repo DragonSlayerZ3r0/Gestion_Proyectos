@@ -187,21 +187,26 @@ export function createHomeModule(ctx) {
             </div>
           </article>`;
 
-        const costBlock = !isAdmin
-          ? ""
-          : `<article class="panel homePanel homeCostPanel" id="homeCostPanel">${costPanelInner()}</article>`;
-
-        // Pestañas visibles según permisos. Resumen y Data Lake se controlan por
-        // usuario (homeTabs de /api/me); Facturación es admin-only.
+        // Pestañas visibles según permisos (homeTabs de /api/me, asignables en
+        // Administración). El backend ya resuelve los defaults: Facturación y
+        // Athena sin configurar → solo admins. La verificación real está en el
+        // backend (guards.ensure_home_tab); esto solo oculta/muestra.
         const homeTabs = state.profile?.homeTabs;
-        // Compatibilidad: si el perfil no trae homeTabs (cache previa), todas on.
+        // Compatibilidad: si el perfil no trae homeTabs (cache previa), los dos
+        // básicos on y los sensibles según rol (mismo default que el backend).
         const canResumen = !homeTabs || homeTabs.includes("home_resumen");
         const canDatalake = !homeTabs || homeTabs.includes("home_datalake");
+        const canFacturacion = homeTabs ? homeTabs.includes("home_facturacion") : isAdmin;
+        const canAthena = homeTabs ? homeTabs.includes("home_athena") : isAdmin;
+
+        const costBlock = !canFacturacion
+          ? ""
+          : `<article class="panel homePanel homeCostPanel" id="homeCostPanel">${costPanelInner()}</article>`;
         const tabs = [];
         if (canResumen) tabs.push({ id: "resumen", label: "Resumen" });
         if (canDatalake) tabs.push({ id: "datalake", label: "Data Lake" });
-        if (isAdmin) tabs.push({ id: "facturacion", label: "Facturación" });
-        if (isAdmin) tabs.push({ id: "athena", label: "Athena" });
+        if (canFacturacion) tabs.push({ id: "facturacion", label: "Facturación" });
+        if (canAthena) tabs.push({ id: "athena", label: "Athena" });
 
         // Asegura que la pestaña activa exista entre las visibles.
         if (!tabs.some((t) => t.id === state.homeTab)) {
@@ -217,9 +222,9 @@ export function createHomeModule(ctx) {
         let body;
         if (!tabs.length) {
           body = `<article class="panel"><p class="catalogEmpty">No tienes pestañas habilitadas en Inicio. Contacta a un administrador.</p></article>`;
-        } else if (tab === "facturacion" && isAdmin) {
+        } else if (tab === "facturacion" && canFacturacion) {
           body = costBlock;
-        } else if (tab === "athena" && isAdmin) {
+        } else if (tab === "athena" && canAthena) {
           body = athenaBlock();
         } else if (tab === "datalake") {
           const catalogPart = state.homeSummaryError

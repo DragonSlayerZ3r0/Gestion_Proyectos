@@ -50,18 +50,21 @@ def _cost_responsibles(req: Request):
 def register(router: Router) -> None:
     router.add(["GET"], "/api/home/summary", _summary, modules=["home"],
                error_msg="Error inesperado al cargar el resumen.")
-    # Los costos son sensibles: además del módulo home, exige rol admin.
-    router.add(["GET"], "/api/home/costs", _costs, modules=["home"], admin=True,
+    # Los costos son sensibles: además del módulo home, exigen la pestaña
+    # "Inicio · Facturación" asignada en Administración (los usuarios que nunca
+    # fueron configurados con esa clave heredan el comportamiento previo: solo
+    # admins — ver guards.ensure_home_tab).
+    router.add(["GET"], "/api/home/costs", _costs, modules=["home"], home_tab="home_facturacion",
                error_msg="Error inesperado al cargar los costos.")
-    # Lista de cuentas para el selector (también admin-only).
-    router.add(["GET"], "/api/home/cost-accounts", _cost_accounts, modules=["home"], admin=True,
+    # Lista de cuentas para el selector.
+    router.add(["GET"], "/api/home/cost-accounts", _cost_accounts, modules=["home"], home_tab="home_facturacion",
                error_msg="Error inesperado al cargar las cuentas.")
-    # Detalle de un servicio por tipo de uso (admin-only).
-    router.add(["GET"], "/api/home/costs/detail", _cost_detail, modules=["home"], admin=True,
+    # Detalle de un servicio por tipo de uso.
+    router.add(["GET"], "/api/home/costs/detail", _cost_detail, modules=["home"], home_tab="home_facturacion",
                error_msg="Error inesperado al cargar el detalle del servicio.")
-    # Costo diario por servicio para detección de picos (admin-only).
-    router.add(["GET"], "/api/home/costs/daily", _cost_daily, modules=["home"], admin=True,
+    # Costo diario por servicio para detección de picos.
+    router.add(["GET"], "/api/home/costs/daily", _cost_daily, modules=["home"], home_tab="home_facturacion",
                error_msg="Error inesperado al cargar el costo diario.")
-    # Responsables (CloudTrail) de un servicio en un rango (admin-only).
-    router.add(["GET"], "/api/home/costs/responsibles", _cost_responsibles, modules=["home"], admin=True,
+    # Responsables (CloudTrail) de un servicio en un rango.
+    router.add(["GET"], "/api/home/costs/responsibles", _cost_responsibles, modules=["home"], home_tab="home_facturacion",
                error_msg="Error inesperado al cargar los responsables.")

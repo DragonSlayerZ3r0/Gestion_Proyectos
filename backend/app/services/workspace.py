@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -12,6 +13,11 @@ PROJECT_STATUSES = ["planned", "active", "paused", "closed"]
 PERSON_STATUSES = ["active", "inactive"]
 PROJECT_MEMBER_ROLES = ["owner", "member", "reader"]
 TASK_AUDIT_FIELDS = ["status", "priority", "assigneePersonId"]
+UPDATE_MAX_CHARS = 2000
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Guatemala (UTC-6, sin horario de verano): la "fecha de hoy" del seguimiento debe
+# ser la del usuario, no la UTC (que cambia de día a las 6 pm hora local).
+_TZ_GT = timezone(timedelta(hours=-6))
 
 __all__ = ["WorkspaceService", "ValidationError", "TASK_STATUSES", "TASK_PRIORITIES",
            "PROJECT_STATUSES", "PERSON_STATUSES", "PROJECT_MEMBER_ROLES"]
@@ -28,8 +34,14 @@ class WorkspaceService:
         for project in projects:
             members = self._repository.list_project_members(project["id"])
             tasks = self._repository.list_project_tasks(project["id"])
+            updates = self._repository.list_project_updates(project["id"])
             project["members"] = [self._normalize_member(item) for item in members]
             project["tasks"] = [self._normalize_task(item) for item in tasks]
+            # Seguimiento: lo más reciente primero (fecha del trabajo; a igual fecha,
+            # lo anotado más tarde arriba).
+            project["updates"] = sorted(
+                (self._normalize_update(item) for item in updates),
+                key=lambda u: (u["date"], u["createdAt"]), reverse=True)
 
         return {
             "people": sorted(people, key=lambda person: person["fullName"].lower()),
@@ -212,6 +224,68 @@ class WorkspaceService:
         self._repository.delete_task(project_id, task_id)
         return {"projectId": project_id, "taskId": task_id, "removed": True}
 
+    # ── Seguimiento (bitácora): qué se trabajó cada día en el proyecto ─────────
+    def _validate_update_date(self, value: str) -> str:
+        value = (value or "").strip()
+        if not _DATE_RE.match(value):
+            raise ValidationError("La fecha del seguimiento debe tener formato AAAA-MM-DD.")
+        try:
+            datetime.fromisoformat(value)
+        except ValueError:
+            raise ValidationError("La fecha del seguimiento no es válida.")
+        return value
+
+    def create_project_update(self, project_id: str, payload: dict[str, Any],
+                              identity: dict[str, str]) -> dict[str, Any]:
+        """Nueva entrada de seguimiento. La fecha se asigna sola (HOY en hora de
+        Guatemala); si viene en el payload se respeta (p. ej. anotar lo del viernes
+        un lunes). El texto es editable después, igual que la fecha."""
+        project_id = self._required_text({"projectId": project_id}, "projectId", "Proyecto")
+        if not self._repository.get_project(project_id):
+            raise ValidationError("El proyecto no existe.")
+        text = self._required_text(payload, "text", "Texto del seguimiento")
+        if len(text) > UPDATE_MAX_CHARS:
+            raise ValidationError(f"El seguimiento supera el máximo de {UPDATE_MAX_CHARS} caracteres.")
+        date = (payload.get("date") or "").strip() or datetime.now(_TZ_GT).strftime("%Y-%m-%d")
+        date = self._validate_update_date(date)
+        now = self._now()
+        update_id = uuid4().hex
+        item = {
+            "PK": f"PROJECT#{project_id}",
+            "SK": f"UPDATE#{update_id}",
+            "entityType": "PROJECT_UPDATE",
+            "projectId": project_id,
+            "updateId": update_id,
+            "date": date,
+            "text": text,
+            "createdAt": now,
+            "updatedAt": now,
+            "createdBy": identity["userId"],
+            "updatedBy": identity["userId"],
+        }
+        self._repository.put_item(item)
+        return self._normalize_update(item)
+
+    def update_project_update(self, project_id: str, update_id: str, payload: dict[str, Any],
+                              identity: dict[str, str]) -> dict[str, Any]:
+        """Edita texto y/o fecha de una entrada (para corregir lo mal anotado)."""
+        if not self._repository.get_project_update(project_id, update_id):
+            raise ValidationError("La entrada de seguimiento no existe.")
+        values: dict[str, Any] = {"updatedAt": self._now(), "updatedBy": identity["userId"]}
+        if "text" in payload:
+            text = self._required_text(payload, "text", "Texto del seguimiento")
+            if len(text) > UPDATE_MAX_CHARS:
+                raise ValidationError(f"El seguimiento supera el máximo de {UPDATE_MAX_CHARS} caracteres.")
+            values["text"] = text
+        if "date" in payload:
+            values["date"] = self._validate_update_date(payload.get("date") or "")
+        return self._normalize_update(self._repository.update_project_update(project_id, update_id, values))
+
+    def delete_project_update(self, project_id: str, update_id: str,
+                              identity: dict[str, str]) -> dict[str, Any]:
+        self._repository.delete_project_update(project_id, update_id)
+        return {"projectId": project_id, "updateId": update_id, "removed": True}
+
     def create_task(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         title = self._required_text(payload, "title", "Título de la tarea")
         now = self._now()
@@ -278,7 +352,18 @@ class WorkspaceService:
             "description": item.get("description", ""),
             "updatedAt": item.get("updatedAt", ""),
             "members": [],
-            "tasks": []
+            "tasks": [],
+            "updates": []
+        }
+
+    def _normalize_update(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": item["updateId"],
+            "projectId": item["projectId"],
+            "date": item.get("date", ""),
+            "text": item.get("text", ""),
+            "createdAt": item.get("createdAt", ""),
+            "updatedAt": item.get("updatedAt", ""),
         }
 
     def _normalize_member(self, item: dict[str, Any]) -> dict[str, Any]:

@@ -51,9 +51,13 @@ echo "  API:          $API_URL"
 echo "→ Compilando frontend…"
 ( cd "$FRONTEND_DIR" && pnpm build )
 
-echo "→ Sincronizando assets (sin tocar config.json ni basura)…"
+# Aviso "desplegando" para los usuarios conectados (se limpia al final).
+echo "→ Activando aviso de despliegue (deploy.json)…"
+STACK="$STACK" PROFILE="$PROFILE" REGION="$REGION" "$ROOT/scripts/deploy-flag.sh" start
+
+echo "→ Sincronizando assets (sin tocar config.json, deploy.json ni basura)…"
 aws s3 sync "$FRONTEND_DIR/dist/" "s3://$BUCKET" --delete \
-  --exclude "config.json" --exclude ".DS_Store" \
+  --exclude "config.json" --exclude "deploy.json" --exclude ".DS_Store" \
   --profile "$PROFILE"
 
 echo "→ Regenerando config.json de producción…"
@@ -74,5 +78,8 @@ rm -f "$TMP_CFG"
 echo "→ Invalidando CloudFront…"
 aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*" \
   --profile "$PROFILE" --query 'Invalidation.{Id:Id,Status:Status}' --output table
+
+echo "→ Quitando aviso de despliegue…"
+STACK="$STACK" PROFILE="$PROFILE" REGION="$REGION" "$ROOT/scripts/deploy-flag.sh" done
 
 echo "✓ Listo."

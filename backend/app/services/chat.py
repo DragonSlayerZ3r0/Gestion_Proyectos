@@ -8,6 +8,29 @@ import boto3
 from core.errors import ValidationError
 from repositories.chat import ChatRepository
 from services.llm import LlmService
+from services.sql_context import SqlCatalogContext, context_for_chat_texts, extract_sql_candidates
+from services.sql_lint import lint_sql
+
+
+def _detect_antipatterns(text: str) -> list[str]:
+    """Corre el MISMO detector determinístico del monitoreo (`lint_sql`) sobre el
+    SQL que venga en un mensaje de chat. Devuelve las etiquetas detectadas (sin
+    `no_parse`: en chat el texto suelto que no parsea es ruido, no un hallazgo).
+    Es rápido (ms) → se puede correr en el POST y mostrarse al usuario de
+    inmediato, mientras el modelo genera la respuesta completa."""
+    ctx = SqlCatalogContext()
+    labels: list[str] = []
+    seen: set[str] = set()
+    for cand in extract_sql_candidates(text):
+        try:
+            res = lint_sql(cand, ctx.get_partcols, ctx.get_format)
+        except Exception:
+            continue
+        for issue in res.get("issues", []):
+            if issue["code"] != "no_parse" and issue["code"] not in seen:
+                seen.add(issue["code"])
+                labels.append(issue["label"])
+    return labels
 
 MAX_TEXT_CHARS = 4000
 MAX_HISTORY_MESSAGES = 20   # últimos N turnos que se reenvían al modelo (costo/latencia)
@@ -102,7 +125,14 @@ class ChatService:
             FunctionName=function_name, InvocationType="Event",
             Payload=json.dumps({"action": "chat_reply", "userId": user_id,
                                 "sessionId": session_id}).encode())
-        return {"sessionId": session_id, "title": title, "pending": True}
+        # Detección inmediata de antipatrones (determinística, ms): el frontend la
+        # muestra mientras el modelo genera, para que la espera se sienta corta.
+        try:
+            detected = _detect_antipatterns(text)
+        except Exception:
+            detected = []
+        return {"sessionId": session_id, "title": title, "pending": True,
+                "antipatterns": detected}
 
     def run_reply(self, user_id: str, session_id: str) -> None:
         """Worker asíncrono: genera la respuesta con el razonador SIN límite de 30 s
@@ -116,7 +146,39 @@ class ChatService:
         ttl = int(datetime.now(timezone.utc).timestamp()) + MESSAGE_TTL_DAYS * 86400
         try:
             convo = [{"role": m["role"], "text": m["text"]} for m in msgs[-MAX_HISTORY_MESSAGES:]]
-            result = LlmService().converse(convo, system=SYSTEM_PROMPT, max_tokens=1500,
+            # Si la conversación menciona queries/tablas del data lake, se adjunta al
+            # system prompt el MISMO contexto de catálogo que usa la Sugerencia IA de
+            # Athena (formato, particiones, columnas con tipo, resolución de tablas
+            # sin base) — así el chat sugiere con esa calidad sin pedirle el esquema
+            # al usuario. Va en el system (no se guarda en el historial) y se
+            # recalcula en cada turno sobre la ventana vigente de mensajes.
+            system = SYSTEM_PROMPT
+            user_texts = [m["text"] for m in convo if m["role"] == "user"]
+            try:
+                ctx_block = context_for_chat_texts(user_texts)
+            except Exception:
+                ctx_block = ""
+            if ctx_block:
+                system += (
+                    "\n\nContexto del catálogo de datos de la plataforma para las tablas "
+                    "mencionadas en la conversación (obtenido automáticamente; el usuario "
+                    "no lo ve). Úsalo para precisar tus sugerencias con los tipos, "
+                    "particiones y formato REALES — no inventes columnas ni particiones "
+                    "que no estén aquí:\n" + ctx_block)
+            # Mismo detector determinístico del monitoreo, sobre el SQL más reciente
+            # de la conversación: el modelo debe abordar TODOS estos hallazgos (o
+            # decir por qué alguno no aplica), no solo los que note por su cuenta.
+            try:
+                detected = next((d for d in (_detect_antipatterns(t) for t in reversed(user_texts)) if d), [])
+            except Exception:
+                detected = []
+            if detected:
+                system += (
+                    "\n\nAntipatrones detectados automáticamente en el query del usuario "
+                    "(detector determinístico de la plataforma, ya se le mostraron al "
+                    "usuario): " + ", ".join(detected) + ". Aborda cada uno en tu "
+                    "respuesta — corrígelo o explica por qué no aplica en este caso.")
+            result = LlmService().converse(convo, system=system, max_tokens=1500,
                                            max_prompt_chars=16000)
             reply = result["text"]
             if result.get("stopReason") == "max_tokens":

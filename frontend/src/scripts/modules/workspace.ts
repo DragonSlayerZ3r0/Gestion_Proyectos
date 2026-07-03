@@ -300,6 +300,8 @@ export function createWorkspaceModule(ctx) {
                 </section>
               </div>
 
+              ${renderProjectUpdates(project)}
+
               <form class="inlineForm projectTaskForm" data-task-quick-project="${project.id}" ${taskFormOpen ? "" : "hidden"}>
                 <input name="title" type="text" placeholder="Nueva tarea" required />
                 <button class="primaryButton" type="submit">Crear tarea</button>
@@ -318,6 +320,62 @@ export function createWorkspaceModule(ctx) {
             ${detailPanel ? `<section class="detailDrawerSlot">${detailPanel}</section>` : ""}
           </article>
         `;
+      }
+
+      // Fecha de una entrada de seguimiento con día de semana ("vie 27 jun 2026").
+      // OJO: new Date("AAAA-MM-DD") parsea como medianoche UTC y en Guatemala
+      // (UTC-6) mostraría el día ANTERIOR — se parsea por partes (fecha local).
+      function updateDateLabel(iso) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+        if (!m) return iso || "";
+        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        return d.toLocaleDateString("es-GT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+      }
+
+      // Seguimiento (bitácora): qué se trabajó cada día. La entrada nueva toma la
+      // fecha de HOY sola (la pone el backend); cada entrada es editable (texto y
+      // fecha, por si se anotó mal) con el lápiz. Se muestran las 3 más recientes
+      // y un "Ver todas (N)" para el resto.
+      function renderProjectUpdates(project) {
+        const updates = project.updates || [];
+        const expanded = !!state.updatesExpanded[project.id];
+        const visible = expanded ? updates : updates.slice(0, 3);
+        const editing = state.updateEditing;
+        const rows = visible.map((u) => {
+          if (editing && editing.projectId === project.id && editing.updateId === u.id) {
+            return `
+              <form class="projectUpdateRow projectUpdateEditForm" data-update-edit-form="${project.id}" data-update-id="${u.id}">
+                <input class="projectUpdateDateInput" name="date" type="date" value="${escapeAttribute(u.date)}" required aria-label="Fecha del seguimiento" />
+                <input class="projectUpdateTextInput" name="text" type="text" value="${escapeAttribute(u.text)}" required aria-label="Texto del seguimiento" />
+                <div class="projectUpdateEditActions">
+                  <button class="tinyButton" type="submit">Guardar</button>
+                  <button class="tinyButton ghost" type="button" data-update-cancel>Cancelar</button>
+                  <button class="tinyButton danger" type="button" data-update-delete="${project.id}" data-update-id="${u.id}">Eliminar</button>
+                </div>
+              </form>`;
+          }
+          return `
+            <div class="projectUpdateRow">
+              <span class="projectUpdateDate">${escapeHtml(updateDateLabel(u.date))}</span>
+              <span class="projectUpdateText">${escapeHtml(u.text)}</span>
+              ${renderEditIconButton("Editar seguimiento", `data-update-edit="${project.id}" data-update-id="${u.id}"`)}
+            </div>`;
+        }).join("");
+        return `
+          <section class="projectUpdatesBlock">
+            <div class="blockHeader">
+              <strong>Seguimiento</strong>
+              <span>${updates.length}</span>
+            </div>
+            <form class="inlineForm projectUpdateForm" data-update-quick-project="${project.id}">
+              <input name="text" type="text" placeholder="¿Qué se trabajó hoy? Se registra con la fecha de hoy" required maxlength="2000" />
+              <button class="primaryButton" type="submit">Registrar</button>
+            </form>
+            <div class="projectUpdateList">
+              ${rows || `<p class="emptyText">Sin registros aún. Anota lo trabajado para llevar la bitácora del proyecto.</p>`}
+            </div>
+            ${updates.length > 3 ? `<button class="tinyButton ghost projectUpdateToggle" type="button" data-update-toggle="${project.id}">${expanded ? "Ver menos" : `Ver todas (${updates.length})`}</button>` : ""}
+          </section>`;
       }
 
       function renderTaskSummary(project) {
@@ -664,6 +722,36 @@ export function createWorkspaceModule(ctx) {
           form.addEventListener("submit", submitTaskForm);
         }
 
+        // Seguimiento: registrar (fecha de hoy automática), editar, eliminar, ver todas.
+        for (const form of document.querySelectorAll("[data-update-quick-project]")) {
+          form.addEventListener("submit", submitUpdateForm);
+        }
+        for (const form of document.querySelectorAll("[data-update-edit-form]")) {
+          form.addEventListener("submit", submitUpdateEditForm);
+        }
+        for (const button of document.querySelectorAll("[data-update-edit]")) {
+          button.addEventListener("click", () => {
+            state.updateEditing = { projectId: button.dataset.updateEdit, updateId: button.dataset.updateId };
+            renderWorkspace();
+          });
+        }
+        for (const button of document.querySelectorAll("[data-update-cancel]")) {
+          button.addEventListener("click", () => {
+            state.updateEditing = null;
+            renderWorkspace();
+          });
+        }
+        for (const button of document.querySelectorAll("[data-update-delete]")) {
+          button.addEventListener("click", () => deleteProjectUpdate(button.dataset.updateDelete, button.dataset.updateId));
+        }
+        for (const button of document.querySelectorAll("[data-update-toggle]")) {
+          button.addEventListener("click", () => {
+            const id = button.dataset.updateToggle;
+            state.updatesExpanded[id] = !state.updatesExpanded[id];
+            renderWorkspace();
+          });
+        }
+
         for (const button of document.querySelectorAll("[data-toggle-task-form]")) {
           button.addEventListener("click", () => {
             const projectId = button.dataset.toggleTaskForm;
@@ -962,6 +1050,61 @@ export function createWorkspaceModule(ctx) {
           state.taskFormProjectId = null;
           state.saveNotice = { target: `task-create:${projectId}`, message: "Tarea creada." };
           target.reset();
+          await refreshWorkspace();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      // Seguimiento: crear (la fecha de HOY la pone el backend), editar y eliminar.
+      async function submitUpdateForm(event) {
+        event.preventDefault();
+        const projectId = event.currentTarget.dataset.updateQuickProject;
+        if (!projectId) return;
+        const target = event.currentTarget;
+        const text = (new FormData(target).get("text") || "").toString().trim();
+        if (!text) return;
+        try {
+          await apiRequest(`api/projects/${projectId}/updates`, {
+            method: "POST",
+            body: JSON.stringify({ text })
+          });
+          state.activeProjectId = projectId;
+          target.reset();
+          await refreshWorkspace();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function submitUpdateEditForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const projectId = target.dataset.updateEditForm;
+        const updateId = target.dataset.updateId;
+        if (!projectId || !updateId) return;
+        const form = new FormData(target);
+        const text = (form.get("text") || "").toString().trim();
+        const date = (form.get("date") || "").toString();
+        if (!text || !date) return;
+        try {
+          await apiRequest(`api/projects/${projectId}/updates/${updateId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ text, date })
+          });
+          state.updateEditing = null;
+          await refreshWorkspace();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function deleteProjectUpdate(projectId, updateId) {
+        if (!projectId || !updateId) return;
+        if (!window.confirm("¿Eliminar esta entrada de seguimiento? No se puede deshacer.")) return;
+        try {
+          await apiRequest(`api/projects/${projectId}/updates/${updateId}`, { method: "DELETE" });
+          state.updateEditing = null;
           await refreshWorkspace();
         } catch (error) {
           alert(error.message);

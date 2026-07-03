@@ -33,6 +33,10 @@ export function createAdminModule(ctx) {
           const payload = await apiRequest("api/admin/users");
           state.adminUsers = payload.data.users || [];
           state.adminModules = payload.data.availableModules || [];
+          // Matriz de asignación derivada del manifiesto backend (fuente única):
+          // módulos/pestañas nuevos aparecen solos, sin tocar este archivo.
+          state.adminModuleGroups = payload.data.moduleGroups || null;
+          state.adminDefaultNewUserKeys = payload.data.defaultNewUserKeys || null;
         } catch (err) {
           state.adminError = err?.message || "No se pudieron cargar los usuarios.";
         }
@@ -40,16 +44,19 @@ export function createAdminModule(ctx) {
         paintAdmin();
       }
 
-      // Grupos visibles de módulos. "Proyectos y tareas" es un solo módulo para el
-      // usuario, aunque internamente son dos claves (projects + tasks) que van juntas.
-      // El módulo Inicio tiene sub-pestañas asignables (Resumen, Data Lake);
-      // Facturación no aparece porque es exclusiva de administradores.
-      const adminModuleGroups = [
+      // Matriz de asignación: la fuente única es el MANIFIESTO backend
+      // (modules/manifest.py → admin_module_groups, vía GET /api/admin/users).
+      // Este fallback local existe SOLO para un bundle viejo contra un backend
+      // que aún no exponga moduleGroups — no se mantiene: los módulos/pestañas
+      // nuevos se agregan en el manifiesto, no aquí.
+      const fallbackModuleGroups = [
         {
-          key: "home", label: "Inicio", keys: ["home"],
+          key: "home", label: "Inicio", keys: ["home"], locked: true,
           children: [
             { key: "home_resumen", label: "Resumen" },
             { key: "home_datalake", label: "Data Lake" },
+            { key: "home_facturacion", label: "Facturación" },
+            { key: "home_athena", label: "Athena" },
           ],
         },
         { key: "projects", label: "Proyectos y tareas", keys: ["projects", "tasks"] },
@@ -58,9 +65,13 @@ export function createAdminModule(ctx) {
         { key: "admin", label: "Administración", keys: ["admin"] },
       ];
 
+      function adminModuleGroups() {
+        return state.adminModuleGroups || fallbackModuleGroups;
+      }
+
       function adminModuleCheckboxes(prefix, selected) {
         const set = new Set(selected || []);
-        return adminModuleGroups.map((g) => {
+        return adminModuleGroups().map((g) => {
           const checked = g.keys.some((k) => set.has(k));
           const children = (g.children || []).map((c) => `
             <label class="adminModuleChk adminModuleChild">
@@ -72,7 +83,7 @@ export function createAdminModule(ctx) {
           <div class="adminModuleGroup">
             <label class="adminModuleChk">
               <input type="checkbox" data-mod="${escapeAttribute(g.key)}" name="${prefix}-mod"
-                ${checked ? "checked" : ""} ${g.key === "home" ? "disabled checked" : ""} />
+                ${checked ? "checked" : ""} ${g.locked ? "disabled checked" : ""} />
               <span>${escapeHtml(g.label)}</span>
             </label>
             ${children ? `<div class="adminModuleChildren">${children}</div>` : ""}
@@ -86,7 +97,7 @@ export function createAdminModule(ctx) {
         const checkedKeys = [...container.querySelectorAll(selector)].map((c) => c.dataset.mod);
         const result = new Set();
         for (const ck of checkedKeys) {
-          const group = adminModuleGroups.find((g) => g.key === ck);
+          const group = adminModuleGroups().find((g) => g.key === ck);
           (group ? group.keys : [ck]).forEach((k) => result.add(k));
         }
         return [...result];
@@ -95,7 +106,7 @@ export function createAdminModule(ctx) {
       // Resumen legible de los módulos habilitados (por grupo) para la vista colapsada.
       function moduleSummary(modules) {
         const set = new Set(modules || []);
-        const labels = adminModuleGroups
+        const labels = adminModuleGroups()
           .filter((g) => g.keys.some((k) => set.has(k)))
           .map((g) => g.label);
         return labels.length ? labels.join(" · ") : "Sin módulos";
@@ -187,7 +198,7 @@ export function createAdminModule(ctx) {
               </label>
               <fieldset class="adminModules">
                 <legend>Módulos</legend>
-                ${adminModuleCheckboxes("new", ["home", "home_resumen", "home_datalake", "catalog"])}
+                ${adminModuleCheckboxes("new", state.adminDefaultNewUserKeys || ["home", "home_resumen", "home_datalake", "catalog"])}
               </fieldset>
               <button class="primaryButton" type="submit">Crear usuario</button>
               <p class="adminFormMsg" hidden></p>

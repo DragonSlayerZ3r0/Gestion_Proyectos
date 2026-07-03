@@ -83,6 +83,36 @@
     padding: 0;
   }
 
+  /* Estado inicial "booting": pantalla neutra mientras se valida la sesión al
+     cargar/recargar. Evita el destello de la página de login cuando el usuario
+     SÍ tiene sesión activa (confundía: parecía pedir iniciar sesión de nuevo).
+     app.ts quita esta clase al decidir el estado real. */
+  .shell.booting {
+    display: block;
+    min-height: 100vh;
+  }
+  .shell.booting .sidebar,
+  .shell.booting .topbar,
+  .shell.booting .statusPanel,
+  .shell.booting .contentGrid,
+  .shell.booting .workspaceLayout,
+  .shell.booting .loginLanding {
+    display: none;
+  }
+  .shell.booting .main {
+    max-width: none;
+    min-height: 100vh;
+    padding: 0;
+    display: grid;
+    place-items: center;
+  }
+  .shell.booting .main::after {
+    content: "Cargando…";
+    color: var(--muted);
+    font-size: 0.92rem;
+    animation: deployPulse 1.4s ease-in-out infinite;
+  }
+
   .loginLanding {
     position: relative;
     overflow: hidden;
@@ -384,8 +414,8 @@
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    min-width: 248px;
-    max-width: 320px;
+    min-width: 288px;
+    max-width: 340px;
     background: #ffffff;
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -425,7 +455,19 @@
     color: var(--text);
     font-size: 0.9rem;
     line-height: 1.3;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Correo en su propia línea, con elipsis (el título muestra el completo);
+     nunca partido en dos líneas a media palabra. */
+  .userMenuEmail {
+    font-size: 0.78rem;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .userMenuMeta {
@@ -1237,12 +1279,31 @@
 
   .projectPeopleBlock,
   .projectSummaryBlock,
+  .projectUpdatesBlock,
   .taskGroup {
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel-soft);
     padding: 12px;
   }
+
+  /* Seguimiento (bitácora): registro rápido con fecha automática + lista de
+     entradas (más reciente primero) con edición inline de texto y fecha. */
+  .projectUpdatesBlock { margin-top: 14px; }
+  .projectUpdateForm { margin-bottom: 10px; }
+  /* Expandido ("Ver todas") crece hasta un tope y luego scroll interno: la tarjeta
+     del proyecto no se alarga infinito aunque la bitácora tenga meses de entradas. */
+  .projectUpdateList { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+  .projectUpdateRow { display: flex; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 8px; background: #ffffff; border: 1px solid var(--line); }
+  .projectUpdateDate { flex: none; font-size: 0.78rem; font-weight: 700; color: var(--accent-strong); white-space: nowrap; }
+  .projectUpdateText { flex: 1; min-width: 0; font-size: 0.88rem; color: #34454b; overflow-wrap: anywhere; }
+  .projectUpdateRow .iconTinyButton { align-self: center; }
+  .projectUpdateEditForm { flex-wrap: wrap; align-items: center; }
+  .projectUpdateDateInput { flex: none; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 0.82rem; }
+  .projectUpdateTextInput { flex: 1; min-width: 180px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 0.86rem; }
+  .projectUpdateEditActions { display: flex; gap: 6px; }
+  .tinyButton.danger { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+  .projectUpdateToggle { margin-top: 8px; }
 
   .taskGroup.taskStatus-pending,
   .kanbanColumn.taskStatus-pending {
@@ -3104,7 +3165,10 @@
      Dos paneles al estilo ChatGPT: sidebar de conversaciones (izquierda) +
      mensajes con input abajo (derecha), en los mismos colores claros del resto
      de la app (--panel/--panel-soft/--accent), sin tema oscuro. */
-  .chatPanel { padding: 0; overflow: hidden; height: calc(100vh - 170px); min-height: 480px; }
+  /* Ocupa TODO el ancho del contentGrid (que es de 2 columnas): sin esto el chat
+     queda apretado en la columna izquierda con la derecha vacía. 100dvh en vez de
+     100vh donde exista, para que la barra del navegador móvil no corte el input. */
+  .chatPanel { grid-column: 1 / -1; padding: 0; overflow: hidden; height: calc(100vh - 170px); height: calc(100dvh - 170px); min-height: 480px; }
   .chatLayout { display: flex; height: 100%; }
   .chatSidebar { width: 260px; flex: none; border-right: 1px solid var(--line); background: var(--panel-soft); display: flex; flex-direction: column; padding: 14px; gap: 10px; overflow-y: auto; }
   .chatNewBtn { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--panel); color: var(--accent-strong); font-weight: 700; font-size: 0.84rem; cursor: pointer; }
@@ -3141,11 +3205,32 @@
   .chatMsg-assistant .chatBubble .llmCode { background: #f6f8fa; color: #1b272b; border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 12px; margin: 0 0 8px; font-size: 0.8rem; line-height: 1.45; overflow-x: auto; white-space: pre; font-family: var(--font-mono, ui-monospace, monospace); }
   .chatMsg-assistant .chatBubble ol, .chatMsg-assistant .chatBubble ul { margin: 0 0 8px; padding-left: 18px; }
   .chatTyping { color: #5b6b72; font-style: italic; }
+  /* Hallazgos del detector determinístico, visibles mientras el modelo genera. */
+  .chatDetected { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; font-size: 0.82rem; line-height: 1.5; }
+  .chatDetected b { color: #b91c1c; }
   .chatErrorBanner { margin: 0 24px 10px; padding: 8px 12px; border-radius: 8px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 0.8rem; }
   .chatInputRow { display: flex; align-items: flex-end; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--line); background: var(--panel); }
-  .chatInput { flex: 1; resize: none; border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px 14px; font: inherit; font-size: 0.86rem; line-height: 1.4; max-height: 160px; }
+  /* Pensado para pegar texto largo (p. ej. queries): arranca con ~3 líneas y crece
+     con el contenido (autosize en chat.ts) hasta el tope; luego scroll interno. */
+  /* min-width:0 en el wrap y el textarea: sin esto flexbox no deja encoger el
+     textarea (min-width intrínseco) y en pantallas angostas EMPUJA el botón
+     "Enviar" fuera del panel (overflow:hidden lo recorta → los clics no llegan,
+     aunque Enter siga funcionando). */
+  .chatInputWrap { position: relative; flex: 1; display: flex; min-width: 0; }
+  .chatInput { flex: 1; min-width: 0; resize: vertical; border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px 34px 10px 14px; font: inherit; font-size: 0.86rem; line-height: 1.4; min-height: 74px; max-height: 320px; overflow-y: auto; }
+  /* Botón discreto (como el de copiar SQL): inserta la plantilla "mejorar un query". */
+  .chatTemplateBtn {
+    position: absolute; top: 6px; right: 6px; z-index: 1;
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; line-height: 1; cursor: pointer; border-radius: 6px;
+    background: #eef1f4; color: #566069; border: 1px solid var(--line);
+    opacity: 0.55; transition: opacity 0.15s ease;
+  }
+  .chatInputWrap:hover .chatTemplateBtn, .chatTemplateBtn:focus-visible { opacity: 1; }
+  .chatTemplateBtn:hover { background: #e2e6ea; }
+  .chatTemplateBtn:disabled { opacity: 0.3; cursor: default; }
   .chatInput:focus { outline: none; border-color: var(--accent); }
-  .chatSendBtn { padding: 10px 18px; border-radius: 10px; border: none; background: var(--accent); color: #fff; font-weight: 700; font-size: 0.84rem; cursor: pointer; }
+  .chatSendBtn { flex: none; padding: 10px 18px; border-radius: 10px; border: none; background: var(--accent); color: #fff; font-weight: 700; font-size: 0.84rem; cursor: pointer; }
   .chatSendBtn:hover { background: var(--accent-strong); }
   .chatSendBtn:disabled { opacity: 0.5; cursor: default; }
 
@@ -3153,3 +3238,91 @@
     .chatSidebar { width: 200px; }
     .chatBubble { max-width: 85%; }
   }
+  /* Pantallas angostas: el sidebar pasa ARRIBA (compacto) y el chat usa todo el
+     ancho — dos columnas ya no caben sin aplastar los mensajes y el input. */
+  @media (max-width: 720px) {
+    .chatLayout { flex-direction: column; }
+    .chatSidebar { width: auto; max-height: 150px; border-right: none; border-bottom: 1px solid var(--line); }
+    .chatMessages { padding: 14px 16px; }
+    .chatInputRow { padding: 10px 12px; }
+    .chatBubble { max-width: 95%; }
+  }
+
+  /* ── Responsive transversal (teléfonos y tablets) ─────────────────────────
+     Los layouts por módulo ya colapsan a 1 columna en sus propios breakpoints
+     (shell/workspace 780px, catálogo 900px, chat 720px). Este bloque cubre lo
+     transversal que faltaba: tablas anchas con scroll horizontal propio (en vez
+     de romper el layout) y filas de controles/pestañas que desbordan. */
+  @media (max-width: 780px) {
+    /* Tablas anchas (Athena, Facturación, Data Lake): se desplazan de lado
+       dentro de su propio contenedor; el resto de la página no se rompe. */
+    .homeSvcTable,
+    .homeDailyTable {
+      display: block;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    /* Pestañas de Inicio (hasta 5 con Facturación/Athena): scroll lateral. */
+    .homeTabs { overflow-x: auto; scrollbar-width: thin; }
+    .homeTab { white-space: nowrap; flex: none; }
+    /* Controles del monitoreo Athena y de costos apilados sin desbordar. */
+    .athColChips { margin-left: 0; }
+    .athApControls { row-gap: 8px; }
+    .homeCostHeader > div:first-child { width: 100%; }
+    /* Tarjetas de consultas: metadatos en columna si no caben. */
+    .athenaQueryMeta { flex-direction: column; gap: 4px; }
+    /* Panel de info ⓘ y recomendaciones a ancho completo. */
+    .athInfo { max-width: 100%; }
+    /* Seguimiento de proyectos: fecha arriba y texto abajo en pantallas chicas. */
+    .projectUpdateRow { flex-wrap: wrap; }
+    /* Formularios inline (registrar seguimiento, crear tarea): botón debajo. */
+    .projectUpdateForm { grid-template-columns: 1fr; }
+  }
+
+  /* ── Aviso de despliegue en curso (deploy.json, ver scripts/deploy-flag.sh) ──
+     Píldora discreta fija abajo al centro; el punto pulsa (intermitente) para
+     llamar la atención sin estorbar. Con "ready" (versión nueva lista) cambia
+     a verde con botón de recarga. */
+  .deployNotice {
+    position: fixed;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(92vw, 560px);
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    color: #92400e;
+    font-size: 0.8rem;
+    font-weight: 600;
+    box-shadow: 0 8px 28px rgba(31, 42, 46, 0.18);
+  }
+  .deployNoticeDot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #f59e0b;
+    flex: none;
+    animation: deployPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes deployPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.25; transform: scale(0.75); }
+  }
+  .deployNotice.ready { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+  .deployNoticeReload {
+    border: 1px solid #34d399;
+    background: #ffffff;
+    color: #047857;
+    border-radius: 999px;
+    padding: 3px 12px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .deployNoticeReload:hover { background: #d1fae5; }

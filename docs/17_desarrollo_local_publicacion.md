@@ -138,6 +138,25 @@ aws sso login --sso-session bdr-fed
 
 Usar el perfil SSO `gestion-proyectos-dev` como flujo normal y mantener credenciales temporales fuera de archivos y comandos del proyecto.
 
+## Aviso de despliegue a usuarios conectados (obligatorio en TODO deploy)
+
+Hay usuarios probando la plataforma mientras se desarrolla. Para que no guarden cambios justo cuando algo se está publicando, la app muestra un **aviso discreto e intermitente** (píldora ámbar abajo al centro: "Se está publicando una nueva versión — evita guardar cambios en este momento") mientras exista un despliegue en curso, y al terminar ofrece **"Recargar"** si detecta versión nueva.
+
+Cómo funciona:
+- La bandera es el archivo **`/deploy.json` en el bucket del frontend** (`{"status":"deploying"|"ok", ...}`), subido con `no-store` — costo cero (sin Lambda/DynamoDB). El frontend (`app.ts → startDeployWatch`) lo consulta **cada 60 s**; banderas huérfanas (>30 min) se ignoran por si un deploy murió a medias.
+- **`scripts/deploy-flag.sh start|done`** sube/limpia la bandera (e invalida solo `/deploy.json` en CloudFront).
+- **`scripts/deploy-frontend.sh` la maneja solo** (start antes del sync, done al final). El sync excluye `deploy.json` igual que `config.json`.
+
+**Regla operativa: cualquier despliegue debe avisar.** Para deploys SOLO de backend (cdk), envolverlo a mano:
+
+```bash
+./scripts/deploy-flag.sh start
+( cd infra && npx cdk deploy --profile gestion-proyectos-dev --require-approval never )
+./scripts/deploy-flag.sh done
+```
+
+Si un deploy aborta a medias, correr `./scripts/deploy-flag.sh done` para limpiar la bandera (o esperar los 30 min de tolerancia).
+
 ## Publicación de backend
 
 La infraestructura define la Lambda desde `backend/app`. Para publicar cambios de código backend sin cambiar infraestructura:

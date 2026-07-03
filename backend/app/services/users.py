@@ -2,7 +2,7 @@ import os
 from typing import Any
 
 from core.errors import UserNotConfiguredError  # re-exportado para compatibilidad
-from modules.manifest import MODULES, HOME_TAB_KEYS
+from modules.manifest import ADMIN_DEFAULT_HOME_TABS, HOME_TAB_KEYS, MODULES
 from repositories.users import UsersRepository
 
 
@@ -27,7 +27,7 @@ class UserService:
 
         module_items = self._repository.list_user_modules(identity["userId"])
         modules = self._normalize_modules(module_items)
-        home_tabs = self._resolve_home_tabs(module_items)
+        home_tabs = self._resolve_home_tabs(module_items, profile.get("roles", ["user"]))
 
         return {
             "user": {
@@ -60,11 +60,20 @@ class UserService:
                 })
         return sorted(modules, key=lambda module: MODULE_ORDER.get(module["key"], 99))
 
-    def _resolve_home_tabs(self, items: list[dict[str, Any]]) -> list[str]:
-        """Pestañas de Inicio visibles para el usuario (no incluye Facturación,
-        que es admin-only). Si el usuario nunca fue configurado con estas claves
-        (usuarios previos a la función), por defecto se habilitan todas."""
-        tab_rows = [i for i in items if i.get("moduleKey") in _HOME_TAB_KEYS]
-        if not tab_rows:
-            return list(HOME_TAB_KEYS)
-        return [i["moduleKey"] for i in tab_rows if i.get("enabled")]
+    def _resolve_home_tabs(self, items: list[dict[str, Any]], roles: list[str]) -> list[str]:
+        """Pestañas de Inicio visibles para el usuario. Clave configurada → se
+        respeta lo asignado en Administración. Clave NUNCA configurada (usuarios
+        previos a que existiera) → default por compatibilidad: Resumen/Data Lake
+        habilitadas; Facturación/Athena solo si es admin (comportamiento previo)."""
+        rows = {i["moduleKey"]: bool(i.get("enabled"))
+                for i in items if i.get("moduleKey") in _HOME_TAB_KEYS}
+        is_admin = "admin" in (roles or [])
+        tabs: list[str] = []
+        for key in HOME_TAB_KEYS:
+            if key in rows:
+                enabled = rows[key]
+            else:
+                enabled = is_admin if key in ADMIN_DEFAULT_HOME_TABS else True
+            if enabled:
+                tabs.append(key)
+        return tabs
