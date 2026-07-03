@@ -9,6 +9,11 @@ from repositories.users import UsersRepository
 # Derivado del manifiesto único (fuente de verdad de los módulos).
 DEFAULT_MODULES = [{**m, "enabled": True} for m in MODULES]
 
+# Etiqueta VIGENTE por clave. Las filas MODULE# de DynamoDB guardan una copia de
+# la etiqueta al momento de configurar al usuario; si después se renombra en el
+# manifiesto (ej. "Inicio" → "Panel"), aquí se impone la actual sin migrar datos.
+_CURRENT_LABELS = {m["key"]: m["label"] for m in MODULES}
+
 MODULE_ORDER = {module["key"]: index for index, module in enumerate(DEFAULT_MODULES)}
 
 _HOME_TAB_KEYS = set(HOME_TAB_KEYS)
@@ -55,7 +60,7 @@ class UserService:
             if item.get("enabled", False):
                 modules.append({
                     "key": key,
-                    "label": item.get("label", key),
+                    "label": _CURRENT_LABELS.get(key) or item.get("label", key),
                     "enabled": True
                 })
         return sorted(modules, key=lambda module: MODULE_ORDER.get(module["key"], 99))

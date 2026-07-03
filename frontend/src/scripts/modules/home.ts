@@ -100,7 +100,7 @@ export function createHomeModule(ctx) {
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
         elements.contentPanel.className = "contentGrid homeGrid";
-        elements.viewTitle.textContent = "Inicio";
+        elements.viewTitle.textContent = "Panel";
         if (!state.homeCostPeriod) state.homeCostPeriod = currentMonthPeriod();
         destroyHomeCharts();
         state.homeSummary = null;

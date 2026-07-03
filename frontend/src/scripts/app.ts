@@ -12,7 +12,7 @@
 
       const defaultModules = [
         { key: "projects", label: "Proyectos y tareas" },
-        { key: "home", label: "Inicio" },
+        { key: "home", label: "Panel" },
         { key: "catalog", label: "Catálogo" },
         { key: "chat", label: "Apoyo técnico" },
         { key: "admin", label: "Administración" }
@@ -22,7 +22,7 @@
 
       const viewCopy = {
         home: {
-          title: "Inicio",
+          title: "Panel",
           eyebrow: "Vista general",
           body: "Resumen operativo de proyectos, tareas y accesos habilitados.",
           metricLabel: "Elementos activos",

@@ -51,7 +51,7 @@ export function createAdminModule(ctx) {
       // nuevos se agregan en el manifiesto, no aquí.
       const fallbackModuleGroups = [
         {
-          key: "home", label: "Inicio", keys: ["home"], locked: true,
+          key: "home", label: "Panel", keys: ["home"], locked: true,
           children: [
             { key: "home_resumen", label: "Resumen" },
             { key: "home_datalake", label: "Data Lake" },

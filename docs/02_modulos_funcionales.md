@@ -4,9 +4,11 @@
 
 Cada usuario solo ve los módulos que tiene habilitados. Ocultar un módulo en frontend mejora la experiencia, pero no reemplaza la validación obligatoria de permisos en Lambda.
 
-## Inicio
+## Panel (antes "Inicio")
 
-Pantalla principal con resumen de proyectos, tareas asignadas, accesos disponibles y actividad relevante.
+Pantalla principal con resumen operativo y tableros de monitoreo (Data Lake, Facturación, Athena).
+
+> **Clave técnica vs etiqueta visible:** este módulo se renombró a **"Panel"** (2026-07-03) porque sus pestañas son mayormente tableros de monitoreo, no una página de bienvenida. El cambio fue **solo de etiqueta**: la clave interna sigue siendo **`home`** (y las pestañas `home_resumen`, `home_datalake`, `home_facturacion`, `home_athena`) — vive en DynamoDB por usuario, en rutas y guards; renombrarla exigiría migración de datos sin ganancia. La etiqueta vigente se impone desde el manifiesto (`_CURRENT_LABELS` en `services/users.py`) sobre la copia guardada en las filas de cada usuario, así el rename fue instantáneo sin tocar datos. En docs y código, "Inicio" y "Panel" refieren al mismo módulo `home`.
 
 ### Estado implementado
 

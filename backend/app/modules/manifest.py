@@ -8,7 +8,10 @@ expuesta en GET /api/admin/users como `moduleGroups`). Agregar un módulo a
 casilla configurable por usuario — no hay que tocar el frontend."""
 
 MODULES = [
-    {"key": "home", "label": "Inicio"},
+    # Clave histórica "home" con etiqueta visible "Panel" — NO renombrar la
+    # clave: vive en DynamoDB por usuario (filas MODULE#home / home_*) y en
+    # guards/rutas; renombrarla exigiría migración de datos sin ganancia.
+    {"key": "home", "label": "Panel"},
     {"key": "projects", "label": "Proyectos"},
     {"key": "tasks", "label": "Tareas"},
     {"key": "catalog", "label": "Catálogo"},
@@ -24,10 +27,10 @@ MODULE_KEYS = [m["key"] for m in MODULES]
 # Athena son asignables desde Administración; si un usuario nunca fue
 # configurado con esas claves, heredan el comportamiento previo (solo admins).
 HOME_TABS = [
-    {"key": "home_resumen", "label": "Inicio · Resumen"},
-    {"key": "home_datalake", "label": "Inicio · Data Lake"},
-    {"key": "home_facturacion", "label": "Inicio · Facturación"},
-    {"key": "home_athena", "label": "Inicio · Athena"},
+    {"key": "home_resumen", "label": "Panel · Resumen"},
+    {"key": "home_datalake", "label": "Panel · Data Lake"},
+    {"key": "home_facturacion", "label": "Panel · Facturación"},
+    {"key": "home_athena", "label": "Panel · Athena"},
 ]
 
 # Pestañas cuyo default (sin configurar) es solo-admin, por compatibilidad con
@@ -40,7 +43,7 @@ HOME_TAB_KEYS = [t["key"] for t in HOME_TABS]
 # Decisiones VISUALES declaradas como datos, no duplicadas en el frontend:
 # - projects+tasks se presentan como UN solo grupo "Proyectos y tareas".
 # - "home" va bloqueado (siempre habilitado: es el punto de entrada de la app).
-# - Las HOME_TABS aparecen como hijas de Inicio (su etiqueta corta, sin "Inicio ·").
+# - Las HOME_TABS aparecen como hijas del Panel (su etiqueta corta, sin "Panel ·").
 _MERGED_GROUPS = {
     "projects": {"label": "Proyectos y tareas", "keys": ["projects", "tasks"]},
 }
