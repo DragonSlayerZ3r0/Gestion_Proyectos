@@ -3462,7 +3462,10 @@
   /* ── Proyectos: tabla maestro-detalle + Personas colapsable ─────────────── */
   .projectTablePanel { padding: 14px 16px 8px; }
   .projectTableHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-  .projectTableWrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* Listados grandes: altura máxima (~11 filas) con scroll interno y encabezado
+     fijo — la página no crece infinita; búsqueda y filtros reducen el conjunto. */
+  .projectTableWrap { overflow: auto; -webkit-overflow-scrolling: touch; max-height: 480px; }
+  .projectTable thead th { position: sticky; top: 0; background: #ffffff; z-index: 1; }
   .projectTable { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
   .projectTable th { text-align: left; color: var(--muted); font-weight: 600; font-size: 0.78rem; padding: 8px 12px; border-bottom: 2px solid var(--line); white-space: nowrap; }
   .projectTable td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
@@ -3479,6 +3482,11 @@
   .projectsEmptyCta { text-align: center; padding: 40px 20px; }
   .projectsEmptyCta h3 { margin: 0 0 6px; }
   .projectsEmptyCta p { margin: 0 0 16px; color: var(--muted); }
+
+  /* Encabezado del detalle: estado + acciones de la SOLICITUD arriba a la derecha,
+     lejos de los lápices de cada entrada del seguimiento (evita confundirlos). */
+  .projectHeaderRight { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
+  .projectHeaderRight .projectActions { justify-content: flex-end; }
 
   .peopleSection { padding: 10px 16px; }
   .peopleSectionHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }

@@ -227,11 +227,39 @@ export function createWorkspaceModule(ctx) {
         return REQUEST_TYPE_LABELS[value] || "";
       }
 
+      // Orden por columna (clic en el encabezado: 1º asc, 2º desc). Sin orden
+      // elegido se mantiene el del backend (última solicitud actualizada primero).
+      function sortProjectsForTable(projects, peopleById) {
+        const s = state.projectSort;
+        if (!s) return projects;
+        const val = (p) => {
+          switch (s.key) {
+            case "name": return p.name.toLowerCase();
+            case "type": return requestTypeLabel(p.requestType).toLowerCase();
+            case "status": return p.status ? projectStatusLabel(p.status).toLowerCase() : "";
+            case "owner": return (peopleById[p.ownerPersonId]?.fullName || "").toLowerCase();
+            case "tasks": return p.tasks.length;
+            case "activity": return `${p.updates?.[0]?.date || ""}#${p.updates?.[0]?.createdAt || ""}`;
+            default: return "";
+          }
+        };
+        return [...projects].sort((a, b) => {
+          const va = val(a), vb = val(b);
+          return (va < vb ? -1 : va > vb ? 1 : 0) * s.dir;
+        });
+      }
+
+      function projSortTh(key, label, extraClass) {
+        const active = state.projectSort?.key === key;
+        const arrow = active ? (state.projectSort.dir === 1 ? " ▲" : " ▼") : "";
+        return `<th class="sortableTh ${active ? "active" : ""} ${extraClass || ""}" data-proj-sort="${key}" title="Ordenar por ${escapeAttribute(label)}">${escapeHtml(label)}${arrow}</th>`;
+      }
+
       function renderProjectTable(projects, activeProject, peopleById) {
         if (!projects.length) {
           return `<p class="emptyText projectTableEmpty">No hay resultados con los filtros actuales.</p>`;
         }
-        const rows = projects.map((project) => {
+        const rows = sortProjectsForTable(projects, peopleById).map((project) => {
           const owner = peopleById[project.ownerPersonId]?.fullName || "—";
           const done = project.tasks.filter((t) => t.status === "done").length;
           const upd = (project.updates || [])[0];
@@ -253,7 +281,7 @@ export function createWorkspaceModule(ctx) {
         return `
           <table class="projectTable">
             <thead>
-              <tr><th>Solicitud</th><th>Tipo</th><th>Estado</th><th>Responsable</th><th class="num">Tareas</th><th>Última actividad (seguimiento)</th></tr>
+              <tr>${projSortTh("name", "Solicitud")}${projSortTh("type", "Tipo")}${projSortTh("status", "Estado")}${projSortTh("owner", "Responsable")}${projSortTh("tasks", "Tareas", "num")}${projSortTh("activity", "Última actividad (seguimiento)")}</tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>`;
@@ -338,7 +366,14 @@ export function createWorkspaceModule(ctx) {
                   ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
                   ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
                 </div>
-                ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}" data-status="${escapeAttribute(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
+                <div class="projectHeaderRight">
+                  ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}" data-status="${escapeAttribute(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
+                  <div class="projectActions">
+                    <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cancelar" : "Crear tarea"}</button>
+                    <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
+                    <button class="tinyButton ghost" type="button" data-detail-project="${project.id}">Editar solicitud</button>
+                  </div>
+                </div>
               </div>
 
               <div class="projectOverviewGrid">
@@ -375,12 +410,6 @@ export function createWorkspaceModule(ctx) {
               </form>
 
               ${cardNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(cardNotice)}</p>` : ""}
-
-              <div class="projectActions">
-                <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cancelar" : "Crear tarea"}</button>
-                <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
-                ${renderEditIconButton("Editar proyecto", `data-detail-project="${project.id}"`)}
-              </div>
 
               ${boardOpen ? `<div class="kanbanBoard compactBoard">${columns}</div>` : ""}
             </div>
@@ -861,6 +890,16 @@ export function createWorkspaceModule(ctx) {
         for (const button of document.querySelectorAll("[data-project-select]")) {
           button.addEventListener("click", () => {
             state.activeProjectId = button.dataset.projectSelect;
+            renderWorkspace();
+          });
+        }
+
+        for (const th of document.querySelectorAll("[data-proj-sort]")) {
+          th.addEventListener("click", () => {
+            const key = th.dataset.projSort;
+            state.projectSort = (state.projectSort?.key === key)
+              ? { key, dir: state.projectSort.dir * -1 }
+              : { key, dir: 1 };
             renderWorkspace();
           });
         }

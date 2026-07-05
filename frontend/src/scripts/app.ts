@@ -88,6 +88,7 @@
         },
         expandedBoardProjectId: null,
         peopleSectionOpen: false,  // sección "Personas registradas" colapsada por defecto
+        projectSort: null,         // orden de la tabla de solicitudes {key, dir}; null = orden del backend
         updateEditing: null,    // {projectId, updateId} entrada de seguimiento en edición
         updatesExpanded: {},    // por projectId: true = mostrar todo el seguimiento (no solo lo último)
         saveNotice: null,
