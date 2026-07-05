@@ -255,6 +255,40 @@ export function createWorkspaceModule(ctx) {
         return `<th class="sortableTh ${active ? "active" : ""} ${extraClass || ""}" data-proj-sort="${key}" title="Ordenar por ${escapeAttribute(label)}">${escapeHtml(label)}${arrow}</th>`;
       }
 
+      // Señales al seleccionar una fila SIN robar el viewport (anti scroll-hijacking):
+      // - selección normal → "peek": desplaza lo mínimo para que el encabezado del
+      //   detalle asome por abajo, manteniendo el listado a la vista;
+      // - intención explícita (chevron ›) → viaje completo al detalle.
+      // Siempre destella el borde del panel para dirigir la mirada.
+      function revealProjectDetail(full = false) {
+        const card = document.querySelector(".projectOverviewCard.active");
+        if (!card) return;
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const rect = card.getBoundingClientRect();
+        const peek = 180; // px del detalle que deben verse para saber que existe
+        if (full) {
+          const headroom = 96;
+          if (rect.top > window.innerHeight - 220 || rect.top < headroom) {
+            const top = window.scrollY + rect.top - headroom;
+            window.scrollTo({ top: Math.max(top, 0), behavior: reduce ? "auto" : "smooth" });
+          }
+        } else if (rect.top > window.innerHeight - peek) {
+          // Solo el desplazamiento mínimo: el panel asoma, el listado sigue visible.
+          const top = window.scrollY + rect.top - (window.innerHeight - peek);
+          window.scrollTo({ top: Math.max(top, 0), behavior: reduce ? "auto" : "smooth" });
+        }
+        if (!reduce && card.animate) {
+          card.animate(
+            [
+              { boxShadow: "0 0 0 0 rgba(15, 118, 110, 0)" },
+              { boxShadow: "0 0 0 3px rgba(15, 118, 110, 0.45)", offset: 0.25 },
+              { boxShadow: "0 0 0 0 rgba(15, 118, 110, 0)" },
+            ],
+            { duration: 900, easing: "ease-out" },
+          );
+        }
+      }
+
       function renderProjectTable(projects, activeProject, peopleById) {
         if (!projects.length) {
           return `<p class="emptyText projectTableEmpty">No hay resultados con los filtros actuales.</p>`;
@@ -276,12 +310,13 @@ export function createWorkspaceModule(ctx) {
               <td>${escapeHtml(owner)}</td>
               <td class="num">${done}/${project.tasks.length}</td>
               <td class="projActivity">${activity}</td>
+              <td class="projChevron" title="Ir al detalle">${selected ? "▾" : "›"}</td>
             </tr>`;
         }).join("");
         return `
           <table class="projectTable">
             <thead>
-              <tr>${projSortTh("name", "Solicitud")}${projSortTh("type", "Tipo")}${projSortTh("status", "Estado")}${projSortTh("owner", "Responsable")}${projSortTh("tasks", "Tareas", "num")}${projSortTh("activity", "Última actividad (seguimiento)")}</tr>
+              <tr>${projSortTh("name", "Solicitud")}${projSortTh("type", "Tipo")}${projSortTh("status", "Estado")}${projSortTh("owner", "Responsable")}${projSortTh("tasks", "Tareas", "num")}${projSortTh("activity", "Última actividad (seguimiento)")}<th class="projChevronTh" aria-hidden="true"></th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>`;
@@ -361,7 +396,7 @@ export function createWorkspaceModule(ctx) {
             <div class="projectCardMain">
               <div class="projectOverviewHeader">
                 <div>
-                  <p class="eyebrow">Solicitud</p>
+                  <p class="eyebrow">Detalle de la solicitud</p>
                   <h2>${escapeHtml(project.name)}</h2>
                   ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
                   ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
@@ -905,12 +940,19 @@ export function createWorkspaceModule(ctx) {
         }
 
         // Fila de la tabla de proyectos → selecciona y muestra el detalle abajo.
+        // Clic normal = seleccionar + peek (el listado no se pierde de vista);
+        // clic en el chevron › = ir de lleno al detalle.
         for (const row of document.querySelectorAll("[data-project-row]")) {
-          row.addEventListener("click", () => {
-            if (state.activeProjectId === row.dataset.projectRow) return;
+          row.addEventListener("click", (event) => {
+            const full = Boolean(event.target.closest?.(".projChevron"));
+            if (state.activeProjectId === row.dataset.projectRow) {
+              revealProjectDetail(full);
+              return;
+            }
             state.activeProjectId = row.dataset.projectRow;
             state.saveNotice = null;
             renderWorkspace();
+            revealProjectDetail(full);
           });
         }
 

@@ -3475,6 +3475,12 @@
   .projectRow.selected { background: var(--accent-soft, #e6f4f1); }
   .projectRow.selected .projName { color: var(--accent-strong); }
   .projName { font-weight: 700; color: #23333a; }
+  /* Affordance de apertura: cada fila termina en "›" (hay más que ver); en la
+     fila seleccionada gira a "▾" apuntando al detalle que se abre abajo. */
+  .projChevronTh { width: 28px; }
+  .projChevron { width: 28px; text-align: center; color: var(--muted); font-size: 0.95rem; font-weight: 700; user-select: none; }
+  .projectRow:hover .projChevron { color: var(--accent-strong); }
+  .projectRow.selected .projChevron { color: var(--accent-strong); }
   .projActivity { color: #50656d; font-size: 0.8rem; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .projActivityDate { font-weight: 700; color: var(--accent-strong); }
   .projectTableEmpty { padding: 14px 4px; }
