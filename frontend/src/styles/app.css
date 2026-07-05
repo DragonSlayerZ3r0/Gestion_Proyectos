@@ -3489,6 +3489,14 @@
   .projectsEmptyCta h3 { margin: 0 0 6px; }
   .projectsEmptyCta p { margin: 0 0 16px; color: var(--muted); }
 
+  /* Área solicitante: mini-formulario inline bajo el selector (crear/corregir
+     sin salir del editor de la solicitud). */
+  .areaCatalogControls { margin: -6px 0 4px; }
+  .areaCatalogControls [data-area-fix] { font-size: 0.75rem; }
+  .areaInlineForm { display: flex; flex-direction: column; gap: 8px; margin: -2px 0 8px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-muted, #f6f8fa); }
+  .areaInlineForm input { width: 100%; box-sizing: border-box; }
+  .areaInlineActions { display: flex; gap: 8px; flex-wrap: wrap; }
+
   /* Encabezado del detalle: estado + acciones de la SOLICITUD arriba a la derecha,
      lejos de los lápices de cada entrada del seguimiento (evita confundirlos). */
   .projectHeaderRight { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }

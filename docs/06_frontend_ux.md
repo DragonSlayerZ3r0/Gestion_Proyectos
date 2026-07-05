@@ -181,6 +181,7 @@ Basados en heurísticas establecidas (jerarquía visual, divulgación progresiva
 8. **Empty states que guían**: qué es esto + qué hacer + botón que lo hace ("Crear la primera solicitud" enfocando el formulario). Nunca un texto suelto.
 9. **Vocabulario del usuario, consistente**: si el producto dice "solicitud", TODOS los textos (botones, confirmaciones, hints, errores) dicen solicitud; sin jerga técnica visible.
 10. **Prevenir el error antes que corregirlo**: validaciones con mensaje accionable (p. ej. duplicado de persona → "agrega el segundo apellido o el área"), validadas en backend.
+11. **El guardado cuenta su historia (velocidad real + percibida).** Al hacer clic en Guardar, el botón pasa INMEDIATAMENTE a "Guardando…" deshabilitado (confirma que el clic entró y evita el doble-submit) y al confirmar se muestra "✓ Guardado" junto al botón — nunca dejar al usuario adivinando si debe volver a presionar. En lo real: tras un PATCH se **fusiona la respuesta en el estado local y se repinta** (`mergeProject`/`mergePerson`… en `workspace.ts`), NO se recarga la colección completa; y los endpoints de carga evitan el patrón N+1 (consultas por hijo y por elemento) usando lecturas globales por tipo vía el GSI `byEntityType` agrupadas en memoria. Si una recarga completa es inevitable, se hace manteniendo lo pintado (nunca pasar por una pantalla "Cargando" intermedia). UI optimista (aplicar antes de confirmar) solo si esto no alcanza.
 
 ## Responsive (teléfonos y tablets)
 

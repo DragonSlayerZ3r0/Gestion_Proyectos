@@ -227,6 +227,27 @@ export function createWorkspaceModule(ctx) {
         return REQUEST_TYPE_LABELS[value] || "";
       }
 
+      // Área solicitante: catálogo vivo (quién pide la solicitud). Las solicitudes
+      // guardan el id; el nombre se resuelve aquí, así corregir un área mal escrita
+      // corrige todas las solicitudes que la usan.
+      const AREA_EXAMPLE = "p. ej. Gerencia de Canales Digitales";
+      function areaName(areaId) {
+        return state.workspace?.areas?.find((area) => area.id === areaId)?.name || "";
+      }
+      function areaOptions(selectedId) {
+        const areas = state.workspace?.areas || [];
+        const options = [`<option value="">Ninguna</option>`];
+        if (!areas.length) {
+          // Catálogo vacío: ejemplo transparente como referencia de qué va aquí.
+          options.push(`<option value="" disabled>${escapeHtml(AREA_EXAMPLE)}</option>`);
+        }
+        for (const area of areas) {
+          options.push(`<option value="${area.id}" ${area.id === selectedId ? "selected" : ""}>${escapeHtml(area.name)}</option>`);
+        }
+        options.push(`<option value="__new__">+ Agregar área nueva…</option>`);
+        return options.join("");
+      }
+
       // Orden por columna (clic en el encabezado: 1º asc, 2º desc). Sin orden
       // elegido se mantiene el del backend (última solicitud actualizada primero).
       function sortProjectsForTable(projects, peopleById) {
@@ -236,6 +257,7 @@ export function createWorkspaceModule(ctx) {
           switch (s.key) {
             case "name": return p.name.toLowerCase();
             case "type": return requestTypeLabel(p.requestType).toLowerCase();
+            case "area": return areaName(p.requestingAreaId).toLowerCase();
             case "status": return p.status ? projectStatusLabel(p.status).toLowerCase() : "";
             case "owner": return (peopleById[p.ownerPersonId]?.fullName || "").toLowerCase();
             case "tasks": return p.tasks.length;
@@ -306,6 +328,7 @@ export function createWorkspaceModule(ctx) {
             <tr class="projectRow ${selected ? "selected" : ""}" data-project-row="${project.id}" data-project-id="${project.id}" title="Ver detalle de ${escapeAttribute(project.name)}">
               <td class="projName">${escapeHtml(project.name)}</td>
               <td>${requestTypeLabel(project.requestType) || `<span class="emptyText">—</span>`}</td>
+              <td>${areaName(project.requestingAreaId) ? escapeHtml(areaName(project.requestingAreaId)) : `<span class="emptyText">—</span>`}</td>
               <td>${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}">${projectStatusLabel(project.status)}</span>` : `<span class="emptyText">—</span>`}</td>
               <td>${escapeHtml(owner)}</td>
               <td class="num">${done}/${project.tasks.length}</td>
@@ -316,7 +339,7 @@ export function createWorkspaceModule(ctx) {
         return `
           <table class="projectTable">
             <thead>
-              <tr>${projSortTh("name", "Solicitud")}${projSortTh("type", "Tipo")}${projSortTh("status", "Estado")}${projSortTh("owner", "Responsable")}${projSortTh("tasks", "Tareas", "num")}${projSortTh("activity", "Última actividad (seguimiento)")}<th class="projChevronTh" aria-hidden="true"></th></tr>
+              <tr>${projSortTh("name", "Solicitud")}${projSortTh("type", "Tipo")}${projSortTh("area", "Área")}${projSortTh("status", "Estado")}${projSortTh("owner", "Responsable")}${projSortTh("tasks", "Tareas", "num")}${projSortTh("activity", "Última actividad (seguimiento)")}<th class="projChevronTh" aria-hidden="true"></th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>`;
@@ -399,6 +422,7 @@ export function createWorkspaceModule(ctx) {
                   <p class="eyebrow">Detalle de la solicitud</p>
                   <h2>${escapeHtml(project.name)}</h2>
                   ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
+                  ${areaName(project.requestingAreaId) ? `<p>Área solicitante: <strong>${escapeHtml(areaName(project.requestingAreaId))}</strong></p>` : ""}
                   ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
                 </div>
                 <div class="projectHeaderRight">
@@ -673,6 +697,21 @@ export function createWorkspaceModule(ctx) {
                   <option value="report" ${project.requestType === "report" ? "selected" : ""}>Reporte</option>
                 </select>
               </label>
+              <label>Área solicitante
+                <select name="requestingAreaId" data-area-select>
+                  ${areaOptions(project.requestingAreaId)}
+                </select>
+              </label>
+              <div class="areaCatalogControls">
+                <button type="button" class="tinyButton ghost" data-area-fix hidden>Corregir nombre del área</button>
+              </div>
+              <div class="areaInlineForm" data-area-form data-mode="create" hidden>
+                <input type="text" data-area-input placeholder="${escapeAttribute(AREA_EXAMPLE)}" aria-label="Nombre del área solicitante" />
+                <div class="areaInlineActions">
+                  <button type="button" class="tinyButton" data-area-save>Guardar área</button>
+                  <button type="button" class="tinyButton ghost" data-area-cancel>Cancelar</button>
+                </div>
+              </div>
               <label>Estado
                 <select name="status">
                   ${projectStatusOptions(project.status)}
@@ -956,6 +995,79 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
+        // Área solicitante: catálogo vivo desde el propio selector — "+ Agregar
+        // área nueva…" la crea y "Corregir nombre" arregla una mal escrita (se
+        // actualizan las opciones en el DOM sin re-render para no perder los
+        // demás campos editados del formulario).
+        const areaSelect = document.querySelector("[data-area-select]");
+        const areaForm = document.querySelector("[data-area-form]");
+        if (areaSelect && areaForm) {
+          const areaFix = document.querySelector("[data-area-fix]");
+          const areaInput = areaForm.querySelector("[data-area-input]");
+          const syncAreaFix = () => {
+            if (areaFix) areaFix.hidden = !areaSelect.value || areaSelect.value === "__new__";
+          };
+          syncAreaFix();
+          areaSelect.addEventListener("change", () => {
+            if (areaSelect.value === "__new__") {
+              areaForm.hidden = false;
+              areaForm.dataset.mode = "create";
+              areaInput.value = "";
+              areaInput.focus();
+            } else {
+              areaForm.hidden = true;
+            }
+            syncAreaFix();
+          });
+          areaFix?.addEventListener("click", () => {
+            areaForm.hidden = false;
+            areaForm.dataset.mode = "edit";
+            areaInput.value = areaSelect.selectedOptions[0]?.textContent || "";
+            areaInput.focus();
+          });
+          areaForm.querySelector("[data-area-cancel]")?.addEventListener("click", () => {
+            areaForm.hidden = true;
+            if (areaSelect.value === "__new__") areaSelect.value = "";
+            syncAreaFix();
+          });
+          areaForm.querySelector("[data-area-save]")?.addEventListener("click", async () => {
+            const name = areaInput.value.trim();
+            if (!name) {
+              areaInput.focus();
+              return;
+            }
+            try {
+              if (areaForm.dataset.mode === "edit") {
+                const areaId = areaSelect.value;
+                const payload = await apiRequest(`api/areas/${areaId}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ name })
+                });
+                const option = areaSelect.querySelector(`option[value="${areaId}"]`);
+                if (option) option.textContent = payload.data.name;
+                const local = state.workspace.areas.find((area) => area.id === areaId);
+                if (local) local.name = payload.data.name;
+              } else {
+                const payload = await apiRequest("api/areas", {
+                  method: "POST",
+                  body: JSON.stringify({ name })
+                });
+                state.workspace.areas.push(payload.data);
+                state.workspace.areas.sort((a, b) => a.name.localeCompare(b.name, "es"));
+                const option = document.createElement("option");
+                option.value = payload.data.id;
+                option.textContent = payload.data.name;
+                areaSelect.insertBefore(option, areaSelect.querySelector('option[value="__new__"]'));
+                areaSelect.value = payload.data.id;
+              }
+              areaForm.hidden = true;
+              syncAreaFix();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        }
+
         // Sección Personas (colapsable; el trabajo diario es sobre proyectos).
         const peopleToggle = document.querySelector("#peopleSectionToggle");
         if (peopleToggle) peopleToggle.addEventListener("click", () => {
@@ -1145,6 +1257,7 @@ export function createWorkspaceModule(ctx) {
         event.preventDefault();
         const target = event.currentTarget;
         const form = new FormData(target);
+        const unlock = lockSubmit(target);
         try {
           await apiRequest("api/people", {
             method: "POST",
@@ -1156,6 +1269,8 @@ export function createWorkspaceModule(ctx) {
           await refreshWorkspace();
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1163,6 +1278,7 @@ export function createWorkspaceModule(ctx) {
         event.preventDefault();
         const target = event.currentTarget;
         const form = new FormData(target);
+        const unlock = lockSubmit(target);
         try {
           const payload = await apiRequest("api/projects", {
             method: "POST",
@@ -1175,6 +1291,8 @@ export function createWorkspaceModule(ctx) {
           await refreshWorkspace();
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1182,10 +1300,13 @@ export function createWorkspaceModule(ctx) {
         event.preventDefault();
         const target = event.currentTarget;
         const form = new FormData(target);
+        const unlock = lockSubmit(target);
         try {
           await updatePerson(target.dataset.personDetail, Object.fromEntries(form.entries()));
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1193,10 +1314,16 @@ export function createWorkspaceModule(ctx) {
         event.preventDefault();
         const target = event.currentTarget;
         const form = new FormData(target);
+        const values = Object.fromEntries(form.entries());
+        // "+ Agregar área nueva…" quedó seleccionado sin guardarla: no es un área real.
+        if (values.requestingAreaId === "__new__") values.requestingAreaId = "";
+        const unlock = lockSubmit(target);
         try {
-          await updateProject(target.dataset.projectDetail, Object.fromEntries(form.entries()));
+          await updateProject(target.dataset.projectDetail, values);
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1204,10 +1331,13 @@ export function createWorkspaceModule(ctx) {
         event.preventDefault();
         const target = event.currentTarget;
         const form = new FormData(target);
+        const unlock = lockSubmit(target);
         try {
           await updateTask(target.dataset.taskDetail, Object.fromEntries(form.entries()), state.selectedDetail?.projectId || state.activeProjectId);
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1219,6 +1349,7 @@ export function createWorkspaceModule(ctx) {
         }
         const target = event.currentTarget;
         const form = new FormData(target);
+        const unlock = lockSubmit(target);
         try {
           await apiRequest(`api/projects/${projectId}/tasks`, {
             method: "POST",
@@ -1232,6 +1363,8 @@ export function createWorkspaceModule(ctx) {
           await refreshWorkspace();
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1243,16 +1376,24 @@ export function createWorkspaceModule(ctx) {
         const target = event.currentTarget;
         const text = (new FormData(target).get("text") || "").toString().trim();
         if (!text) return;
+        const unlock = lockSubmit(target);
         try {
-          await apiRequest(`api/projects/${projectId}/updates`, {
+          const payload = await apiRequest(`api/projects/${projectId}/updates`, {
             method: "POST",
             body: JSON.stringify({ text })
           });
+          const project = findProject(projectId);
+          if (project) {
+            project.updates.unshift(payload.data);
+            sortProjectUpdates(project);
+          }
           state.activeProjectId = projectId;
           target.reset();
-          await refreshWorkspace();
+          renderWorkspace();
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1266,15 +1407,24 @@ export function createWorkspaceModule(ctx) {
         const text = (form.get("text") || "").toString().trim();
         const date = (form.get("date") || "").toString();
         if (!text || !date) return;
+        const unlock = lockSubmit(target);
         try {
-          await apiRequest(`api/projects/${projectId}/updates/${updateId}`, {
+          const payload = await apiRequest(`api/projects/${projectId}/updates/${updateId}`, {
             method: "PATCH",
             body: JSON.stringify({ text, date })
           });
+          const project = findProject(projectId);
+          if (project) {
+            const idx = project.updates.findIndex((item) => item.id === updateId);
+            if (idx >= 0) project.updates[idx] = { ...project.updates[idx], ...payload.data };
+            sortProjectUpdates(project);
+          }
           state.updateEditing = null;
-          await refreshWorkspace();
+          renderWorkspace();
         } catch (error) {
           alert(error.message);
+        } finally {
+          unlock();
         }
       }
 
@@ -1283,8 +1433,10 @@ export function createWorkspaceModule(ctx) {
         if (!window.confirm("¿Eliminar esta entrada de seguimiento? No se puede deshacer.")) return;
         try {
           await apiRequest(`api/projects/${projectId}/updates/${updateId}`, { method: "DELETE" });
+          const project = findProject(projectId);
+          if (project) project.updates = project.updates.filter((item) => item.id !== updateId);
           state.updateEditing = null;
-          await refreshWorkspace();
+          renderWorkspace();
         } catch (error) {
           alert(error.message);
         }
@@ -1351,34 +1503,38 @@ export function createWorkspaceModule(ctx) {
       }
 
       async function updatePerson(personId, values) {
-        await apiRequest(`api/people/${personId}`, {
+        const payload = await apiRequest(`api/people/${personId}`, {
           method: "PATCH",
           body: JSON.stringify(values)
         });
+        mergePerson(payload.data);
         state.selectedDetail = { type: "person", id: personId };
-        state.saveNotice = { target: `person:${personId}`, message: "Persona guardada correctamente." };
-        await refreshWorkspace();
+        state.saveNotice = { target: `person:${personId}`, message: "✓ Guardado" };
+        renderWorkspace();
       }
 
       async function updateProject(projectId, values) {
-        await apiRequest(`api/projects/${projectId}`, {
+        const payload = await apiRequest(`api/projects/${projectId}`, {
           method: "PATCH",
           body: JSON.stringify(values)
         });
+        mergeProject(payload.data);
         state.activeProjectId = projectId;
         state.selectedDetail = { type: "project", id: projectId };
-        state.saveNotice = { target: `project:${projectId}`, message: "Proyecto guardado correctamente." };
-        await refreshWorkspace();
+        state.saveNotice = { target: `project:${projectId}`, message: "✓ Guardado" };
+        renderWorkspace();
       }
 
       async function updateProjectMember(projectId, personId, values) {
-        await apiRequest(`api/projects/${projectId}/members/${personId}`, {
+        const payload = await apiRequest(`api/projects/${projectId}/members/${personId}`, {
           method: "PATCH",
           body: JSON.stringify(values)
         });
+        const member = findProject(projectId)?.members.find((item) => item.personId === personId);
+        if (member) Object.assign(member, payload.data);
         state.activeProjectId = projectId;
         state.selectedDetail = { type: "project", id: projectId };
-        await refreshWorkspace();
+        renderWorkspace();
       }
 
       async function dropOnColumn(event) {
@@ -1427,22 +1583,69 @@ export function createWorkspaceModule(ctx) {
         if (!projectId || !taskId) {
           return;
         }
-        await apiRequest(`api/projects/${projectId}/tasks/${taskId}`, {
+        const payload = await apiRequest(`api/projects/${projectId}/tasks/${taskId}`, {
           method: "PATCH",
           body: JSON.stringify(values)
         });
+        const project = findProject(projectId);
+        if (project) {
+          const idx = project.tasks.findIndex((item) => item.id === taskId);
+          if (idx >= 0) project.tasks[idx] = { ...project.tasks[idx], ...payload.data };
+        }
         state.activeProjectId = projectId;
         if (showDetail) {
-          state.saveNotice = { target: `task:${taskId}`, message: "Tarea guardada correctamente." };
+          state.saveNotice = { target: `task:${taskId}`, message: "✓ Guardado" };
           state.selectedDetail = { type: "task", id: taskId, projectId };
         }
-        await refreshWorkspace();
+        renderWorkspace();
       }
 
       async function refreshWorkspace() {
-        state.workspace = null;
+        // Mantiene lo ya pintado mientras llega lo nuevo — sin pasar por la
+        // pantalla "Cargando" (ese parpadeo hacía sentir lento cada guardado).
         await loadWorkspace();
         renderWorkspace();
+      }
+
+      // Máquina de estados del botón Guardar: al clic pasa a "Guardando…"
+      // deshabilitado (confirma que el clic entró y evita el doble-submit);
+      // la confirmación posterior la da el saveFeedback del re-render.
+      function lockSubmit(form) {
+        const button = form.querySelector("button[type='submit'], .primaryButton");
+        if (!button) return () => {};
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = "Guardando…";
+        return () => {
+          button.disabled = false;
+          button.textContent = label;
+        };
+      }
+
+      // Guardado rápido: fusiona la respuesta del PATCH en el estado local y
+      // repinta — sin volver a pedir el workspace completo al backend.
+      function mergePerson(person) {
+        const people = state.workspace?.people || [];
+        const idx = people.findIndex((item) => item.id === person.id);
+        if (idx >= 0) people[idx] = { ...people[idx], ...person };
+        people.sort((a, b) => a.fullName.toLowerCase().localeCompare(b.fullName.toLowerCase(), "es"));
+      }
+
+      function mergeProject(project) {
+        const projects = state.workspace?.projects || [];
+        const idx = projects.findIndex((item) => item.id === project.id);
+        if (idx < 0) return;
+        // El PATCH de solicitud no devuelve el seguimiento: se conserva el local.
+        projects[idx] = { ...projects[idx], ...project, updates: projects[idx].updates };
+        projects.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+      }
+
+      function findProject(projectId) {
+        return state.workspace?.projects.find((item) => item.id === projectId) || null;
+      }
+
+      function sortProjectUpdates(project) {
+        project.updates.sort((a, b) => (`${a.date}#${a.createdAt}` < `${b.date}#${b.createdAt}` ? 1 : -1));
       }
 
       function filterPeople(event) {

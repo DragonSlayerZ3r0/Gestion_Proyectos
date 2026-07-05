@@ -35,19 +35,32 @@ class WorkspaceService:
         people = [self._normalize_person(item) for item in self._repository.list_people()]
         projects = [self._normalize_project(item) for item in self._repository.list_projects()]
 
+        # Sin N+1: miembros, tareas y seguimientos de TODOS los proyectos llegan
+        # en un viaje por tipo (GSI byEntityType) y se agrupan aquí por projectId
+        # (antes eran 3 consultas por proyecto: el "Guardar" y la carga inicial
+        # se sentían lentos por esto).
+        members_by: dict[str, list] = {}
+        for item in self._repository.list_all_members():
+            members_by.setdefault(item.get("projectId", ""), []).append(self._normalize_member(item))
+        tasks_by: dict[str, list] = {}
+        for item in self._repository.list_all_tasks_full():
+            tasks_by.setdefault(item.get("projectId", ""), []).append(self._normalize_task(item))
+        updates_by: dict[str, list] = {}
+        for item in self._repository.list_all_updates():
+            updates_by.setdefault(item.get("projectId", ""), []).append(self._normalize_update(item))
+
         for project in projects:
-            members = self._repository.list_project_members(project["id"])
-            tasks = self._repository.list_project_tasks(project["id"])
-            updates = self._repository.list_project_updates(project["id"])
-            project["members"] = [self._normalize_member(item) for item in members]
-            project["tasks"] = [self._normalize_task(item) for item in tasks]
+            project["members"] = members_by.get(project["id"], [])
+            project["tasks"] = tasks_by.get(project["id"], [])
             # Seguimiento: lo más reciente primero (fecha del trabajo; a igual fecha,
             # lo anotado más tarde arriba).
             project["updates"] = sorted(
-                (self._normalize_update(item) for item in updates),
+                updates_by.get(project["id"], []),
                 key=lambda u: (u["date"], u["createdAt"]), reverse=True)
 
         return {
+            "areas": sorted((self._normalize_area(item) for item in self._repository.list_areas()),
+                            key=lambda area: area["name"].lower()),
             "people": sorted(people, key=lambda person: person["fullName"].lower()),
             "projects": sorted(projects, key=lambda project: project["updatedAt"], reverse=True),
             "taskStatuses": [
@@ -71,6 +84,49 @@ class WorkspaceService:
         flat = unicodedata.normalize("NFD", value or "")
         flat = "".join(c for c in flat if unicodedata.category(c) != "Mn")
         return " ".join(flat.lower().split())
+
+    def create_area(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        name = self._required_text(payload, "name", "Nombre del área solicitante")
+        self._ensure_area_name_free(name)
+        now = self._now()
+        area_id = uuid4().hex
+        item = {
+            "PK": f"AREA#{area_id}",
+            "SK": "PROFILE",
+            "entityType": "AREA",
+            "areaId": area_id,
+            "name": name,
+            "createdAt": now,
+            "updatedAt": now,
+            "createdBy": identity["userId"],
+            "updatedBy": identity["userId"]
+        }
+        self._repository.put_item(item)
+        return self._normalize_area(item)
+
+    def update_area(self, area_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        # Editable a propósito: si el área se registró con un error de escritura,
+        # se corrige aquí y todas las solicitudes que la referencian (por id)
+        # muestran el nombre corregido sin migrar nada.
+        area_id = self._required_text({"areaId": area_id}, "areaId", "Área solicitante")
+        name = self._required_text(payload, "name", "Nombre del área solicitante")
+        self._ensure_area_name_free(name, exclude_id=area_id)
+        values = {
+            "name": name,
+            "updatedAt": self._now(),
+            "updatedBy": identity["userId"]
+        }
+        return self._normalize_area(self._repository.update_area(area_id, values))
+
+    def _ensure_area_name_free(self, name: str, exclude_id: str = "") -> None:
+        name_norm = self._norm_name(name)
+        for existing in self._repository.list_areas():
+            if existing.get("areaId") == exclude_id:
+                continue
+            if self._norm_name(existing.get("name", "")) == name_norm:
+                raise ValidationError(
+                    f"Ya existe el área solicitante \"{existing.get('name')}\". "
+                    "Selecciónala de la lista o edítala si el nombre tiene un error.")
 
     def create_person(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         first_name = self._required_text(payload, "firstName", "Nombre")
@@ -118,6 +174,7 @@ class WorkspaceService:
             "name": name,
             "status": self._allowed_optional(payload.get("status"), PROJECT_STATUSES, "Estado del proyecto"),
             "requestType": self._allowed_optional(payload.get("requestType"), REQUEST_TYPES, "Tipo de la solicitud"),
+            "requestingAreaId": self._valid_area_id(payload.get("requestingAreaId")),
             "ownerPersonId": self._optional_text(payload, "ownerPersonId"),
             "description": self._optional_text(payload, "description"),
             "createdAt": now,
@@ -186,6 +243,8 @@ class WorkspaceService:
             values["status"] = self._allowed_optional(payload["status"], PROJECT_STATUSES, "Estado del proyecto")
         if "requestType" in payload:
             values["requestType"] = self._allowed_optional(payload["requestType"], REQUEST_TYPES, "Tipo de la solicitud")
+        if "requestingAreaId" in payload:
+            values["requestingAreaId"] = self._valid_area_id(payload["requestingAreaId"])
         if "ownerPersonId" in payload:
             values["ownerPersonId"] = self._optional_text(payload, "ownerPersonId")
 
@@ -354,6 +413,23 @@ class WorkspaceService:
         self._audit_task_changes(project_id, task_id, existing_task, updated_task, identity)
         return self._normalize_task(updated_task)
 
+    def _valid_area_id(self, value: Any) -> str:
+        """Área opcional, pero si viene debe existir en el catálogo (prevención de
+        errores: no aceptar ids huérfanos que dejarían la solicitud sin área visible)."""
+        area_id = str(value or "").strip()
+        if not area_id:
+            return ""
+        if not any(item.get("areaId") == area_id for item in self._repository.list_areas()):
+            raise ValidationError("El área solicitante seleccionada ya no existe. Recarga y vuelve a intentarlo.")
+        return area_id
+
+    def _normalize_area(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": item["areaId"],
+            "name": item.get("name", ""),
+            "updatedAt": item.get("updatedAt", "")
+        }
+
     def _normalize_person(self, item: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": item["personId"],
@@ -373,6 +449,7 @@ class WorkspaceService:
             "name": item.get("name", ""),
             "status": item.get("status", ""),
             "requestType": item.get("requestType", ""),
+            "requestingAreaId": item.get("requestingAreaId", ""),
             "ownerPersonId": item.get("ownerPersonId", ""),
             "description": item.get("description", ""),
             "updatedAt": item.get("updatedAt", ""),

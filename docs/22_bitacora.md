@@ -10,6 +10,14 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-05 · estándar — Guardado rápido: merge local + fin del N+1 + botón con estados
+
+El "Guardar" de Solicitudes se sentía lento y ambiguo (¿guardó o presiono de nuevo?). Causa raíz: cada guardado recargaba TODO el workspace, y `GET /api/workspace` hacía 3 consultas DynamoDB por proyecto (N+1, ~31 consultas con 10 solicitudes). Fix: (1) el PATCH fusiona su respuesta en el estado local y repinta, sin recarga completa; (2) el backend trae miembros/tareas/seguimientos de TODOS los proyectos en 3 consultas globales (GSI `byEntityType`) y agrupa en memoria; (3) todo botón Guardar pasa a "Guardando…" deshabilitado al clic y "✓ Guardado" al confirmar. Se descartó la UI optimista (complejidad de reconciliación innecesaria con estas latencias). Quedó como estándar #11 en `docs/06_frontend_ux.md`.
+
+## 2026-07-05 · decisión — Solicitudes clasificadas por "Área solicitante" (catálogo vivo)
+
+Se agregó el campo `requestingAreaId` a las solicitudes con un catálogo de áreas creable desde el propio selector y **editable** (si se registra con error de escritura se corrige y todas las solicitudes lo reflejan, porque referencian por id). Nombre elegido: **"Área solicitante"** — se descartó "Gerencia" (se queda corto: "Recuperación de Cartera" no es gerencia) y "Área" a secas (ambiguo con el área que atiende). Rutas `POST /api/areas` y `PATCH /api/areas/{areaId}`; entityType `AREA`. Ver `docs/02_modulos_funcionales.md`.
+
 ## 2026-07-05 · estándar — Bitácora creada + estándar anti scroll-hijacking
 
 Se crea esta bitácora como memoria compartida multiagente (la memoria persistente de Claude Code es privada de ese agente; esto es portable a cualquier modelo). Mismo día: en maestro-detalle apilado, seleccionar una fila hace "peek" (scroll mínimo que deja ver el panel sin perder el listado) + chevron ›/▾ + destello del borde; el salto completo solo con clic en el chevron. Se descartó el auto-scroll total: un clic de selección no debe quitarle el viewport al usuario. Ver `docs/06_frontend_ux.md` (criterio 2) y `docs/Guia 05 - Estandares visuales y UX.canvas` (nueva guía visual de estándares).

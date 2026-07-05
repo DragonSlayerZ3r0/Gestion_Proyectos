@@ -52,6 +52,10 @@ PERSON
 PK = PERSON#<personId>
 SK = PROFILE
 
+AREA (área solicitante — catálogo vivo editable; las solicitudes guardan requestingAreaId)
+PK = AREA#<areaId>
+SK = PROFILE
+
 PROJECT
 PK = PROJECT#<projectId>
 SK = META

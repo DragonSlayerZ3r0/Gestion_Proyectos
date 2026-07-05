@@ -8,6 +8,13 @@ from repositories.base import BaseRepository
 class WorkspaceRepository(BaseRepository):
     """Personas, proyectos, miembros y tareas."""
 
+    # ── Áreas solicitantes (catálogo vivo: quién pide la solicitud) ───────────
+    def list_areas(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("AREA")
+
+    def update_area(self, area_id: str, values: dict[str, Any]) -> dict[str, Any]:
+        return self._update({"PK": f"AREA#{area_id}", "SK": "PROFILE"}, values)
+
     # ── Personas ──────────────────────────────────────────────────────────────
     def list_people(self) -> list[dict[str, Any]]:
         return self._query_entity_type("PERSON")
@@ -80,6 +87,18 @@ class WorkspaceRepository(BaseRepository):
 
     def delete_project_update(self, project_id: str, update_id: str) -> None:
         self._table.delete_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"UPDATE#{update_id}"})
+
+    # ── Hijos de TODOS los proyectos en un viaje por tipo (GSI byEntityType) ──
+    # Evita el N+1 de get_workspace (3 consultas por proyecto); el servicio
+    # agrupa en memoria por projectId.
+    def list_all_members(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("PROJECT_MEMBER")
+
+    def list_all_tasks_full(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("TASK")
+
+    def list_all_updates(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("PROJECT_UPDATE")
 
     def list_all_tasks(self) -> list[dict[str, Any]]:
         return self._query_entity_type(
