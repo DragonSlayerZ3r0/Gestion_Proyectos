@@ -12,7 +12,8 @@ MODULES = [
     # clave: vive en DynamoDB por usuario (filas MODULE#home / home_*) y en
     # guards/rutas; renombrarla exigiría migración de datos sin ganancia.
     {"key": "home", "label": "Panel"},
-    {"key": "projects", "label": "Proyectos"},
+    # Clave histórica "projects" con etiqueta "Solicitudes" (rename 2026-07-04).
+    {"key": "projects", "label": "Solicitudes"},
     {"key": "tasks", "label": "Tareas"},
     {"key": "catalog", "label": "Catálogo"},
     {"key": "chat", "label": "Apoyo técnico"},
@@ -45,7 +46,7 @@ HOME_TAB_KEYS = [t["key"] for t in HOME_TABS]
 # - "home" va bloqueado (siempre habilitado: es el punto de entrada de la app).
 # - Las HOME_TABS aparecen como hijas del Panel (su etiqueta corta, sin "Panel ·").
 _MERGED_GROUPS = {
-    "projects": {"label": "Proyectos y tareas", "keys": ["projects", "tasks"]},
+    "projects": {"label": "Solicitudes", "keys": ["projects", "tasks"]},
 }
 _MERGED_AWAY = {"tasks"}   # ya viven dentro del grupo projects
 

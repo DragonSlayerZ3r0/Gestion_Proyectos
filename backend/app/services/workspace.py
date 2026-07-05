@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -10,6 +11,9 @@ from repositories.workspace import WorkspaceRepository
 TASK_STATUSES = ["pending", "in_progress", "review", "done"]
 TASK_PRIORITIES = ["low", "medium", "high", "critical"]
 PROJECT_STATUSES = ["planned", "active", "paused", "closed"]
+# Tipo de la solicitud (el módulo se muestra como "Solicitudes"; la clave interna
+# sigue siendo projects/PROJECT# — solo cambió la etiqueta, regla del proyecto).
+REQUEST_TYPES = ["project", "report"]
 PERSON_STATUSES = ["active", "inactive"]
 PROJECT_MEMBER_ROLES = ["owner", "member", "reader"]
 TASK_AUDIT_FIELDS = ["status", "priority", "assigneePersonId"]
@@ -60,9 +64,26 @@ class WorkspaceService:
             ]
         }
 
+    @staticmethod
+    def _norm_name(value: str) -> str:
+        """Nombre comparable: minúsculas, sin acentos ni espacios repetidos — para
+        detectar duplicados como "carlos urizar" vs "Carlos Urízar"."""
+        flat = unicodedata.normalize("NFD", value or "")
+        flat = "".join(c for c in flat if unicodedata.category(c) != "Mn")
+        return " ".join(flat.lower().split())
+
     def create_person(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         first_name = self._required_text(payload, "firstName", "Nombre")
         last_name = self._required_text(payload, "lastName", "Apellido")
+        # Evita duplicados accidentales (mismo nombre completo, ignorando
+        # mayúsculas/acentos). Si es un homónimo real, diferéncialo (segundo
+        # apellido, área) — mensaje claro en vez de registrar silenciosamente.
+        full_norm = self._norm_name(f"{first_name} {last_name}")
+        for existing in self._repository.list_people():
+            if self._norm_name(existing.get("fullName", "")) == full_norm:
+                raise ValidationError(
+                    f"Ya existe una persona registrada como \"{existing.get('fullName')}\". "
+                    "Si es otra persona con el mismo nombre, agrega un segundo apellido o el área para diferenciarla.")
         now = self._now()
         person_id = uuid4().hex
         item = {
@@ -96,6 +117,7 @@ class WorkspaceService:
             "projectId": project_id,
             "name": name,
             "status": self._allowed_optional(payload.get("status"), PROJECT_STATUSES, "Estado del proyecto"),
+            "requestType": self._allowed_optional(payload.get("requestType"), REQUEST_TYPES, "Tipo de la solicitud"),
             "ownerPersonId": self._optional_text(payload, "ownerPersonId"),
             "description": self._optional_text(payload, "description"),
             "createdAt": now,
@@ -162,6 +184,8 @@ class WorkspaceService:
             values["description"] = self._optional_text(payload, "description")
         if "status" in payload:
             values["status"] = self._allowed_optional(payload["status"], PROJECT_STATUSES, "Estado del proyecto")
+        if "requestType" in payload:
+            values["requestType"] = self._allowed_optional(payload["requestType"], REQUEST_TYPES, "Tipo de la solicitud")
         if "ownerPersonId" in payload:
             values["ownerPersonId"] = self._optional_text(payload, "ownerPersonId")
 
@@ -348,6 +372,7 @@ class WorkspaceService:
             "id": item["projectId"],
             "name": item.get("name", ""),
             "status": item.get("status", ""),
+            "requestType": item.get("requestType", ""),
             "ownerPersonId": item.get("ownerPersonId", ""),
             "description": item.get("description", ""),
             "updatedAt": item.get("updatedAt", ""),

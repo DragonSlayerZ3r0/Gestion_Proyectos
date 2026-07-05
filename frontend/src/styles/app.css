@@ -57,7 +57,9 @@
     display: grid;
     grid-template-columns: 276px minmax(0, 1fr);
     min-height: 100vh;
-    transition: grid-template-columns 160ms ease;
+    /* Curva "ease-out-quint": arranca rápido y asienta suave (sensación moderna).
+       Animar grid-template-columns mueve sidebar y contenido en un solo track. */
+    transition: grid-template-columns 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .shell.loginOnly {
@@ -253,7 +255,42 @@
     place-items: center;
     border-radius: 8px;
     color: var(--accent-strong);
-    font-weight: 700;
+    transition: background 150ms ease;
+  }
+  .sidebarToggle:hover { background: var(--accent-soft, #e6f4f1); }
+  .sidebarToggle:active .burger { transform: scale(0.88); }
+
+  /* Hamburguesa dibujada: 3 barras redondeadas alineadas a la derecha (la del
+     medio más corta = detalle asimétrico; en hover se completa). Al colapsar el
+     sidebar, las barras exteriores giran sobre su extremo derecho y forman una
+     flecha "→" (invita a expandir) — morph CSS puro, misma curva del shell. */
+  .burger {
+    display: grid;
+    gap: 4px;
+    justify-items: end;
+    width: 18px;
+    transition: transform 150ms ease;
+  }
+  .burger span {
+    display: block;
+    height: 2px;
+    width: 18px;
+    border-radius: 99px;
+    background: currentColor;
+    transform-origin: right center;
+    transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+                width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .burger span:nth-child(2) { width: 12px; }
+  .sidebarToggle:hover .burger span:nth-child(2) { width: 18px; }
+  .shell.sidebarCollapsed .burger span:nth-child(1) {
+    width: 10px;
+    transform: translateY(6px) rotate(-45deg);
+  }
+  .shell.sidebarCollapsed .burger span:nth-child(2) { width: 18px; }
+  .shell.sidebarCollapsed .burger span:nth-child(3) {
+    width: 10px;
+    transform: translateY(-6px) rotate(45deg);
   }
 
   .brandMark {
@@ -261,6 +298,33 @@
     height: 40px;
     border-radius: 8px;
     object-fit: cover;
+  }
+
+  /* Gesto de bienvenida (clase welcomeAnim la pone app.ts al entrar): la mano
+     entra inclinada girando desde la "muñeca" (origin abajo-izquierda) y se
+     endereza con un leve sobregiro — lee como "presentar el engrane". El texto
+     de la marca arranca escondido tras la mano y ese movimiento lo desliza a su
+     posición final (stagger de 280 ms: primero el gesto, luego el empuje). */
+  @media (prefers-reduced-motion: no-preference) {
+    .shell.welcomeAnim .brandMark {
+      transform-origin: 18% 88%;
+      animation: brandHandPresent 750ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    }
+    /* Doble clase = mayor especificidad que la animación de expandir sidebar
+       (sidebarLabelsIn, que también apunta a .brand div y viene después). */
+    .shell.shell.welcomeAnim .brand div {
+      animation: brandTextReveal 520ms cubic-bezier(0.22, 1, 0.36, 1) 280ms backwards;
+    }
+  }
+  @keyframes brandHandPresent {
+    0%   { opacity: 0; transform: translateX(-16px) rotate(-28deg) scale(0.82); }
+    55%  { opacity: 1; transform: translateX(2px) rotate(7deg) scale(1.06); }
+    78%  { transform: translateX(0) rotate(-2deg) scale(1); }
+    100% { transform: none; }
+  }
+  @keyframes brandTextReveal {
+    from { opacity: 0; transform: translateX(-18px); }
+    to   { opacity: 1; transform: none; }
   }
 
   .brand strong {
@@ -291,6 +355,20 @@
   .shell.sidebarCollapsed .brand div,
   .shell.sidebarCollapsed .nav {
     display: none;
+  }
+
+  /* Al expandir, las etiquetas reaparecen con fade+slide (encadenado tras el
+     ensanche de la barra). display:none no puede transicionar al ocultar; el
+     colapso lo cubre la transición del grid. */
+  @media (prefers-reduced-motion: no-preference) {
+    .shell:not(.sidebarCollapsed) .brand div,
+    .shell:not(.sidebarCollapsed) .nav {
+      animation: sidebarLabelsIn 240ms cubic-bezier(0.22, 1, 0.36, 1) 70ms backwards;
+    }
+  }
+  @keyframes sidebarLabelsIn {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: none; }
   }
 
   .shell.sidebarCollapsed .sidebarToggle {
@@ -790,10 +868,19 @@
     max-width: 680px;
   }
 
+  /* nombre + selector de Tipo (Proyecto/Reporte) + botón "Nuevo" */
   .projectCreateForm {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 10px;
+  }
+  .projectCreateForm select {
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 0.86rem;
+    background: #ffffff;
   }
 
   .workspaceControls,
@@ -951,9 +1038,12 @@
     padding: 5px 10px;
   }
 
+  /* Activo en tono suave: la ÚNICA acción llena de la pantalla es "Crear proyecto"
+     (disciplina de color: un solo primario por vista). */
   .scopeChip.active {
-    background: var(--accent);
-    color: #ffffff;
+    background: var(--accent-soft, #e6f4f1);
+    color: var(--accent-strong);
+    box-shadow: inset 0 0 0 1px #b8dad5;
   }
 
   .personSearchInput {
@@ -3368,3 +3458,33 @@
   .catalogUsageTable th.num, .catalogUsageTable td.num { text-align: right; }
   .catalogUsageAgo { color: var(--muted); font-size: 0.72rem; }
   .catalogUsageNote { margin: 6px 0 0; color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
+
+  /* ── Proyectos: tabla maestro-detalle + Personas colapsable ─────────────── */
+  .projectTablePanel { padding: 14px 16px 8px; }
+  .projectTableHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .projectTableWrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .projectTable { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+  .projectTable th { text-align: left; color: var(--muted); font-weight: 600; font-size: 0.78rem; padding: 8px 12px; border-bottom: 2px solid var(--line); white-space: nowrap; }
+  .projectTable td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .projectTable th.num, .projectTable td.num { text-align: right; }
+  .projectRow { cursor: pointer; transition: background 120ms ease; }
+  .projectRow:hover { background: var(--surface-muted, #f6f8fa); }
+  .projectRow.selected { background: var(--accent-soft, #e6f4f1); }
+  .projectRow.selected .projName { color: var(--accent-strong); }
+  .projName { font-weight: 700; color: #23333a; }
+  .projActivity { color: #50656d; font-size: 0.8rem; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .projActivityDate { font-weight: 700; color: var(--accent-strong); }
+  .projectTableEmpty { padding: 14px 4px; }
+
+  .projectsEmptyCta { text-align: center; padding: 40px 20px; }
+  .projectsEmptyCta h3 { margin: 0 0 6px; }
+  .projectsEmptyCta p { margin: 0 0 16px; color: var(--muted); }
+
+  .peopleSection { padding: 10px 16px; }
+  .peopleSectionHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .peopleToggle { display: inline-flex; align-items: center; gap: 8px; border: none; background: none; padding: 6px 2px; cursor: pointer; font: inherit; color: #23333a; }
+  .peopleChev { display: inline-block; transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1); color: var(--accent-strong); }
+  .peopleSection.open .peopleChev { transform: rotate(90deg); }
+  .countPill.subtle { background: var(--surface-muted, #f1f5f9); color: var(--muted); }
+  .peopleBody { display: grid; gap: 10px; padding-top: 10px; }
+  .peopleHint { margin: 0; color: var(--muted); font-size: 0.76rem; }

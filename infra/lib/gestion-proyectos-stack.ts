@@ -1,8 +1,8 @@
 import { Duration, CfnOutput, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
-import * as apigwv2 from "@aws-cdk/aws-apigatewayv2-alpha";
-import * as authorizers from "@aws-cdk/aws-apigatewayv2-authorizers-alpha";
-import * as integrations from "@aws-cdk/aws-apigatewayv2-integrations-alpha";
+import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
+import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
+import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as cognito from "aws-cdk-lib/aws-cognito";
@@ -441,9 +441,11 @@ export class GestionProyectosStack extends Stack {
 }
 
 function moduleLabel(moduleKey: string): string {
+  // Etiquetas del seed inicial (solo stacks nuevos). Las vigentes las impone el
+  // manifiesto backend (services/users.py::_CURRENT_LABELS) sobre lo guardado.
   const labels: Record<string, string> = {
-    home: "Inicio",
-    projects: "Proyectos",
+    home: "Panel",
+    projects: "Solicitudes",
     tasks: "Tareas",
     catalog: "Catálogo",
     admin: "Administración"

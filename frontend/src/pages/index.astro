@@ -24,7 +24,11 @@ import "../styles/app.css";
             <strong>Gestión</strong>
             <small>de Datos</small>
           </div>
-          <button id="sidebarToggleButton" class="sidebarToggle" type="button" aria-label="Contraer menú" aria-expanded="true">☰</button>
+          <!-- Hamburguesa dibujada (no el carácter ☰): tres barras redondeadas que
+               se transforman en flecha "→" al colapsar (morph CSS, ver .burger). -->
+          <button id="sidebarToggleButton" class="sidebarToggle" type="button" aria-label="Contraer menú" aria-expanded="true">
+            <span class="burger" aria-hidden="true"><span></span><span></span><span></span></span>
+          </button>
         </div>
         <nav id="moduleNav" class="nav"></nav>
       </aside>
@@ -43,6 +47,7 @@ import "../styles/app.css";
             <div class="loginHeroMeta" aria-label="Información de acceso">
               <span>Ambiente <strong id="loginLandingEnvironment">dev</strong></span>
               <span>Acceso privado</span>
+              <span title="Gerencia de Analítica de Datos"><strong>GAD</strong></span>
             </div>
           </div>
 

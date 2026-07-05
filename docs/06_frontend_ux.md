@@ -166,6 +166,21 @@ El Kanban inicial se concentra en columnas de estado, movimiento de tareas y acc
 
 El frontend consume los permisos calculados por el backend y los utiliza para construir menú, módulos y acciones visibles. Lambda aplica la autorización efectiva.
 
+## Estándares visuales y de usabilidad (aplicados en Solicitudes 2026-07-04; OBLIGATORIOS para módulos nuevos y rediseños)
+
+Basados en heurísticas establecidas (jerarquía visual, divulgación progresiva, ley de Hick) y en que **parte de los usuarios no ha usado herramientas tipo Trello/Asana** — pero todos conocen Excel. Referencias: patrón maestro-detalle, listas vs tarjetas (Eleken/Stan Vision), empty states y onboarding (uiFromMars/EspacioUX/UserGuiding).
+
+1. **El objeto principal primero.** Al abrir un módulo, lo primero visible es aquello a lo que el usuario vino (la lista de solicitudes, no formularios ni funciones administrativas). Nada esencial bajo el pliegue.
+2. **Maestro-detalle con tabla compacta.** Para colecciones homogéneas: tabla escaneable (patrón familiar tipo hoja de cálculo) → clic abre el detalle de UN elemento a la vez. No usar tarjetas grandes repetidas como listado (impiden escanear). Columnas: lo que responde "¿cuál es cuál?" y "¿qué se movió?" (estado, responsable, conteos, última actividad).
+3. **Una sola acción primaria por pantalla** (botón lleno con el color de acento). Todo lo secundario en neutro/suave — si varias cosas gritan en verde, ninguna es la principal.
+4. **Disciplina de color**: acento solo donde significa algo; rojo RESERVADO a peligro/error; estados siempre con los mismos colores en toda la app Y con texto (nunca solo color — daltonismo); contraste legible (≥4.5:1).
+5. **Acciones visibles con texto para todo lo esencial.** Drag & drop, doble-clic o gestos solo como ATAJO, nunca como único camino (los novatos no los descubren); si existe un atajo, un hint en texto lo cuenta.
+6. **Funciones administrativas/ocasionales degradadas**: colapsadas o secundarias (p. ej. "Personas registradas"), auto-expandidas solo si hay una acción en curso ahí.
+7. **Filtros y contadores pegados a la lista que afectan**, no en otra zona de la pantalla.
+8. **Empty states que guían**: qué es esto + qué hacer + botón que lo hace ("Crear la primera solicitud" enfocando el formulario). Nunca un texto suelto.
+9. **Vocabulario del usuario, consistente**: si el producto dice "solicitud", TODOS los textos (botones, confirmaciones, hints, errores) dicen solicitud; sin jerga técnica visible.
+10. **Prevenir el error antes que corregirlo**: validaciones con mensaje accionable (p. ej. duplicado de persona → "agrega el segundo apellido o el área"), validadas en backend.
+
 ## Responsive (teléfonos y tablets)
 
 La app debe verse y usarse bien en escritorio, tablet y teléfono. `index.astro` ya trae el `<meta name="viewport">` correcto; los breakpoints viven en `frontend/src/styles/app.css` y siguen esta estrategia por capas:
@@ -189,3 +204,13 @@ La app debe verse y usarse bien en escritorio, tablet y teléfono. `index.astro`
 4. En elementos con scroll interno propio (SQL, listas largas), preferir `max-height` + `overflow:auto` para que el scroll de la página no se rompa en táctil.
 5. Alturas de pantalla con `100dvh` (no solo `100vh`) donde el input inferior importe (chat), para que la barra del navegador móvil no lo tape.
 6. Verificar cada módulo nuevo al menos en 3 anchos: ~1280 (escritorio), ~768 (tablet) y ~390 (teléfono).
+
+
+## Animaciones (estándar)
+
+Sin librerías de animación (se evaluó anime.js y se descartó: el render por `innerHTML` + repintados por sondeo destruirían/re-dispararían sus animaciones, y el producto es sobrio por diseño). El estándar nativo:
+
+- **Micro-transiciones CSS** para estados (hover, colapso del sidebar con `cubic-bezier(0.22, 1, 0.36, 1)` ~260 ms, giro del ícono hamburguesa, fade+slide de las etiquetas del nav al expandir).
+- **Web Animations API** (`elemento.animate(...)`) para la **entrada de vistas** al cambiar de módulo o pestaña (`animateViewEnter` en `app.ts`): no usa clases (los renders resetean `className`), corre en el compositor y **solo se dispara en navegación explícita** — nunca en los repintados de sondeos (Athena/chat/Data Lake), que re-renderizan sin animar.
+- **`prefers-reduced-motion` se respeta siempre** (las animaciones de entrada se omiten si el usuario lo pide al sistema).
+- Duraciones 150-260 ms; nada de coreografías largas en una herramienta de uso diario.

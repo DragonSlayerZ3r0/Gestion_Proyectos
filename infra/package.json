@@ -12,14 +12,11 @@
     "diff": "cdk diff --profile gestion-proyectos-dev"
   },
   "dependencies": {
-    "@aws-cdk/aws-apigatewayv2-alpha": "2.114.1-alpha.0",
-    "@aws-cdk/aws-apigatewayv2-authorizers-alpha": "2.114.1-alpha.0",
-    "@aws-cdk/aws-apigatewayv2-integrations-alpha": "2.114.1-alpha.0",
-    "aws-cdk-lib": "2.114.1",
+    "aws-cdk-lib": "2.261.0",
     "constructs": "^10.4.2"
   },
   "devDependencies": {
-    "aws-cdk": "2.114.1",
+    "aws-cdk": "2.1129.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   },

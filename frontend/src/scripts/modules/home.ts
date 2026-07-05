@@ -4,7 +4,7 @@
 import { createDatalakeModule } from "./datalake";
 
 export function createHomeModule(ctx) {
-  const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, mdLite } = ctx;
+  const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, mdLite, animateViewEnter } = ctx;
 
       // La lista de cuentas la entrega el backend (fuente única en el stack CDK).
       // Se carga EN PARALELO, sin bloquear la carga de costos: cuando llega,
@@ -1189,6 +1189,7 @@ export function createHomeModule(ctx) {
             const needCosts = tab === "facturacion" && !state.homeCosts && !state.homeCostsLoading;
             if (needCosts) state.homeCostsLoading = true; // muestra "Cargando…" de inmediato
             paintHome();
+            animateViewEnter();   // entrada suave SOLO en cambio de pestaña (no en sondeos)
             if (needCosts) loadHomeCosts();
             // Carga el monitoreo de cargas al entrar a Data Lake.
             if (tab === "datalake") datalakeModule.ensure();

@@ -6,17 +6,17 @@ export function createWorkspaceModule(ctx) {
       async function renderWorkspace() {
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
-        elements.viewTitle.textContent = "Proyectos y tareas";
+        elements.viewTitle.textContent = "Solicitudes";
         elements.contentPanel.className = "workspaceLayout";
 
         if (!state.workspace) {
-          elements.contentPanel.innerHTML = `<section class="panel"><h2>Cargando espacio de trabajo</h2><p>Preparando personas, proyectos y tareas.</p></section>`;
+          elements.contentPanel.innerHTML = `<section class="panel"><h2>Cargando espacio de trabajo</h2><p>Preparando personas, solicitudes y tareas.</p></section>`;
           try {
             await loadWorkspace();
           } catch (error) {
             elements.contentPanel.innerHTML = `
               <section class="panel">
-                <h2>No fue posible cargar proyectos y tareas</h2>
+                <h2>No fue posible cargar las solicitudes</h2>
                 <p>${escapeHtml(error.message || "Intenta nuevamente en unos minutos.")}</p>
               </section>
             `;
@@ -43,8 +43,7 @@ export function createWorkspaceModule(ctx) {
         }
 
         const activeProject = visibleProjects.find((project) => project.id === state.activeProjectId) || fallbackProject;
-        const projectCards = visibleProjects.map((project) => renderProjectCard(project, activeProject?.id === project.id, peopleById)).join("");
-        const projectCountText = `${visibleProjects.length} de ${workspace.projects.length} proyectos`;
+        const projectCountText = `${visibleProjects.length} de ${workspace.projects.length} solicitudes`;
         const personCreatedNotice = state.saveNotice?.target === "person-create" ? state.saveNotice.message : "";
         const visiblePeople = getVisiblePeople(workspace.people);
         const personDirectory = renderPeopleDirectory(visiblePeople);
@@ -52,64 +51,84 @@ export function createWorkspaceModule(ctx) {
           ? `${visiblePeople.length} de ${workspace.people.length}`
           : String(workspace.people.length);
         const selectedPersonDetail = renderSelectedPersonDetail();
+        // Personas se auto-expande si hay algo en curso ahí (registro o edición).
+        const peopleOpen = state.peopleSectionOpen || !!selectedPersonDetail || state.showPersonForm || !!state.personSearch.trim();
 
         elements.contentPanel.innerHTML = `
           <section class="projectOverview">
             <section class="panel workspaceHero">
               <div class="workspaceHeroText">
                 <p class="eyebrow">Vista operativa</p>
-                <h2>Proyectos con tareas visibles</h2>
-                <p>Consulta responsables, personas relacionadas y tareas principales sin cambiar de pantalla.</p>
+                <h2>Solicitudes</h2>
+                <p>Elige una solicitud de la lista para ver sus personas, tareas y seguimiento.</p>
               </div>
               <form id="projectQuickForm" class="projectCreateForm">
-                <input name="name" type="text" placeholder="Nuevo proyecto" required />
-                <button class="primaryButton" type="submit">Crear proyecto</button>
+                <input name="name" type="text" placeholder="Nueva solicitud" required />
+                <select name="requestType" aria-label="Tipo de solicitud">
+                  <option value="project">Proyecto</option>
+                  <option value="report">Reporte</option>
+                </select>
+                <button class="primaryButton" type="submit">Nuevo</button>
               </form>
               <div class="workspaceControls">
-                <input id="projectSearch" class="searchInput" type="search" placeholder="Buscar en proyectos y tareas" value="${escapeAttribute(state.projectSearch)}" />
+                <input id="projectSearch" class="searchInput" type="search" placeholder="Buscar en solicitudes y tareas" value="${escapeAttribute(state.projectSearch)}" />
                 <div class="searchScope" role="group" aria-label="Buscar en">
-                  ${renderProjectSearchScopeButton("projects", "Proyectos")}
+                  ${renderProjectSearchScopeButton("projects", "Solicitudes")}
                   ${renderProjectSearchScopeButton("tasks", "Tareas")}
                 </div>
-                <button id="togglePersonFormButton" class="secondaryButton compact" type="button">${state.showPersonForm ? "Cancelar" : "Registrar persona"}</button>
               </div>
-              <form id="personQuickForm" class="personCreateForm" ${state.showPersonForm ? "" : "hidden"}>
-                <input name="firstName" type="text" placeholder="Nombre" required />
-                <input name="lastName" type="text" placeholder="Apellido" required />
-                <details class="optionalDetails">
-                  <summary>Más datos</summary>
-                  <input name="area" type="text" placeholder="Área" />
-                  <textarea name="availabilityNotes" rows="2" placeholder="Vacaciones o disponibilidad"></textarea>
-                  <textarea name="notes" rows="2" placeholder="Notas"></textarea>
-                </details>
-                <button class="primaryButton" type="submit">Registrar persona</button>
-              </form>
-              ${personCreatedNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(personCreatedNotice)}</p>` : ""}
-              <section class="personDirectory ${selectedPersonDetail ? "hasDetail" : ""}" data-people-drop-zone>
-                <div class="blockHeader">
-                  <div>
-                    <strong>Personas registradas</strong>
-                    <span>Arrastra una persona a un proyecto para agregarla.</span>
-                  </div>
-                  <span>${peopleCountText}</span>
+            </section>
+
+            ${workspace.projects.length === 0 ? `
+            <section class="panel projectsEmptyCta">
+              <h3>Aún no hay solicitudes</h3>
+              <p>Crea la primera para empezar a organizar tareas, personas y seguimiento.</p>
+              <button id="emptyCreateFocus" class="primaryButton" type="button">Crear la primera solicitud</button>
+            </section>` : `
+            <section class="panel projectTablePanel">
+              <div class="projectTableHead">
+                <div class="projectFilters" role="group" aria-label="Filtrar solicitudes por estado">
+                  ${renderProjectStatusFilters()}
                 </div>
+                <span class="countPill">${projectCountText}</span>
+              </div>
+              <div class="projectTableWrap">
+                ${renderProjectTable(visibleProjects, activeProject, peopleById)}
+              </div>
+            </section>
+
+            ${activeProject ? renderProjectCard(activeProject, true, peopleById) : ""}`}
+
+            <section class="panel peopleSection ${peopleOpen ? "open" : ""}">
+              <div class="peopleSectionHead">
+                <button id="peopleSectionToggle" class="peopleToggle" type="button" aria-expanded="${peopleOpen ? "true" : "false"}">
+                  <span class="peopleChev">▸</span>
+                  <strong>Personas registradas</strong>
+                  <span class="countPill subtle">${peopleCountText}</span>
+                </button>
+                ${peopleOpen ? `<button id="togglePersonFormButton" class="secondaryButton compact" type="button">${state.showPersonForm ? "Cancelar" : "Registrar persona"}</button>` : ""}
+              </div>
+              ${peopleOpen ? `
+              <div class="peopleBody" data-people-drop-zone>
+                <form id="personQuickForm" class="personCreateForm" ${state.showPersonForm ? "" : "hidden"}>
+                  <input name="firstName" type="text" placeholder="Nombre" required />
+                  <input name="lastName" type="text" placeholder="Apellido" required />
+                  <details class="optionalDetails">
+                    <summary>Más datos</summary>
+                    <input name="area" type="text" placeholder="Área" />
+                    <textarea name="availabilityNotes" rows="2" placeholder="Vacaciones o disponibilidad"></textarea>
+                    <textarea name="notes" rows="2" placeholder="Notas"></textarea>
+                  </details>
+                  <button class="primaryButton" type="submit">Registrar persona</button>
+                </form>
+                ${personCreatedNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(personCreatedNotice)}</p>` : ""}
                 <input id="personSearch" class="searchInput personSearchInput" type="search" placeholder="Buscar persona" value="${escapeAttribute(state.personSearch)}" />
                 <div class="peopleStrip">
                   ${personDirectory || renderPeopleEmptyState(workspace.people.length)}
                 </div>
+                <p class="peopleHint">Para agregar a alguien a una solicitud usa el selector "Agregar persona" de la solicitud; también puedes arrastrar su tarjeta hasta ella.</p>
                 ${selectedPersonDetail ? `<section class="detailDrawerSlot personDetailSlot">${selectedPersonDetail}</section>` : ""}
-              </section>
-              <div class="projectFilters" role="group" aria-label="Filtrar proyectos por estado">
-                ${renderProjectStatusFilters()}
-              </div>
-              <div class="workspaceCount">
-                <span class="countPill">${projectCountText}</span>
-                <span>${workspace.people.length} personas registradas</span>
-              </div>
-            </section>
-
-            <section class="overviewProjectList">
-              ${projectCards || `<section class="panel"><p class="emptyText">${workspace.projects.length ? "No hay resultados con los filtros actuales." : "Crea el primer proyecto para iniciar."}</p></section>`}
+              </div>` : ""}
             </section>
           </section>
         `;
@@ -200,6 +219,46 @@ export function createWorkspaceModule(ctx) {
         return parts.map((p) => p.charAt(0).toUpperCase()).join("") || "?";
       }
 
+      // Tabla maestro-detalle: una fila compacta por proyecto (escaneable de un
+      // vistazo, patrón familiar tipo hoja de cálculo para usuarios sin experiencia
+      // en herramientas de proyectos). Clic en la fila → detalle completo abajo.
+      const REQUEST_TYPE_LABELS = { project: "Proyecto", report: "Reporte" };
+      function requestTypeLabel(value) {
+        return REQUEST_TYPE_LABELS[value] || "";
+      }
+
+      function renderProjectTable(projects, activeProject, peopleById) {
+        if (!projects.length) {
+          return `<p class="emptyText projectTableEmpty">No hay resultados con los filtros actuales.</p>`;
+        }
+        const rows = projects.map((project) => {
+          const owner = peopleById[project.ownerPersonId]?.fullName || "—";
+          const done = project.tasks.filter((t) => t.status === "done").length;
+          const upd = (project.updates || [])[0];
+          const snippet = upd ? (upd.text.length > 46 ? `${upd.text.slice(0, 46)}…` : upd.text) : "";
+          const activity = upd
+            ? `<span class="projActivityDate">${escapeHtml(updateDateLabel(upd.date))}</span> · ${escapeHtml(snippet)}`
+            : `<span class="emptyText">Sin seguimiento aún</span>`;
+          const selected = activeProject?.id === project.id;
+          return `
+            <tr class="projectRow ${selected ? "selected" : ""}" data-project-row="${project.id}" data-project-id="${project.id}" title="Ver detalle de ${escapeAttribute(project.name)}">
+              <td class="projName">${escapeHtml(project.name)}</td>
+              <td>${requestTypeLabel(project.requestType) || `<span class="emptyText">—</span>`}</td>
+              <td>${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}">${projectStatusLabel(project.status)}</span>` : `<span class="emptyText">—</span>`}</td>
+              <td>${escapeHtml(owner)}</td>
+              <td class="num">${done}/${project.tasks.length}</td>
+              <td class="projActivity">${activity}</td>
+            </tr>`;
+        }).join("");
+        return `
+          <table class="projectTable">
+            <thead>
+              <tr><th>Solicitud</th><th>Tipo</th><th>Estado</th><th>Responsable</th><th class="num">Tareas</th><th>Última actividad (seguimiento)</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+      }
+
       function renderPersonCard(person) {
         const isSelected = state.selectedDetail?.type === "person" && state.selectedDetail.id === person.id;
         // Chip de una sola línea: avatar de iniciales + nombre con elipsis (el
@@ -230,7 +289,7 @@ export function createWorkspaceModule(ctx) {
         if (totalPeople > 0 && state.personSearch.trim()) {
           return `<p class="emptyText">No hay personas que coincidan con la búsqueda.</p>`;
         }
-        return `<p class="emptyText">Registra la primera persona para asignarla a proyectos y tareas.</p>`;
+        return `<p class="emptyText">Registra la primera persona para asignarla a solicitudes y tareas.</p>`;
       }
 
       function renderProjectCard(project, isActive, peopleById) {
@@ -251,8 +310,8 @@ export function createWorkspaceModule(ctx) {
                 class="memberChipRemove"
                 data-member-remove-project="${project.id}"
                 data-member-remove-person="${member.personId}"
-                title="Quitar del proyecto"
-                aria-label="Quitar a ${escapeAttribute(person.fullName)} del proyecto"
+                title="Quitar de la solicitud"
+                aria-label="Quitar a ${escapeAttribute(person.fullName)} de la solicitud"
               >×</button></span>
             `;
           })
@@ -274,7 +333,7 @@ export function createWorkspaceModule(ctx) {
             <div class="projectCardMain">
               <div class="projectOverviewHeader">
                 <div>
-                  <p class="eyebrow">Proyecto</p>
+                  <p class="eyebrow">Solicitud</p>
                   <h2>${escapeHtml(project.name)}</h2>
                   ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
                   ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
@@ -289,7 +348,7 @@ export function createWorkspaceModule(ctx) {
                     <span>${project.members.length}</span>
                   </div>
                   <div class="memberChipList spacious">
-                    ${memberChips || `<span class="emptyText">Agrega personas al proyecto.</span>`}
+                    ${memberChips || `<span class="emptyText">Agrega personas a la solicitud.</span>`}
                   </div>
                   ${availablePeople.length ? `
                     <select class="projectMemberSelect inline" data-project-member="${project.id}" aria-label="Agregar persona al proyecto">
@@ -380,7 +439,7 @@ export function createWorkspaceModule(ctx) {
               <button class="primaryButton" type="submit">Registrar</button>
             </form>
             <div class="projectUpdateList">
-              ${rows || `<p class="emptyText">Sin registros aún. Anota lo trabajado para llevar la bitácora del proyecto.</p>`}
+              ${rows || `<p class="emptyText">Sin registros aún. Anota lo trabajado para llevar la bitácora de la solicitud.</p>`}
             </div>
             ${updates.length > 3 ? `<button class="tinyButton ghost projectUpdateToggle" type="button" data-update-toggle="${project.id}">${expanded ? "Ver menos" : `Ver todas (${updates.length})`}</button>` : ""}
           </section>`;
@@ -536,13 +595,20 @@ export function createWorkspaceModule(ctx) {
           <aside class="panel detailPanel">
             <div class="detailHeader">
               <div>
-                <p class="eyebrow">Proyecto</p>
+                <p class="eyebrow">Solicitud</p>
                 <h2>${escapeHtml(project.name)}</h2>
               </div>
               <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
             </div>
             <form id="projectDetailForm" class="detailForm" data-project-detail="${project.id}">
               <label>Nombre<input name="name" type="text" value="${escapeAttribute(project.name)}" required /></label>
+              <label>Tipo
+                <select name="requestType">
+                  <option value="" ${project.requestType ? "" : "selected"}>Ninguno</option>
+                  <option value="project" ${project.requestType === "project" ? "selected" : ""}>Proyecto</option>
+                  <option value="report" ${project.requestType === "report" ? "selected" : ""}>Reporte</option>
+                </select>
+              </label>
               <label>Estado
                 <select name="status">
                   ${projectStatusOptions(project.status)}
@@ -555,7 +621,7 @@ export function createWorkspaceModule(ctx) {
                 </select>
               </label>
               <label>Descripción<textarea name="description" rows="4">${escapeHtml(project.description)}</textarea></label>
-              <button class="primaryButton" type="submit">Guardar proyecto</button>
+              <button class="primaryButton" type="submit">Guardar solicitud</button>
               ${notice ? `<p class="saveFeedback" role="status">${escapeHtml(notice)}</p>` : ""}
             </form>
             <div class="detailList">
@@ -563,7 +629,7 @@ export function createWorkspaceModule(ctx) {
               ${project.members.length ? project.members.map((member) => renderMemberRoleControl(project.id, member, peopleById)).join("") : `<p class="emptyText">Aún no hay miembros asignados.</p>`}
             </div>
             <div class="detailDanger">
-              <button class="dangerButton" type="button" data-delete-project="${project.id}" data-delete-name="${escapeAttribute(project.name)}">Eliminar proyecto</button>
+              <button class="dangerButton" type="button" data-delete-project="${project.id}" data-delete-name="${escapeAttribute(project.name)}">Eliminar solicitud</button>
             </div>
           </aside>
         `;
@@ -799,6 +865,30 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
+        // Fila de la tabla de proyectos → selecciona y muestra el detalle abajo.
+        for (const row of document.querySelectorAll("[data-project-row]")) {
+          row.addEventListener("click", () => {
+            if (state.activeProjectId === row.dataset.projectRow) return;
+            state.activeProjectId = row.dataset.projectRow;
+            state.saveNotice = null;
+            renderWorkspace();
+          });
+        }
+
+        // Sección Personas (colapsable; el trabajo diario es sobre proyectos).
+        const peopleToggle = document.querySelector("#peopleSectionToggle");
+        if (peopleToggle) peopleToggle.addEventListener("click", () => {
+          state.peopleSectionOpen = !state.peopleSectionOpen;
+          if (!state.peopleSectionOpen) { state.showPersonForm = false; state.personSearch = ""; }
+          renderWorkspace();
+        });
+
+        // Empty state guiado: lleva el foco al formulario de crear proyecto.
+        const emptyCta = document.querySelector("#emptyCreateFocus");
+        if (emptyCta) emptyCta.addEventListener("click", () => {
+          document.querySelector("#projectQuickForm input[name='name']")?.focus();
+        });
+
         for (const card of document.querySelectorAll("[data-person-id]")) {
           card.addEventListener("dragstart", (event) => {
             event.dataTransfer.setData("text/plain", JSON.stringify({ type: "person", id: card.dataset.personId }));
@@ -924,7 +1014,7 @@ export function createWorkspaceModule(ctx) {
             event.stopPropagation();
             const id = button.dataset.deletePerson;
             const name = button.dataset.deleteName || "esta persona";
-            if (!window.confirm(`¿Eliminar a "${name}"? También se quitará de los proyectos donde participe. Esta acción no se puede deshacer.`)) return;
+            if (!window.confirm(`¿Eliminar a "${name}"? También se quitará de las solicitudes donde participe. Esta acción no se puede deshacer.`)) return;
             try {
               await apiRequest(`api/people/${encodeURIComponent(id)}`, { method: "DELETE" });
               if (state.selectedDetail?.type === "person" && state.selectedDetail.id === id) state.selectedDetail = null;
@@ -937,8 +1027,8 @@ export function createWorkspaceModule(ctx) {
           button.addEventListener("click", async (event) => {
             event.stopPropagation();
             const id = button.dataset.deleteProject;
-            const name = button.dataset.deleteName || "este proyecto";
-            if (!window.confirm(`¿Eliminar el proyecto "${name}"? Se borrarán también sus tareas y asignaciones. Esta acción no se puede deshacer.`)) return;
+            const name = button.dataset.deleteName || "esta solicitud";
+            if (!window.confirm(`¿Eliminar la solicitud "${name}"? Se borrarán también sus tareas y asignaciones. Esta acción no se puede deshacer.`)) return;
             try {
               await apiRequest(`api/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
               if (state.activeProjectId === id) state.activeProjectId = null;
@@ -999,7 +1089,7 @@ export function createWorkspaceModule(ctx) {
           });
           state.activeProjectId = payload.data.id;
           state.selectedDetail = { type: "project", id: payload.data.id };
-          state.saveNotice = { target: `project-create:${payload.data.id}`, message: "Proyecto creado." };
+          state.saveNotice = { target: `project-create:${payload.data.id}`, message: "Solicitud creada." };
           target.reset();
           await refreshWorkspace();
         } catch (error) {

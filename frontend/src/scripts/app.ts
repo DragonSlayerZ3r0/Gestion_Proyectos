@@ -11,7 +11,7 @@
       import { createChatModule } from "./modules/chat";
 
       const defaultModules = [
-        { key: "projects", label: "Proyectos y tareas" },
+        { key: "projects", label: "Solicitudes" },
         { key: "home", label: "Panel" },
         { key: "catalog", label: "Catálogo" },
         { key: "chat", label: "Apoyo técnico" },
@@ -30,7 +30,7 @@
           items: ["Proyectos recientes", "Tareas asignadas", "Accesos disponibles"]
         },
         projects: {
-          title: "Proyectos y tareas",
+          title: "Solicitudes",
           eyebrow: "Gestión operativa",
           body: "Mesa de trabajo para registrar personas, crear proyectos y crear tareas sin cambiar de pantalla.",
           metricLabel: "Vista única",
@@ -87,6 +87,7 @@
           tasks: true
         },
         expandedBoardProjectId: null,
+        peopleSectionOpen: false,  // sección "Personas registradas" colapsada por defecto
         updateEditing: null,    // {projectId, updateId} entrada de seguimiento en edición
         updatesExpanded: {},    // por projectId: true = mostrar todo el seguimiento (no solo lo último)
         saveNotice: null,
@@ -279,6 +280,7 @@
         }
 
         await loadMe();
+        playBrandWelcome();
       }
 
       async function loadConfig() {
@@ -362,7 +364,7 @@
         if (hasProjectWorkspace) {
           visibleByKey.set("projects", {
             key: "projects",
-            label: "Proyectos y tareas",
+            label: "Solicitudes",
             enabled: true
           });
         }
@@ -563,6 +565,7 @@
         elements.loginDialog.hidden = true;
         resetLoginForm();
         await loadMe();
+        playBrandWelcome();
       }
 
       function setUserMenuOpen(open) {
@@ -743,6 +746,41 @@
         renderModule(state.activeModule);
       }
 
+      // Entrada suave de una vista (cambio de módulo o de pestaña): Web Animations
+      // API sobre el contenedor — no usa clases (los renders resetean className) y
+      // NO se re-dispara en los repintados de sondeos (solo se llama en navegación
+      // explícita). Respeta prefers-reduced-motion (accesibilidad).
+      // Gesto de bienvenida al entrar (boot con sesión o login): el logo (mano con
+      // engrane) entra inclinado desde la "muñeca" y se endereza presentando el
+      // engrane; ese movimiento desliza el texto de la marca a su posición final.
+      // Los nodos de .brand son estáticos (no se re-renderizan), así que la
+      // animación corre una vez por entrada; se re-arma quitando y re-poniendo la
+      // clase (con reflow) por si hay logout→login sin recargar.
+      function playBrandWelcome() {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        // Espera DOS frames: el primero deja que el navegador pinte el layout ya
+        // logueado (renderApp acaba de revelar el sidebar y renderizar el módulo,
+        // trabajo síncrono pesado que si no se espera "se come" los primeros
+        // frames del gesto — por eso en el login se veía la mano ya colocada y
+        // solo la cola del texto). Con el sidebar ya pintado, el gesto arranca
+        // desde el frame 0 igual que al recargar.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (elements.app.classList.contains("loginOnly") || elements.app.classList.contains("booting")) return;
+          elements.app.classList.remove("welcomeAnim");
+          void elements.app.offsetWidth;   // reinicia la animación (logout→login sin recargar)
+          elements.app.classList.add("welcomeAnim");
+        }));
+      }
+
+      function animateViewEnter() {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        try {
+          elements.contentPanel.animate(
+            [{ opacity: 0.3, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }],
+            { duration: 200, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+        } catch {}
+      }
+
       function renderNav() {
         elements.moduleNav.innerHTML = "";
         const visibleModules = getVisibleModules(state.profile.modules);
@@ -757,9 +795,11 @@
           button.textContent = module.label;
           button.className = module.key === state.activeModule ? "navItem active" : "navItem";
           button.addEventListener("click", () => {
+            const changed = state.activeModule !== module.key;
             state.activeModule = module.key;
             window.sessionStorage.setItem("gestionProyectosModule", module.key);
             renderApp();
+            if (changed) animateViewEnter();
           });
           elements.moduleNav.append(button);
         }
@@ -782,6 +822,7 @@
       // Recibe el estado y los helpers compartidos por inyección de dependencias.
       const homeModule = createHomeModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, mdLite,
+        animateViewEnter,
       });
       const adminModule = createAdminModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton,
