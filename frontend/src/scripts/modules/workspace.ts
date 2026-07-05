@@ -194,14 +194,22 @@ export function createWorkspaceModule(ctx) {
         `;
       }
 
+      // Iniciales para el avatar del chip (primeras letras de las 2 primeras palabras).
+      function personInitials(fullName) {
+        const parts = (fullName || "").trim().split(/\s+/).slice(0, 2);
+        return parts.map((p) => p.charAt(0).toUpperCase()).join("") || "?";
+      }
+
       function renderPersonCard(person) {
         const isSelected = state.selectedDetail?.type === "person" && state.selectedDetail.id === person.id;
+        // Chip de una sola línea: avatar de iniciales + nombre con elipsis (el
+        // completo va en el tooltip) + lápiz alineado — altura uniforme, sin
+        // nombres partidos en varias líneas ni tarjetas cortadas a la mitad.
         return `
-          <article class="personCard ${isSelected ? "selected" : ""}" draggable="true" data-person-id="${person.id}" data-person-select="${person.id}">
-            <div class="cardHeader">
-              <strong>${escapeHtml(person.fullName)}</strong>
-              ${renderEditIconButton("Editar persona", `data-detail-person="${person.id}"`)}
-            </div>
+          <article class="personCard ${isSelected ? "selected" : ""}" draggable="true" data-person-id="${person.id}" data-person-select="${person.id}" title="${escapeAttribute(person.fullName)}">
+            <span class="personAvatar" aria-hidden="true">${escapeHtml(personInitials(person.fullName))}</span>
+            <strong class="personCardName">${escapeHtml(person.fullName)}</strong>
+            ${renderEditIconButton("Editar persona", `data-detail-person="${person.id}"`)}
           </article>
         `;
       }

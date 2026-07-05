@@ -98,7 +98,7 @@ def lint_sql(sql: str, get_partcols: Any = None, get_format: Any = None) -> dict
     usando el catálogo cacheado (sin tocar Glue). Nunca lanza: si el vendor
     falta o el SQL no parsea, degrada con elegancia."""
     if not sql or sqlglot is None:
-        return {"issues": [], "marks": [], "marksByCode": {}}
+        return {"issues": [], "marks": [], "marksByCode": {}, "tables": []}
     issues: list[dict[str, str]] = []
     marks: list[list[int]] = []
     marks_by_code: dict[str, list[list[int]]] = {}
@@ -128,7 +128,7 @@ def lint_sql(sql: str, get_partcols: Any = None, get_format: Any = None) -> dict
     try:
         tree = sqlglot.parse_one(sql, read="athena")
     except Exception:
-        return {"issues": [{"code": "no_parse", "label": ANTIPATTERNS["no_parse"]}], "marks": [], "marksByCode": {}}
+        return {"issues": [{"code": "no_parse", "label": ANTIPATTERNS["no_parse"]}], "marks": [], "marksByCode": {}, "tables": []}
 
     ctes = {c.alias_or_name.lower() for c in tree.find_all(_exp.CTE)}
     # 1) SELECT * en la proyección (no confundir con count(*))
@@ -138,8 +138,15 @@ def lint_sql(sql: str, get_partcols: Any = None, get_format: Any = None) -> dict
             add("select_star"); mark(star, "select_star")
     # 2) tabla referenciada sin base de datos (excluye CTEs y subconsultas).
     #    La posición vive en el identificador (t.this), no en el nodo Table.
+    #    De paso se recolectan las tablas CALIFICADAS (db.tabla) — las usa el
+    #    índice de uso por tabla del Catálogo, sin re-parsear el SQL.
+    qualified_tables: set[tuple[str, str]] = set()
     for t in tree.find_all(_exp.Table):
-        if not t.db and t.name and t.name.lower() not in ctes:
+        if not t.name or t.name.lower() in ctes:
+            continue
+        if t.db:
+            qualified_tables.add((t.db.lower(), t.name.lower()))
+        else:
             add("tabla_sin_db"); mark(t.this if t.this is not None else t, "tabla_sin_db")
     # 3) SELECT sobre tabla real sin WHERE (posible escaneo completo). Se marca la
     # tabla en el FROM (igual que "sin_particion") para ubicar dónde falta el filtro
@@ -267,4 +274,5 @@ def lint_sql(sql: str, get_partcols: Any = None, get_format: Any = None) -> dict
 
     uniq = sorted({(a, b) for a, b in marks})
     by_code = {c: [[a, b] for a, b in sorted({(x, y) for x, y in v})] for c, v in marks_by_code.items()}
-    return {"issues": issues, "marks": [[a, b] for a, b in uniq], "marksByCode": by_code}
+    return {"issues": issues, "marks": [[a, b] for a, b in uniq], "marksByCode": by_code,
+            "tables": sorted(qualified_tables)}

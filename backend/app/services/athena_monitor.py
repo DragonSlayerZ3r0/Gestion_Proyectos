@@ -3,7 +3,7 @@ import os
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import boto3
@@ -225,10 +225,14 @@ class AthenaMonitorService:
         return {"scanning": True}
 
     def run_scan(self, start: str, end: str) -> None:
+        """Escaneo INCREMENTAL: primero ingesta (solo lo que falta de CloudTrail/
+        Athena, con lint memoizado) y luego agrega la ventana desde los items ya
+        guardados — los refrescos y cambios de rango no re-traen ni re-parsean."""
         self._validate(start, end)
         now = self._now()
         try:
-            data, user_ap = self._compute(start, end)
+            self._ingest(start, end)
+            data, user_ap = self._aggregate(start, end)
             self._db.put_usage(start, end, data, now, "ok")
             self._db.put_user_antipatterns(start, end, user_ap, now)
         except Exception:
@@ -324,14 +328,14 @@ class AthenaMonitorService:
                 return ""
         return ""
 
-    def _compute(self, start: str, end: str) -> tuple[dict[str, Any], dict[str, list]]:
-        sess = self._session()
-        ct = sess.client("cloudtrail")
-        ath = sess.client("athena")
-        start_dt = datetime.fromisoformat(start + "T00:00:00+00:00")
-        end_dt = datetime.fromisoformat(end + "T23:59:59+00:00")
+    # ── Ingesta incremental (CloudTrail + Athena, asumiendo el rol del hub) ────
+    _INGEST_OVERLAP = 2 * 3600      # re-lee el borde: eventos/finales que llegan tarde
+    _EXEC_TTL_DAYS = 45             # = retención de stats de Athena
 
-        # 1) CloudTrail: queryExecutionId -> {usuario, workgroup}
+    def _fetch_cloudtrail(self, ct: Any, start_dt: Any, end_dt: Any) -> dict[str, dict[str, str]]:
+        """queryExecutionId -> {usuario, workgroup} en el rango. CloudTrail limita a
+        ~2 req/s por cuenta (throttling del lado AWS) → paralelizar NO ayuda; por eso
+        la ingesta incremental: este costo se paga UNA vez por rango nuevo."""
         qid_meta: dict[str, dict[str, str]] = {}
         token = None
         pages = 0
@@ -358,14 +362,52 @@ class AthenaMonitorService:
             pages += 1
             if not token or pages >= _CT_MAX_PAGES:
                 break
+        return qid_meta
 
-        # 2) Athena: stats + SQL por queryExecutionId (batch de 50)
-        ids = list(qid_meta)
-        users: dict[str, dict[str, Any]] = {}
-        top: list[dict[str, Any]] = []
-        user_ap: dict[str, dict[str, dict[str, Any]]] = {}   # user -> {huella -> patrón}
-        # Particiones desde el catálogo cacheado (DynamoDB), memoizado por (db, tabla);
-        # NO toca Glue. Si la tabla no está sincronizada → None (no se marca).
+    def _ingest(self, start: str, end: str) -> None:
+        """Trae SOLO los rangos aún no ingeridos (cursor [from, to] en DynamoDB, con
+        2h de solapamiento en el borde) y guarda un item por ejecución con su lint
+        YA calculado. Idempotente: re-escribir la misma ejecución es un overwrite."""
+        sess = self._session()
+        ct = sess.client("cloudtrail")
+        ath = sess.client("athena")
+        now_dt = datetime.now(timezone.utc)
+        start_dt = datetime.fromisoformat(start + "T00:00:00+00:00")
+        end_dt = min(datetime.fromisoformat(end + "T23:59:59+00:00"), now_dt)
+        if end_dt <= start_dt:
+            return
+
+        cur = self._db.get_ingest_cursor() or {}
+        ranges: list[tuple[Any, Any]] = []
+        try:
+            cur_from = datetime.fromisoformat(str(cur.get("from")))
+            cur_to = datetime.fromisoformat(str(cur.get("to")))
+        except (ValueError, TypeError):
+            cur_from = cur_to = None
+        if cur_from and cur_to:
+            if start_dt < cur_from:                       # backfill hacia atrás (rango más viejo)
+                ranges.append((start_dt, cur_from))
+            edge = cur_to - timedelta(seconds=self._INGEST_OVERLAP)
+            if end_dt > edge:                             # lo nuevo desde el último cursor
+                ranges.append((max(edge, start_dt), end_dt))
+            new_from, new_to = min(start_dt, cur_from), max(end_dt, cur_to)
+        else:
+            ranges.append((start_dt, end_dt))
+            new_from, new_to = start_dt, end_dt
+
+        qid_meta: dict[str, dict[str, str]] = {}
+        for a, b in ranges:
+            if b > a:
+                qid_meta.update(self._fetch_cloudtrail(ct, a, b))
+        if qid_meta:
+            self._db.put_executions(self._build_exec_items(ath, qid_meta))
+        self._db.put_ingest_cursor(new_from.isoformat(), new_to.isoformat(), self._now())
+
+    def _build_exec_items(self, ath: Any, qid_meta: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
+        """Stats + SQL por qid (batches de 50 EN PARALELO — I/O libera el GIL) y el
+        lint por ejecución. El lint se MEMOIZA por texto SQL idéntico (las
+        herramientas BI repiten el mismo query cientos de veces) y se salta en
+        sentencias UTILITY (SHOW/DESCRIBE: nada que detectar)."""
         cat = CatalogRepository()
         _tcache: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -384,9 +426,7 @@ class AthenaMonitorService:
         def get_format(db: str, table: str) -> str:
             return _table_meta(db, table).get("format") or ""
 
-        # 2b) Trae los lotes de 50 EN PARALELO (I/O-bound, libera el GIL durante la
-        # llamada de red) — antes eran secuenciales y ahí se iba la mayor parte del
-        # tiempo del scan. El boto3 client es thread-safe para hacer llamadas.
+        ids = list(qid_meta)
         chunks = [ids[i:i + 50] for i in range(0, len(ids), 50)]
 
         def _fetch_chunk(chunk: list[str]) -> list[dict[str, Any]]:
@@ -401,19 +441,69 @@ class AthenaMonitorService:
                 for res in pool.map(_fetch_chunk, chunks):
                     executions.extend(res)
 
-        # El lint (sqlglot) y el resto del armado sí quedan secuenciales: mutan
-        # diccionarios compartidos (`users`, `user_ap`) y son CPU, no I/O.
+        _EMPTY = {"issues": [], "marks": [], "marksByCode": {}, "tables": []}
+        lint_memo: dict[str, dict[str, Any]] = {}
+        fp_memo: dict[str, str] = {}
+        ttl = int(datetime.now(timezone.utc).timestamp()) + self._EXEC_TTL_DAYS * 86400
+        items: list[dict[str, Any]] = []
         for q in executions:
-            meta = qid_meta.get(q.get("QueryExecutionId"), {})
-            user = meta.get("user", "desconocido")
+            state = q.get("Status", {}).get("State", "")
+            if state not in ("SUCCEEDED", "FAILED", "CANCELLED"):
+                continue        # aún corriendo: la recogerá el solapamiento del próximo scan
+            qid = q.get("QueryExecutionId") or ""
+            meta = qid_meta.get(qid, {})
             st = q.get("Statistics", {})
-            b = int(st.get("DataScannedInBytes", 0) or 0)
-            ms = int(st.get("TotalExecutionTimeInMillis", 0) or 0)
             sub = q.get("Status", {}).get("SubmissionDateTime")
-            sub_iso = sub.isoformat() if sub else ""   # cuándo se ejecutó
+            sub_iso = sub.isoformat() if sub else ""
+            if not qid or not sub_iso:
+                continue
             sql = (q.get("Query") or "").strip()
-            lint = _lint_sql(sql, get_partcols, get_format)
-            issues = lint["issues"]
+            stype = q.get("StatementType", "")
+            if stype == "UTILITY" or not sql:
+                lint = _EMPTY
+                fp = sql
+            else:
+                lint = lint_memo.get(sql)
+                if lint is None:
+                    lint = _lint_sql(sql, get_partcols, get_format)
+                    lint_memo[sql] = lint
+                fp = fp_memo.get(sql)
+                if fp is None:
+                    fp = _fingerprint(sql)
+                    fp_memo[sql] = fp
+            items.append({
+                "PK": "ATHENA#EXEC", "SK": f"{sub_iso}#{qid}", "entityType": "ATHENA_EXEC",
+                "qid": qid, "user": meta.get("user", "desconocido"), "wg": meta.get("wg", ""),
+                "bytes": int(st.get("DataScannedInBytes", 0) or 0),
+                "ms": int(st.get("TotalExecutionTimeInMillis", 0) or 0),
+                "sub": sub_iso, "statementType": stype,
+                "sql": sql[:600], "fp": fp,
+                "issues": lint["issues"], "marks": lint["marks"],
+                "marksByCode": lint["marksByCode"],
+                "tables": [list(t) for t in (lint.get("tables") or [])],
+                "ttl": ttl,      # expira solo (TTL nativo, mismo atributo que el chat)
+            })
+        return items
+
+    # ── Agregación por ventana (solo DynamoDB: sin AWS del hub, sin re-parseo) ─
+    def _aggregate(self, start: str, end: str) -> tuple[dict[str, Any], dict[str, list]]:
+        rows = self._db.query_executions(start, end)
+        users: dict[str, dict[str, Any]] = {}
+        top: list[dict[str, Any]] = []
+        user_ap: dict[str, dict[str, dict[str, Any]]] = {}   # user -> {huella -> patrón}
+        table_usage: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+        for row in rows:
+            user = row.get("user", "desconocido")
+            b = int(row.get("bytes", 0) or 0)
+            ms = int(row.get("ms", 0) or 0)
+            sub_iso = row.get("sub", "")
+            issues = row.get("issues") or []
+            for t in row.get("tables") or []:
+                tkey = (str(t[0]), str(t[1]))
+                rec = table_usage.setdefault(tkey, {}).setdefault(user, {"count": 0, "lastRun": ""})
+                rec["count"] += 1
+                if sub_iso > rec["lastRun"]:
+                    rec["lastRun"] = sub_iso
             u = users.setdefault(user, {
                 "user": user, "queries": 0, "bytes": 0, "totalMs": 0, "maxMs": 0,
                 "antipatterns": 0, "issueCounts": {}})
@@ -423,46 +513,42 @@ class AthenaMonitorService:
             if ms > u["maxMs"]:
                 u["maxMs"] = ms
             item = {
-                "qid": q.get("QueryExecutionId"),
-                "user": user, "bytes": b, "ms": ms, "wg": meta.get("wg", ""),
-                "lastRun": sub_iso,        # última ejecución (para ordenar por reciente)
-                "issues": issues,          # antipatrones detectados (badges)
-                "marks": lint["marks"],    # tramos a resaltar en rojo (sobre el SQL completo)
-                "marksByCode": lint["marksByCode"],  # tramos por antipatrón (resaltado selectivo)
-                "statementType": q.get("StatementType", ""),
-                "sql": sql[:600],          # vista previa; el SQL completo se trae bajo demanda
+                "qid": row.get("qid"),
+                "user": user, "bytes": b, "ms": ms, "wg": row.get("wg", ""),
+                "lastRun": sub_iso,
+                "issues": issues,
+                "marks": row.get("marks") or [],
+                "marksByCode": row.get("marksByCode") or {},
+                "statementType": row.get("statementType", ""),
+                "sql": row.get("sql", ""),
             }
             top.append(item)
             if issues:
                 u["antipatterns"] += 1
                 for it in issues:
                     u["issueCounts"][it["code"]] = u["issueCounts"].get(it["code"], 0) + 1
-                # Dedup por huella: agrupa ejecuciones repetidas del MISMO patrón
-                # (ej. Tableau corriendo lo mismo cientos de veces).
-                fp = _fingerprint(sql)
+                fp = row.get("fp") or item["sql"]
                 bucket = user_ap.setdefault(user, {})
                 pat = bucket.get(fp)
                 if pat is None:
                     pat = {"qid": item["qid"], "wg": item["wg"], "count": 0,
                            "bytes": 0, "maxBytes": 0, "ms": 0, "lastRun": "",
-                           "issues": issues, "marks": lint["marks"],
-                           "marksByCode": lint["marksByCode"], "sql": item["sql"]}
+                           "issues": issues, "marks": item["marks"],
+                           "marksByCode": item["marksByCode"], "sql": item["sql"]}
                     bucket[fp] = pat
                 pat["count"] += 1
-                pat["bytes"] += b               # total escaneado por el patrón (impacto)
-                if sub_iso > pat["lastRun"]:    # última ejecución del patrón
+                pat["bytes"] += b
+                if sub_iso > pat["lastRun"]:
                     pat["lastRun"] = sub_iso
-                if b >= pat["maxBytes"]:        # representante = ejecución más pesada
+                if b >= pat["maxBytes"]:
                     pat["maxBytes"] = b
                     pat["qid"], pat["sql"], pat["marks"], pat["marksByCode"], pat["issues"] = (
-                        item["qid"], item["sql"], lint["marks"], lint["marksByCode"], issues)
+                        item["qid"], item["sql"], item["marks"], item["marksByCode"], issues)
                 if ms > pat["ms"]:
                     pat["ms"] = ms
 
         top.sort(key=lambda x: x["bytes"], reverse=True)
         users_list = sorted(users.values(), key=lambda x: x["bytes"], reverse=True)
-        # Resuelve el NOMBRE real desde AWS Identity Center (cubre a TODOS los
-        # institucionales, no solo los registrados en la app). Cacheado en DynamoDB.
         names = self._resolve_names([u["user"] for u in users_list])
         for u in users_list:
             if names.get(u["user"]):
@@ -470,11 +556,28 @@ class AthenaMonitorService:
         for item in top:
             if names.get(item["user"]):
                 item["name"] = names[item["user"]]
-        # Por usuario: PATRONES (dedup) ordenados por escaneo TOTAL, acotados. Se guardan
-        # en items aparte (uno por usuario) → escala con la cantidad de gente.
         user_pat: dict[str, list[dict[str, Any]]] = {}
         for usr, bucket in user_ap.items():
             user_pat[usr] = sorted(bucket.values(), key=lambda x: x["bytes"], reverse=True)[:_AP_PER_USER]
+        # Índice de uso por tabla → "Uso reciente" del Catálogo (la ventana
+        # agregada más reciente sobreescribe).
+        usage_items: list[dict[str, Any]] = []
+        usage_at = self._now()
+        for (db, table), by_user in table_usage.items():
+            urows = [{"user": usr, "name": names.get(usr, ""),
+                      "count": rec["count"], "lastRun": rec["lastRun"]}
+                     for usr, rec in by_user.items()]
+            urows.sort(key=lambda r: r["lastRun"], reverse=True)
+            usage_items.append({
+                "PK": f"TABLE#{db}#{table}", "SK": "USAGE", "entityType": "TABLE_USAGE",
+                "database": db, "table": table, "users": urows[:20],
+                "start": start, "end": end, "scannedAt": usage_at,
+            })
+        if usage_items:
+            try:
+                CatalogRepository().put_table_usage_bulk(usage_items)
+            except Exception:
+                pass        # el índice de uso nunca debe tumbar el escaneo principal
         data = {
             "start": start, "end": end,
             "users": users_list, "topQueries": top[:_TOP_N],

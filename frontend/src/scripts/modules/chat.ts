@@ -216,6 +216,9 @@ export function createChatModule(ctx) {
   }
 
   function paintChat() {
+    // Guard anti "pintar encima": el polling de la respuesta sigue vivo si el
+    // usuario cambia de módulo; sin esto re-renderizaba el chat dentro de otro.
+    if (state.activeModule !== "chat") return;
     elements.statusPanel.hidden = true;
     elements.contentPanel.hidden = false;
     elements.contentPanel.className = "contentGrid";

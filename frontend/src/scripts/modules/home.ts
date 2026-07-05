@@ -144,6 +144,11 @@ export function createHomeModule(ctx) {
       }
 
       function paintHome() {
+        // Guard anti "pintar encima": los sondeos asíncronos (escaneo de Athena,
+        // cargas del Data Lake) siguen vivos si el usuario cambia de módulo; sin
+        // esto re-renderizaban el contenido del Panel DENTRO de otro módulo
+        // (p. ej. el monitoreo de Athena apareciendo dentro del Catálogo).
+        if (state.activeModule !== "home") return;
         const isAdmin = (state.profile?.user?.roles || []).includes("admin");
         const s = state.homeSummary;
 
@@ -888,7 +893,7 @@ export function createHomeModule(ctx) {
         <div class="athenaQueryRow">
           <div class="athenaQueryMeta">
             ${who}
-            <span class="homeTopMeta">${q.count ? `×${Number(q.count).toLocaleString("en-US")} ejec. · ` : ""}${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}${q.lastRun ? ` · últ. ${catalogSyncedLabel(q.lastRun)}` : ""}</span>
+            <span class="homeTopMeta">${q.count ? `×${Number(q.count).toLocaleString("en-US")} ejec. · ` : ""}${formatBytes(q.bytes)} · ${athMs(q.ms)} · $${fmtUsd((q.bytes || 0) / 1e12 * 5)}${q.lastRun ? ` · últ. ${homeDateTimeLabel(q.lastRun)} (${catalogSyncedLabel(q.lastRun)})` : ""}</span>
           </div>
           ${badges}${recoBlock}
           <div class="athenaSqlWrap">

@@ -1036,11 +1036,41 @@
     box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
   }
 
+  /* Chip de persona: una sola línea (avatar + nombre con elipsis + lápiz),
+     altura uniforme — orden visual sin nombres partidos en varias líneas. */
   .personCard {
-    display: block;
-    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
     cursor: grab;
+    background: #ffffff;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
   }
+  .personCard:hover { border-color: var(--line-strong); box-shadow: 0 2px 8px rgba(31, 42, 46, 0.08); }
+  .personAvatar {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent-soft, #e6f4f1);
+    color: var(--accent-strong, #0f766e);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+  .personCardName {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .personCard .iconTinyButton { flex: none; opacity: 0.55; }
+  .personCard:hover .iconTinyButton { opacity: 1; }
 
   .personDirectory {
     display: grid;
@@ -1073,9 +1103,11 @@
 
   .peopleStrip {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 8px;
-    max-height: 116px;
+    /* 2 filas completas de chips (42px c/u + gap); el resto con scroll — nunca
+       se corta un chip a la mitad. */
+    max-height: 96px;
     overflow: auto;
     padding-right: 2px;
     scrollbar-gutter: stable;
@@ -3326,3 +3358,13 @@
     cursor: pointer;
   }
   .deployNoticeReload:hover { background: #d1fae5; }
+
+  /* ── Uso reciente de una tabla del catálogo (quién la consultó en Athena) ── */
+  .catalogUsageBody { padding: 6px 2px 2px; }
+  .catalogUsageTable { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .catalogUsageTable th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  .catalogUsageTable td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  .catalogUsageTable tr:last-child td { border-bottom: none; }
+  .catalogUsageTable th.num, .catalogUsageTable td.num { text-align: right; }
+  .catalogUsageAgo { color: var(--muted); font-size: 0.72rem; }
+  .catalogUsageNote { margin: 6px 0 0; color: var(--muted); font-size: 0.74rem; line-height: 1.4; }

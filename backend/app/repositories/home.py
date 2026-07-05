@@ -16,11 +16,11 @@ class HomeRepository(BaseRepository):
     def delete_cost_cache_prefix(self, prefix: str) -> None:
         """Borra todas las entradas de caché de un periodo (principal + diario +
         detalles por servicio), cuyas SK comparten el prefijo cuenta#inicio#fin."""
-        response = self._table.query(
+        items = self._query_all(
             KeyConditionExpression=Key("PK").eq("HOME#COSTS") & Key("SK").begins_with(prefix)
         )
         with self._table.batch_writer() as batch:
-            for item in response.get("Items", []):
+            for item in items:
                 batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
 
     def put_cost_cache(self, key: str, data: dict[str, Any], fetched_at: str) -> None:

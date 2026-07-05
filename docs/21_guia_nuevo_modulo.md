@@ -33,6 +33,21 @@ item `USER#<email> / MODULE#reports`).
    Hereda de `BaseRepository` (conexión a la tabla + helper `_update`). **Un repo por
    dominio** y mantiene aislada su persistencia.
 
+   **Estándar de acceso a datos (obligatorio, verificado por `npm run check`):**
+   - **Nunca** `self._table.query(...)` ni `self._table.scan(...)` directos — siempre
+     `self._query_all(...)` / `self._scan_all(...)` (paginan hasta el final; una
+     lectura de una página devuelve datos incompletos SIN error cuando la tabla
+     crece — incidente 2026-07-03, ver `docs/04`). El guardrail
+     `scripts/check-dynamo-pagination.sh` falla el build si aparece uno crudo.
+   - **Listados globales por tipo** ("todas las X de la tabla") van por el GSI
+     `byEntityType` vía `self._query_entity_type("MI_TIPO", filtro_extra)` — nunca un
+     scan con filtro (lee toda la tabla para devolver un puñado de items). El helper
+     ya trae fallback a scan paginado si el índice no está ACTIVE.
+   - Todo item nuevo lleva **`entityType`** (así entra solo al GSI) y los borrados de
+     items hijos usan lecturas paginadas antes del batch de deletes (sin huérfanos).
+   - Si el item debe **expirar solo**, usar el atributo **`ttl`** (epoch segundos; TTL
+     nativo ya habilitado en la tabla — lo usan chat y las ejecuciones de Athena).
+
 3. **Rutas** `backend/app/modules/reports_routes.py` con una función `register(router)`:
 
    ```python
@@ -104,9 +119,12 @@ la sección mantiene una sola responsabilidad. En backend sigue siendo un domini
 
 ## 4. Validar y publicar
 
-- Backend: `python3 -m py_compile` de los archivos nuevos; publicar el código Lambda según
-  `docs/17_desarrollo_local_publicacion.md`; validar por API. Ejecutar
-  `npm run infra:deploy` cuando el módulo agregue infraestructura, variables o permisos.
+- **Siempre** correr `npm run check` antes de publicar: compila frontend y Python,
+  verifica el estándar de acceso a datos (paginación DynamoDB) y sintetiza el CDK.
+- Backend: publicar el código Lambda según `docs/17_desarrollo_local_publicacion.md`
+  (con el aviso de despliegue a usuarios: `scripts/deploy-flag.sh start|done`); validar
+  por API. Ejecutar `npm run infra:deploy` cuando el módulo agregue infraestructura,
+  variables o permisos.
 - Frontend: `pnpm build` (Vite falla ante imports no resueltos) **y prueba en navegador**
   (con `@ts-nocheck`, una referencia global no definida solo falla en runtime). Publicar
   según `docs/17_desarrollo_local_publicacion.md`.

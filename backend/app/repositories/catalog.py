@@ -22,8 +22,7 @@ class CatalogRepository(BaseRepository):
 
     # ── Bases de datos ─────────────────────────────────────────────────────────
     def list_catalog_databases(self) -> list[dict[str, Any]]:
-        response = self._table.query(KeyConditionExpression=Key("PK").eq("CATALOG#DB"))
-        return response.get("Items", [])
+        return self._query_all(KeyConditionExpression=Key("PK").eq("CATALOG#DB"))
 
     def put_catalog_database(self, database: str, table_count: int, synced_at: str, description: str = "", location: str = "", stats: dict[str, Any] | None = None) -> None:
         item = {
@@ -49,12 +48,12 @@ class CatalogRepository(BaseRepository):
         )
 
     def list_catalog_tables(self, database: str) -> list[dict[str, Any]]:
-        response = self._table.query(
+        items = self._query_all(
             KeyConditionExpression=Key("PK").eq(f"CATALOG#{database}") & Key("SK").begins_with("TABLE#"),
             ProjectionExpression="#n, #db, tableType, description, columnCount, syncedAt, glueUpdatedAt, #loc, SK",
             ExpressionAttributeNames={"#n": "name", "#db": "database", "#loc": "location"},
         )
-        return response.get("Items", [])
+        return items
 
     def get_catalog_table(self, database: str, table: str) -> dict[str, Any] | None:
         response = self._table.get_item(Key={"PK": f"CATALOG#{database}", "SK": f"TABLE#{table}"})
@@ -93,11 +92,21 @@ class CatalogRepository(BaseRepository):
                 request = resp.get("UnprocessedKeys") or None
         return result
 
+    # ── Uso reciente (quién consultó la tabla en Athena) ───────────────────────
+    # Lo escribe el escaneo del monitoreo de Athena (services/athena_monitor.py):
+    # un item por tabla con los usuarios que la consultaron en la ventana.
+    def get_table_usage(self, database: str, table_name: str) -> dict[str, Any] | None:
+        response = self._table.get_item(Key={"PK": f"TABLE#{database}#{table_name}", "SK": "USAGE"})
+        return response.get("Item")
+
+    def put_table_usage_bulk(self, items: list[dict[str, Any]]) -> None:
+        with self._table.batch_writer() as batch:
+            for item in items:
+                batch.put_item(Item=item)
+
     def list_column_contexts(self, database: str, table_name: str) -> list[dict[str, Any]]:
-        response = self._table.query(
-            KeyConditionExpression=Key("PK").eq(f"TABLE#{database}#{table_name}") & Key("SK").begins_with("COLUMN#")
-        )
-        return response.get("Items", [])
+        return self._query_all(
+            KeyConditionExpression=Key("PK").eq(f"TABLE#{database}#{table_name}") & Key("SK").begins_with("COLUMN#"))
 
     def get_column_context(self, database: str, table_name: str, column_name: str) -> dict[str, Any] | None:
         response = self._table.get_item(Key={"PK": f"TABLE#{database}#{table_name}", "SK": f"COLUMN#{column_name}"})

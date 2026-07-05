@@ -262,6 +262,10 @@ export function createCatalogModule(ctx) {
       }
 
       function paintCatalog() {
+        // Guard anti "pintar encima": el poller de sincronización sigue vivo si
+        // el usuario cambia de módulo; sin esto re-renderizaría el catálogo
+        // dentro de otro módulo.
+        if (state.activeModule !== "catalog") return;
         const { catalogDatabases, catalogSelectedDb, catalogTables, catalogSelectedTable, catalogSearch, catalogSearchScope, catalogLoading } = state;
         const syncedAt = state.catalogSyncedAt;
         const syncStatus = state.catalogSyncStatus;
@@ -486,6 +490,10 @@ export function createCatalogModule(ctx) {
                   <summary>Ficha técnica</summary>
                   <div class="catalogFicha">${fichaItems.join("")}</div>
                 </details>
+                <details class="catalogFichaWrap catalogUsageWrap" data-usage-db="${escapeAttribute(table.database)}" data-usage-table="${escapeAttribute(table.name)}">
+                  <summary>Uso reciente</summary>
+                  <div class="catalogUsageBody"><p class="catalogUsageNote">Cargando…</p></div>
+                </details>
               </div>
               <button class="iconTinyButton syncTableBtn" type="button" data-db="${escapeAttribute(table.database)}" data-table="${escapeAttribute(table.name)}" title="Actualizar tabla desde Glue" aria-label="Actualizar tabla desde Glue">↻</button>
             </div>
@@ -608,6 +616,43 @@ export function createCatalogModule(ctx) {
 
         panel.querySelectorAll(".syncTableBtn").forEach(btn => {
           btn.onclick = () => syncCatalogTable(btn.dataset.db, btn.dataset.table);
+        });
+
+        // Uso reciente: quién consultó la tabla en Athena (índice que deja el
+        // escaneo del monitoreo). Carga LAZY al expandir la sección.
+        panel.querySelectorAll(".catalogUsageWrap").forEach(det => {
+          det.addEventListener("toggle", async () => {
+            if (!det.open || det.dataset.usageLoaded) return;
+            det.dataset.usageLoaded = "1";
+            const body = det.querySelector(".catalogUsageBody");
+            try {
+              const p = await apiRequest(`api/catalog/${encodeURIComponent(det.dataset.usageDb)}/${encodeURIComponent(det.dataset.usageTable)}/usage`);
+              const d = p.data || {};
+              const rows = d.users || [];
+              if (!rows.length) {
+                body.innerHTML = `<p class="catalogUsageNote">Sin consultas registradas en la última ventana escaneada del monitoreo de Athena.</p>`;
+                return;
+              }
+              const fmtDT = (iso) => {
+                const dd = new Date(iso);
+                return isNaN(dd.getTime()) ? "—" : dd.toLocaleString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+              };
+              body.innerHTML = `
+                <table class="catalogUsageTable">
+                  <thead><tr><th>Usuario</th><th class="num">Consultas</th><th>Última consulta</th></tr></thead>
+                  <tbody>${rows.map((u) => `
+                    <tr>
+                      <td title="${escapeAttribute(u.user)}">${escapeHtml(u.name || u.user)}</td>
+                      <td class="num">${Number(u.count).toLocaleString("en-US")}</td>
+                      <td>${escapeHtml(fmtDT(u.lastRun))} <span class="catalogUsageAgo">(${escapeHtml(catalogSyncedLabel(u.lastRun))})</span></td>
+                    </tr>`).join("")}
+                  </tbody>
+                </table>
+                <p class="catalogUsageNote">Ventana ${escapeHtml(d.start)} → ${escapeHtml(d.end)} · calculado ${escapeHtml(catalogSyncedLabel(d.scannedAt))}. Se actualiza con el escaneo del Panel · Athena.</p>`;
+            } catch (err) {
+              body.innerHTML = `<p class="catalogUsageNote">${escapeHtml(err?.message || "No se pudo cargar el uso reciente.")}</p>`;
+            }
+          });
         });
 
         panel.querySelectorAll(".catalogTableCard").forEach(btn => {

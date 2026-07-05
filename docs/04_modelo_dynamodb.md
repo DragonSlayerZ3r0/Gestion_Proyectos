@@ -135,6 +135,10 @@ El panel de detalle actualiza los mismos registros operativos:
 
 Los cambios de tarea en estado, prioridad o responsable generan `AUDIT_EVENT` con `changedFields`.
 
+## Índices
+
+**GSI `byEntityType`** (2026-07-03, en uso): partition `entityType`, sort `PK`, proyección ALL. Es el índice de los **listados globales** — personas, proyectos, membresías de una persona, tareas (conteo del Panel) y usuarios/módulos de Administración consultan SOLO sus items en vez de escanear la tabla completa (con los items `ATHENA#EXEC` del monitoreo, un scan filtrado leía megas para devolver kilobytes). Acceso vía `BaseRepository._query_entity_type(tipo, filtro_extra)` con **fallback automático al scan paginado** si el índice no está ACTIVO (backfill tras crearlo, o stack recién creado) — así el orden de despliegue nunca rompe la vista.
+
 ## Índices potenciales
 
 Agregar índices solo cuando el patrón de consulta lo requiera:
@@ -143,3 +147,14 @@ Agregar índices solo cuando el patrón de consulta lo requiera:
 - GSI para tareas por responsable.
 - GSI para tareas por estado.
 - GSI para auditoría por entidad afectada.
+
+## Regla obligatoria: lecturas SIEMPRE paginadas
+
+DynamoDB devuelve **máximo 1 MB por página** en `query` y `scan` — y en `scan`, el límite aplica **antes** de evaluar el filtro. Una lectura de una sola página "funciona" mientras la tabla es chica y un día empieza a devolver **datos incompletos sin ningún error** (incidente 2026-07-03: el módulo Proyectos se "vació" cuando los items `ATHENA#EXEC` del monitoreo llenaron las primeras páginas del scan; los datos estaban intactos).
+
+Por eso:
+
+- Ningún repositorio llama `self._table.query(...)` ni `self._table.scan(...)` directo. **Siempre** `self._query_all(...)` / `self._scan_all(...)` de `BaseRepository` (pagina con `LastEvaluatedKey` hasta el final; aceptan los mismos kwargs).
+- La regla se **verifica automáticamente**: `scripts/check-dynamo-pagination.sh` (parte de `npm run check`) falla si aparece un query/scan crudo fuera de `base.py`.
+- Aplica también a los flujos de **borrado** (borrar los hijos de un proyecto/usuario): un borrado sobre una página incompleta deja huérfanos silenciosos.
+- Los `scan` con filtro siguen siendo un antipatrón de costo a escala (leen toda la tabla); si un listado escaneado se siente lento, la mejora es un GSI/Query — pero paginar es lo mínimo no negociable.

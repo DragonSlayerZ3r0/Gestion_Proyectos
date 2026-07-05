@@ -1,6 +1,6 @@
 from typing import Any
 
-from boto3.dynamodb.conditions import Attr, Key
+from boto3.dynamodb.conditions import Key
 
 from repositories.base import BaseRepository
 
@@ -13,23 +13,14 @@ class UsersRepository(BaseRepository):
         return response.get("Item")
 
     def list_user_modules(self, user_id: str) -> list[dict[str, Any]]:
-        response = self._table.query(
-            KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("MODULE#")
-        )
-        return response.get("Items", [])
+        return self._query_all(
+            KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("MODULE#"))
 
     def list_all_user_items(self) -> list[dict[str, Any]]:
-        """Todos los items USER# (PROFILE + MODULE#) para el módulo admin."""
-        items: list[dict[str, Any]] = []
-        kwargs: dict[str, Any] = {"FilterExpression": Attr("PK").begins_with("USER#")}
-        while True:
-            response = self._table.scan(**kwargs)
-            items.extend(response.get("Items", []))
-            last_key = response.get("LastEvaluatedKey")
-            if not last_key:
-                break
-            kwargs["ExclusiveStartKey"] = last_key
-        return items
+        """Todos los items USER# (PROFILE + MODULE#) para el módulo admin. Dos
+        queries por el GSI de entidad (perfiles + módulos) en vez de escanear la
+        tabla; excluye de paso las sesiones de chat que comparten el PK USER#."""
+        return self._query_entity_type("USER") + self._query_entity_type("USER_MODULE")
 
     def put_user_profile(self, user_id: str, item: dict[str, Any]) -> None:
         item["PK"] = f"USER#{user_id}"
@@ -42,9 +33,9 @@ class UsersRepository(BaseRepository):
 
     def delete_user(self, user_id: str) -> None:
         """Borra el perfil y TODOS los items MODULE# del usuario (sin huérfanos)."""
-        response = self._table.query(KeyConditionExpression=Key("PK").eq(f"USER#{user_id}"))
+        items = self._query_all(KeyConditionExpression=Key("PK").eq(f"USER#{user_id}"))
         with self._table.batch_writer() as batch:
-            for item in response.get("Items", []):
+            for item in items:
                 batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
 
     def put_user_module(self, user_id: str, module_key: str, label: str, enabled: bool, now: str) -> None:

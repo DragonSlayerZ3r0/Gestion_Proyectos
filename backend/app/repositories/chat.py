@@ -13,9 +13,8 @@ from repositories.base import BaseRepository
 
 class ChatRepository(BaseRepository):
     def list_sessions(self, user_id: str) -> list[dict[str, Any]]:
-        resp = self._table.query(
+        return self._query_all(
             KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("CHAT#"))
-        return resp.get("Items", [])
 
     def get_session(self, user_id: str, session_id: str) -> dict[str, Any] | None:
         resp = self._table.get_item(Key={"PK": f"USER#{user_id}", "SK": f"CHAT#{session_id}"})
@@ -41,8 +40,7 @@ class ChatRepository(BaseRepository):
                 batch.delete_item(Key={"PK": m["PK"], "SK": m["SK"]})
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
-        resp = self._table.query(KeyConditionExpression=Key("PK").eq(f"CHAT#{session_id}"))
-        return resp.get("Items", [])
+        return self._query_all(KeyConditionExpression=Key("PK").eq(f"CHAT#{session_id}"))
 
     def put_message(self, session_id: str, role: str, text: str, created_at: str, ttl: int) -> None:
         sk = f"MSG#{created_at}#{uuid4().hex[:6]}"

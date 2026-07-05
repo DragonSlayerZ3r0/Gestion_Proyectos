@@ -154,6 +154,16 @@ export class GestionProyectosStack extends Stack {
       timeToLiveAttribute: "ttl",
       removalPolicy: RemovalPolicy.DESTROY
     });
+    // GSI por tipo de entidad: los listados globales (personas, proyectos, tareas,
+    // usuarios de admin) consultan SOLO sus items en vez de escanear la tabla
+    // completa — con la tabla creciendo (items ATHENA#EXEC del monitoreo), un scan
+    // filtrado lee megas para devolver kilobytes. PAY_PER_REQUEST: sin capacity.
+    table.addGlobalSecondaryIndex({
+      indexName: "byEntityType",
+      partitionKey: { name: "entityType", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "PK", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL
+    });
 
     const seedTimestamp = "2026-06-05T00:00:00.000Z";
     const initialUserId = props.initialUserEmail.trim().toLowerCase();
@@ -325,12 +335,16 @@ export class GestionProyectosStack extends Stack {
       handler: "handler.handler",
       code: lambda.Code.fromAsset("../backend/app"),
       // 10s basta para las llamadas síncronas de la API (API Gateway corta a 29s
-      // de todos modos), pero el sync global se auto-invoca async en esta misma
-      // función y ahora lista S3 para calcular tamaño/frescura de cada tabla:
-      // necesita un presupuesto amplio o se mata a media ejecución y deja el
-      // estado en "syncing" sin escribir stats. 300s cubre data lakes grandes.
-      timeout: Duration.seconds(300),
-      memorySize: 512,
+      // de todos modos), pero los workers async (sync del catálogo, escaneo de
+      // Athena, respuestas del chat) corren en esta misma función: necesitan
+      // presupuesto amplio o mueren a media ejecución dejando estados colgados
+      // ("syncing"/"scanning"). El escaneo de Athena con ~3000 consultas llegó a
+      // 300s → 600s de margen. La memoria manda el CPU en Lambda: el escaneo es
+      // CPU-bound (parseo sqlglot por consulta), 1024 MB ≈ el doble de rápido por
+      // prácticamente el mismo costo (mitad de duración a tarifa doble); 1792 MB
+      // = 1 vCPU completo, el punto óptimo para este workload de parseo.
+      timeout: Duration.seconds(600),
+      memorySize: 1792,
       logRetention: logs.RetentionDays.ONE_MONTH,
       role: importedRole ?? ownedRole,
       environment: {

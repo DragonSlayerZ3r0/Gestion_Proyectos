@@ -38,6 +38,12 @@ def _sync_table(req: Request):
     return success(CatalogService().sync_table(req.params.get("database") or "", req.params.get("table") or ""))
 
 
+def _table_usage(req: Request):
+    database = req.params.get("database") or ""
+    table = req.params.get("table") or ""
+    return success(CatalogService().get_table_usage(database, table))
+
+
 def _table_context(req: Request):
     database = req.params.get("database") or ""
     table = req.params.get("table") or ""
@@ -58,6 +64,8 @@ def register(router: Router) -> None:
     router.add(["GET"], "/api/catalog/{database}", _database_tables, modules=C,
                error_msg="Error inesperado al listar tablas.")
     router.add(["POST"], "/api/catalog/{database}/sync", _sync_database, modules=C, error_msg=SYNC_ERR)
+    router.add(["GET"], "/api/catalog/{database}/{table}/usage", _table_usage, modules=C,
+               error_msg="Error al cargar el uso reciente de la tabla.")
     router.add(["GET"], "/api/catalog/{database}/{table}", _table, modules=C,
                error_msg="Error inesperado al obtener la tabla.")
     router.add(["POST"], "/api/catalog/{database}/{table}/sync", _sync_table, modules=C, error_msg=SYNC_ERR)

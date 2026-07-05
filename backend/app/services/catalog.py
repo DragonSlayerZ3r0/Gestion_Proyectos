@@ -70,6 +70,25 @@ class CatalogService:
             result["stats"] = item.get("stats") or {"available": False, "reason": "Aún no calculado. Sincroniza la tabla."}
         return result
 
+    def get_table_usage(self, database: str, table_name: str) -> dict[str, Any]:
+        """Uso reciente de la tabla en Athena: quién la consultó, cuántas veces y
+        la fecha/hora de su última consulta. Lo escribe el escaneo del monitoreo
+        de Athena (índice por tabla, sin llamadas a AWS aquí). Si la tabla no ha
+        aparecido en ningún escaneo, devuelve vacío — no es error."""
+        item = self._db.get_table_usage(database, table_name)
+        if not item:
+            return {"users": [], "start": "", "end": "", "scannedAt": ""}
+        return {
+            "users": [
+                {"user": u.get("user", ""), "name": u.get("name", ""),
+                 "count": int(u.get("count", 0)), "lastRun": u.get("lastRun", "")}
+                for u in (item.get("users") or [])
+            ],
+            "start": item.get("start", ""),
+            "end": item.get("end", ""),
+            "scannedAt": item.get("scannedAt", ""),
+        }
+
     def get_database_info(self, database: str, include_stats: bool = False) -> dict[str, Any]:
         """Metadata de la BD desde la caché DynamoDB. Las stats S3 agregadas
         (tamaño total/archivos/frescura) se calculan durante el sync y se leen
