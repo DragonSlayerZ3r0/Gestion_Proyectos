@@ -168,7 +168,7 @@ El frontend consume los permisos calculados por el backend y los utiliza para co
 
 ## Estándares visuales y de usabilidad (aplicados en Solicitudes 2026-07-04; OBLIGATORIOS para módulos nuevos y rediseños)
 
-Basados en heurísticas establecidas (jerarquía visual, divulgación progresiva, ley de Hick) y en que **parte de los usuarios no ha usado herramientas tipo Trello/Asana** — pero todos conocen Excel. Referencias: patrón maestro-detalle, listas vs tarjetas (Eleken/Stan Vision), empty states y onboarding (uiFromMars/EspacioUX/UserGuiding).
+Basados en heurísticas establecidas (jerarquía visual, divulgación progresiva, ley de Hick) y en que **parte de los usuarios no ha usado herramientas tipo Trello/Asana** — pero todos conocen Excel. Referencias: patrón maestro-detalle, listas vs tarjetas (Eleken/Stan Vision), empty states y onboarding (uiFromMars/EspacioUX/UserGuiding). Versión visual navegable: `docs/Guia 05 - Estandares visuales y UX.canvas` (Obsidian).
 
 1. **El objeto principal primero.** Al abrir un módulo, lo primero visible es aquello a lo que el usuario vino (la lista de solicitudes, no formularios ni funciones administrativas). Nada esencial bajo el pliegue.
 2. **Maestro-detalle con tabla compacta.** Para colecciones homogéneas: tabla escaneable (patrón familiar tipo hoja de cálculo) → clic abre el detalle de UN elemento a la vez. No usar tarjetas grandes repetidas como listado (impiden escanear). Columnas: lo que responde "¿cuál es cuál?" y "¿qué se movió?" (estado, responsable, conteos, última actividad).

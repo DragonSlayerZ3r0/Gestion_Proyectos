@@ -1,0 +1,297 @@
+{
+ "nodes": [
+  {
+   "id": "title",
+   "type": "text",
+   "x": -40,
+   "y": -190,
+   "width": 760,
+   "height": 120,
+   "text": "# ¿Qué estándares visuales y de UX rigen toda interfaz?\nLos 10 criterios obligatorios para módulos nuevos o rediseños, las señales del maestro-detalle, responsive y animaciones. Detalle completo: `docs/06_frontend_ux.md`.",
+   "color": "1"
+  },
+  {
+   "id": "g10",
+   "type": "group",
+   "x": -80,
+   "y": 0,
+   "width": 1980,
+   "height": 520,
+   "label": "Los 10 estándares obligatorios (docs/06 · aplicados en Solicitudes, referencia para todo módulo)"
+  },
+  {
+   "id": "s1",
+   "type": "text",
+   "x": 0,
+   "y": 60,
+   "width": 340,
+   "height": 150,
+   "text": "## 1 · El objeto principal primero\nAl abrir un módulo, lo primero visible es a lo que el usuario vino. Nada esencial bajo el pliegue.",
+   "color": "5"
+  },
+  {
+   "id": "s2",
+   "type": "text",
+   "x": 380,
+   "y": 60,
+   "width": 340,
+   "height": 190,
+   "text": "## 2 · Maestro-detalle con tabla\nColecciones homogéneas = tabla escaneable (tipo hoja de cálculo) → clic abre el detalle de UN elemento. Nunca tarjetas grandes repetidas.\n⤵ Si el detalle va DEBAJO: carril verde (anti scroll-hijacking).",
+   "color": "5"
+  },
+  {
+   "id": "s3",
+   "type": "text",
+   "x": 760,
+   "y": 60,
+   "width": 340,
+   "height": 150,
+   "text": "## 3 · Una sola acción primaria\nUn solo botón lleno con acento por pantalla; lo secundario en neutro. Si todo grita, nada es principal.",
+   "color": "5"
+  },
+  {
+   "id": "s4",
+   "type": "text",
+   "x": 1140,
+   "y": 60,
+   "width": 340,
+   "height": 150,
+   "text": "## 4 · Disciplina de color\nAcento solo donde significa algo; rojo RESERVADO a peligro; estados siempre con texto además de color (daltonismo); contraste ≥4.5:1.",
+   "color": "5"
+  },
+  {
+   "id": "s5",
+   "type": "text",
+   "x": 1520,
+   "y": 60,
+   "width": 340,
+   "height": 150,
+   "text": "## 5 · Acciones visibles con texto\nTodo lo esencial con botón de texto. Drag & drop, doble-clic y gestos solo como ATAJO con hint, nunca único camino.",
+   "color": "5"
+  },
+  {
+   "id": "s6",
+   "type": "text",
+   "x": 0,
+   "y": 300,
+   "width": 340,
+   "height": 150,
+   "text": "## 6 · Lo administrativo, degradado\nFunciones ocasionales colapsadas o secundarias (p. ej. Personas registradas); auto-expandir solo si hay acción en curso.",
+   "color": "5"
+  },
+  {
+   "id": "s7",
+   "type": "text",
+   "x": 380,
+   "y": 300,
+   "width": 340,
+   "height": 150,
+   "text": "## 7 · Filtros pegados a su lista\nFiltros y contadores junto a la lista que afectan, no en otra zona de la pantalla.",
+   "color": "5"
+  },
+  {
+   "id": "s8",
+   "type": "text",
+   "x": 760,
+   "y": 300,
+   "width": 340,
+   "height": 150,
+   "text": "## 8 · Empty states que guían\nQué es esto + qué hacer + botón que lo hace. Nunca un texto suelto.",
+   "color": "5"
+  },
+  {
+   "id": "s9",
+   "type": "text",
+   "x": 1140,
+   "y": 300,
+   "width": 340,
+   "height": 150,
+   "text": "## 9 · Vocabulario del usuario\nSi el producto dice \"solicitud\", TODOS los textos dicen solicitud. Sin jerga técnica visible.",
+   "color": "5"
+  },
+  {
+   "id": "s10",
+   "type": "text",
+   "x": 1520,
+   "y": 300,
+   "width": 340,
+   "height": 150,
+   "text": "## 10 · Prevenir el error\nValidaciones con mensaje accionable, validadas en backend (p. ej. persona duplicada → sugiere agregar apellido o área).",
+   "color": "5"
+  },
+  {
+   "id": "gmd",
+   "type": "group",
+   "x": -80,
+   "y": 580,
+   "width": 1600,
+   "height": 320,
+   "label": "Maestro-detalle apilado · señales al seleccionar una fila (sin robar el viewport)"
+  },
+  {
+   "id": "md1",
+   "type": "text",
+   "x": 0,
+   "y": 650,
+   "width": 340,
+   "height": 150,
+   "text": "## Chevron ›/▾ por fila\nCada fila termina en \"›\" (esto abre algo); en la seleccionada gira a \"▾\" apuntando al detalle. Clic en el chevron = ir de lleno al detalle.",
+   "color": "4"
+  },
+  {
+   "id": "md2",
+   "type": "text",
+   "x": 380,
+   "y": 650,
+   "width": 340,
+   "height": 150,
+   "text": "## Peek (revelado parcial)\nAl seleccionar, scroll mínimo para que el panel asome (~180 px) SIN perder el listado. Anti scroll-hijacking: seleccionar no debe desorientar.",
+   "color": "4"
+  },
+  {
+   "id": "md3",
+   "type": "text",
+   "x": 760,
+   "y": 650,
+   "width": 340,
+   "height": 150,
+   "text": "## Destello del panel\nEl borde del detalle destella ~900 ms (WAAPI) para dirigir la mirada. Respeta prefers-reduced-motion.",
+   "color": "4"
+  },
+  {
+   "id": "md4",
+   "type": "text",
+   "x": 1140,
+   "y": 650,
+   "width": 340,
+   "height": 150,
+   "text": "## Panel auto-titulado\nEl detalle se titula solo (\"Detalle de la solicitud\").\nReferencia: `revealProjectDetail(full)` en workspace.ts.",
+   "color": "4"
+  },
+  {
+   "id": "gresp",
+   "type": "group",
+   "x": -80,
+   "y": 960,
+   "width": 1600,
+   "height": 320,
+   "label": "Responsive · la app se usa en teléfono, tablet y escritorio"
+  },
+  {
+   "id": "r1",
+   "type": "text",
+   "x": 0,
+   "y": 1030,
+   "width": 340,
+   "height": 150,
+   "text": "## Breakpoints\n≤900 catálogo a 1 col · ≤860 gráficos · **≤780 principal** (shell 1 col, bottom sheet, kanban 1 col) · ≤720 chat.",
+   "color": "2"
+  },
+  {
+   "id": "r2",
+   "type": "text",
+   "x": 380,
+   "y": 1030,
+   "width": 340,
+   "height": 150,
+   "text": "## Tablas nuevas\nSiempre con scroll horizontal propio en pantallas chicas; listas largas con max-height + overflow interno.",
+   "color": "2"
+  },
+  {
+   "id": "r3",
+   "type": "text",
+   "x": 760,
+   "y": 1030,
+   "width": 340,
+   "height": 150,
+   "text": "## Sin anchos fijos\nGrids con minmax(0,1fr), controles con flex-wrap, alturas con 100dvh donde importe el input inferior.",
+   "color": "2"
+  },
+  {
+   "id": "r4",
+   "type": "text",
+   "x": 1140,
+   "y": 1030,
+   "width": 340,
+   "height": 150,
+   "text": "## Verificar en 3 tamaños\n~1280 / ~768 / ~390 px antes de publicar cualquier UI nueva.",
+   "color": "2"
+  },
+  {
+   "id": "ganim",
+   "type": "group",
+   "x": -80,
+   "y": 1340,
+   "width": 1600,
+   "height": 320,
+   "label": "Animaciones · nativas, sin librerías"
+  },
+  {
+   "id": "a1",
+   "type": "text",
+   "x": 0,
+   "y": 1410,
+   "width": 340,
+   "height": 150,
+   "text": "## CSS para micro-transiciones\nHover, foco, acordeones: transiciones cortas con cubic-bezier(0.22,1,0.36,1).",
+   "color": "6"
+  },
+  {
+   "id": "a2",
+   "type": "text",
+   "x": 380,
+   "y": 1410,
+   "width": 340,
+   "height": 150,
+   "text": "## WAAPI para entradas de vista\nanimateViewEnter en app.ts: solo en navegación explícita, NUNCA en repintados de sondeos.",
+   "color": "6"
+  },
+  {
+   "id": "a3",
+   "type": "text",
+   "x": 760,
+   "y": 1410,
+   "width": 340,
+   "height": 150,
+   "text": "## prefers-reduced-motion\nToda animación se desactiva o simplifica si el usuario pidió menos movimiento. Sin excepciones.",
+   "color": "6"
+  },
+  {
+   "id": "a4",
+   "type": "text",
+   "x": 1140,
+   "y": 1410,
+   "width": 340,
+   "height": 150,
+   "text": "## Momentos de marca\nBienvenida (mano + engrane), burger que muta a flecha: una sola vez, cortos, con el mismo easing.",
+   "color": "6"
+  },
+  {
+   "id": "docfile",
+   "type": "file",
+   "x": 1980,
+   "y": 580,
+   "width": 720,
+   "height": 1080,
+   "file": "docs/06_frontend_ux.md"
+  }
+ ],
+ "edges": [
+  {
+   "id": "e1",
+   "fromNode": "s2",
+   "fromSide": "bottom",
+   "toNode": "gmd",
+   "toSide": "top",
+   "label": "cuando el detalle va debajo"
+  },
+  {
+   "id": "e2",
+   "fromNode": "gmd",
+   "fromSide": "right",
+   "toNode": "docfile",
+   "toSide": "left",
+   "label": "detalle completo"
+  }
+ ]
+}

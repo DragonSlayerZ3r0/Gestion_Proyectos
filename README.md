@@ -46,6 +46,7 @@ Estas guías funcionan como punto de entrada navegable a la documentación del p
 2. [`Guía 02 - Arquitectura y runtime`](docs/Guia%2002%20-%20Arquitectura%20y%20runtime.canvas): muestra cómo fluye una solicitud desde el navegador hasta los datos y dónde se aplican autenticación, autorización y controles del Data Lake.
 3. [`Guía 03 - Cambio a producción y evolución`](docs/Guia%2003%20-%20Cambio%20a%20produccion%20y%20evolucion.canvas): organiza implementación, validación, publicación, responsabilidades AWS, permisos cross-account y trabajo futuro.
 4. [`Guía 04 - Desarrollo y publicación`](docs/Guia%2004%20-%20Desarrollo%20y%20publicacion.canvas): presenta el flujo desde el desarrollo local hasta la publicación y verificación en AWS.
+5. [`Guía 05 - Estándares visuales y UX`](docs/Guia%2005%20-%20Estandares%20visuales%20y%20UX.canvas): tablero con los 10 estándares obligatorios de interfaz, las señales del maestro-detalle apilado, las reglas responsive y las de animación (detalle en `docs/06_frontend_ux.md`).
 
 Código de color común: azul para estructura o ejecución, rojo para controles obligatorios, verde para datos o estado confirmado y ámbar para antecedentes, pendientes o propuestas no implementadas.
 

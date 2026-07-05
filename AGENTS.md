@@ -7,7 +7,8 @@ Este proyecto utiliza contexto documental separado. `AGENTS.md` define reglas tr
 1. `README.md`
 2. `docs/00_contexto_general.md`
 3. `docs/12_guardrails.md`
-4. El documento especifico del modulo que se va a modificar.
+4. `docs/22_bitacora.md` — cómo llegó el proyecto a su estado actual (decisiones, incidentes, cambios de rumbo).
+5. El documento especifico del modulo que se va a modificar.
 
 Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_permisos_aws_actuales.md` y `docs/16_credenciales_aws_sso.md`.
 
@@ -16,7 +17,7 @@ Para trabajos que creen o validen infraestructura AWS, leer tambien `docs/14_per
 - Mantener la plataforma simple, clara y rápida.
 - Todo texto visible para usuarios y documentación funcional debe estar en español. Mantener nombres técnicos de servicios, comandos, rutas, clases y variables en su forma técnica cuando corresponda.
 - Construir una experiencia interna ligera, directa y centrada en el trabajo operativo.
-- Mantener la documentación sincronizada con cambios reales — en cada cambio construido: (1) el doc del tema en `docs/`, y (2) **este AGENTS.md** cuando el cambio introduzca o modifique reglas, estándares, flujos de publicación o puntos de extensión. AGENTS.md es el contrato de entendimiento para cualquier agente: se mantiene magro (reglas + índice), el detalle vive en `docs/`.
+- Mantener la documentación sincronizada con cambios reales — en cada cambio construido: (1) el doc del tema en `docs/`, (2) **este AGENTS.md** cuando el cambio introduzca o modifique reglas, estándares, flujos de publicación o puntos de extensión, y (3) **`docs/22_bitacora.md`** cuando haya una decisión no obvia (con alternativas descartadas), un incidente o un cambio de rumbo: entrada append-only de 3–5 líneas con fecha y tipo, la más reciente arriba, nunca editando entradas pasadas. AGENTS.md es el contrato de entendimiento para cualquier agente: se mantiene magro (reglas + índice), el detalle vive en `docs/` y el porqué histórico en la bitácora.
 - Separar autenticación de autorización.
 - Validar permisos en backend y reflejarlos en los elementos visibles del frontend.
 - Obtener credenciales mediante SSO y servir el frontend desde S3 privado con CloudFront.
