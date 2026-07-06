@@ -829,7 +829,7 @@
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton,
       });
       const workspaceModule = createWorkspaceModule({
-        state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, priorityLabel,
+        state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel,
       });
       const catalogModule = createCatalogModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, catalogDateLabel,
@@ -990,6 +990,21 @@
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20z"></path>
               <path d="M13.5 6 18 10.5"></path>
+            </svg>
+          </button>
+        `;
+      }
+
+      // Papelera para borrar (convención de la app: editar → lápiz, borrar →
+      // papelera+confirm, ambos con tooltip). Ver estándar #5 en docs/06.
+      function renderDeleteIconButton(label, attributes) {
+        return `
+          <button class="iconTinyButton iconTinyButton--danger" type="button" ${attributes} aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 7h16"></path>
+              <path d="M9 7V4.5h6V7"></path>
+              <path d="M6.5 7l1 12.5h9l1-12.5"></path>
+              <path d="M10 10.5v6M14 10.5v6"></path>
             </svg>
           </button>
         `;

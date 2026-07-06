@@ -10,6 +10,18 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-06 · decisión — Se elimina el bloque "Miembros" duplicado del detalle
+
+"Personas relacionadas" (izquierda) y "Miembros" (panel derecho) mostraban el MISMO dato (`project.members`) con dos nombres distintos — redundante y rompía la consistencia de vocabulario (#9). Además el selector de rol (Responsable/Miembro/Lector) del bloque "Miembros" **no gobernaba ningún permiso** (verificado: la autorización es por `roles` del perfil, no por rol de miembro) y sobrecargaba la palabra "Responsable", que ya existe como campo propio. Se quitó el bloque "Miembros" y su código muerto (`renderMemberRoleControl`, `updateProjectMember`, binding `data-member-role`, CSS `.memberRoleRow`/`.detailList`). Queda una sola lista ("Personas relacionadas") + el campo Responsable. El atributo `role` permanece inerte en los items; el endpoint PATCH /members queda sin uso. Ver `docs/08_proyectos_tareas.md`.
+
+## 2026-07-06 · estándar — Convención icono/texto para acciones (editar=lápiz, borrar=papelera)
+
+Los botones-palabra de los catálogos ("Corregir nombre del área", "Corregir", "Eliminar") hacían ruido y rompían la consistencia: el resto de la app ya edita con ícono de lápiz. Se formalizó la convención (estándar #5 en `docs/06`): editar → lápiz, borrar → papelera roja + confirmación, crear/acción primaria → texto visible; iconos siempre con tooltip (`title`/`aria-label`) para no volverlos gesto oculto. Se agregó `renderDeleteIconButton` en `app.ts` (junto a `renderEditIconButton`) y se aplicó a los catálogos de área y estado. Regla obligatoria para todo módulo nuevo (queda en AGENTS.md).
+
+## 2026-07-06 · decisión — Estados de solicitud como catálogo vivo (con color y borrado protegido)
+
+Los estados dejan de ser un enum fijo y pasan a catálogo vivo (`PROJECT_STATUS`), como las áreas: agregar/corregir/eliminar desde el selector. Dos decisiones (consultadas): (1) color de una **paleta fija** de ~8 tonos —no rueda libre— para mantener disciplina de color y que los estados se distingan de un vistazo; (2) **borrado protegido** —no se puede borrar un estado en uso; el backend avisa cuántas solicitudes lo tienen y pide reasignarlas—. Los 4 semilla (planned/active/paused/closed) se materializan al primer GET usando sus claves como id → las solicitudes existentes calzan sin migración (validado: 7 active, 2 planned/closed, 1 paused, 2 sin estado). Filtros de la tabla ahora derivados del catálogo. Ver `docs/02_modulos_funcionales.md`, `docs/04`, `docs/05`.
+
 ## 2026-07-06 · decisión — Seguimiento agrupado por día + hora discreta
 
 Anticipando varias entradas por día, el seguimiento ahora se **agrupa por día** (la fecha va una vez como encabezado fijo, no repetida en cada renglón) y cada entrada muestra su **hora** de registro de forma muy discreta (aún más tenue que el autor, hora de Guatemala desde `createdAt`): `08:15 · GAD Morales, Saul`. Cambio solo de frontend (`createdAt` ya se exponía). Jerarquía visual coherente con los estándares: día > (hora · autor) > texto. Ver `docs/02_modulos_funcionales.md`.

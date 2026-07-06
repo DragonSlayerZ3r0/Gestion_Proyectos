@@ -56,6 +56,12 @@ AREA (área solicitante — catálogo vivo editable; las solicitudes guardan req
 PK = AREA#<areaId>
 SK = PROFILE
 
+PROJECT_STATUS (estado de solicitud — catálogo vivo: label + color de paleta + order.
+  Los 4 semilla usan sus claves como id — planned/active/paused/closed — para que las
+  solicitudes ya guardadas calcen sin migración; las solicitudes guardan status = statusId)
+PK = STATUS#<statusId>
+SK = PROFILE
+
 PROJECT
 PK = PROJECT#<projectId>
 SK = META

@@ -65,8 +65,8 @@
    "x": 1520,
    "y": 60,
    "width": 340,
-   "height": 150,
-   "text": "## 5 · Acciones visibles con texto\nTodo lo esencial con botón de texto. Drag & drop, doble-clic y gestos solo como ATAJO con hint, nunca único camino.",
+   "height": 210,
+   "text": "## 5 · Acciones visibles con texto\nTodo lo esencial con botón de texto. Drag & drop y gestos solo como ATAJO con hint.\n**Icono/texto:** editar → lápiz, borrar → papelera roja + confirm, crear → texto; iconos con tooltip.",
    "color": "5"
   },
   {

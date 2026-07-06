@@ -48,7 +48,7 @@ Las personas aparecen dentro del proyecto donde participan y en la franja compac
 La pantalla incluye un panel contextual. El panel se abre por acción explícita en una persona, proyecto o tarea, y permite editar los campos principales sin cambiar de ventana.
 
 - Persona: nombre, apellido, área, estado opcional, notas y vacaciones/disponibilidad. Este panel debe ser fácil de abrir desde la franja `Personas registradas`, por ejemplo para marcar a alguien como inactivo o actualizar que ya regresó de vacaciones.
-- Proyecto: nombre, descripción, estado opcional, responsable opcional y roles de miembros.
+- Proyecto: nombre, descripción, estado opcional, responsable opcional y personas relacionadas.
 - Tarea: título, estado, prioridad opcional, responsable opcional y notas.
 
 El panel complementa la creación rápida y el drag and drop. Para tareas, constituye la vía principal para asignar, cambiar o quitar responsable.
@@ -102,11 +102,9 @@ El estado del proyecto es opcional. Si el usuario selecciona `Ninguno`, la tarje
 
 ## Personas del proyecto
 
-Una persona puede participar en un proyecto con un rol funcional:
+Las personas relacionadas con una solicitud se gestionan en **un solo lugar**: la sección "Personas relacionadas" del detalle (agregar con el selector "Agregar persona" o arrastrando su tarjeta; quitar con la ×). El único concepto de dueño es el campo **Responsable** de la solicitud (`ownerPersonId`).
 
-- Responsable.
-- Miembro.
-- Lector.
+> Histórico: existió un catálogo de "roles" por miembro (Responsable/Miembro/Lector) mostrado en un bloque "Miembros" aparte. Se **retiró** (2026-07-06) porque duplicaba la lista de "Personas relacionadas", usaba otro nombre para el mismo dato (rompía la consistencia de vocabulario) y el rol **no gobernaba ningún permiso** (la autorización es por los `roles` del perfil, no por rol de miembro). El atributo `role` sigue en los items `PROJECT_MEMBER` pero inerte; el endpoint `PATCH /members/{personId}` queda sin uso desde el frontend.
 
 ## Modo de acceso por proyecto
 

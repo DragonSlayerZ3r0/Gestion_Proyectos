@@ -17,6 +17,18 @@ def _area_update(req: Request):
     return success(WorkspaceService().update_area(area_id, req.body(), req.identity))
 
 
+def _create_status(req: Request):
+    return success(WorkspaceService().create_status(req.body(), req.identity), 201)
+
+
+def _status_update(req: Request):
+    service = WorkspaceService()
+    status_id = req.params.get("statusId") or ""
+    if req.method == "DELETE":
+        return success(service.delete_status(status_id, req.identity))
+    return success(service.update_status(status_id, req.body(), req.identity))
+
+
 def _create_person(req: Request):
     return success(WorkspaceService().create_person(req.body(), req.identity), 201)
 
@@ -92,6 +104,10 @@ def register(router: Router) -> None:
                error_msg="Error inesperado al crear el área solicitante.")
     router.add(["PATCH"], "/api/areas/{areaId}", _area_update, modules=P,
                error_msg="Error inesperado al actualizar el área solicitante.")
+    router.add(["POST"], "/api/project-statuses", _create_status, modules=P,
+               error_msg="Error inesperado al crear el estado.")
+    router.add(["PATCH", "DELETE"], "/api/project-statuses/{statusId}", _status_update, modules=P,
+               error_msg="Error inesperado al actualizar el estado.")
     router.add(["POST"], "/api/people", _create_person, modules=P,
                error_msg="Error inesperado al crear el usuario.")
     router.add(["PATCH", "DELETE"], "/api/people/{personId}", _person_update, modules=P,

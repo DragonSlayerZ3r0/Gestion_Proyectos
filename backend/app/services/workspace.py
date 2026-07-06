@@ -12,6 +12,16 @@ from services.name_directory import NameDirectory
 TASK_STATUSES = ["pending", "in_progress", "review", "done"]
 TASK_PRIORITIES = ["low", "medium", "high", "critical"]
 PROJECT_STATUSES = ["planned", "active", "paused", "closed"]
+# Paleta fija de colores para los estados (legibles y coherentes con la app; sin un
+# rojo "de peligro" salvo el histórico "closed"). El catálogo guarda solo la clave.
+STATUS_COLORS = ["blue", "green", "amber", "rose", "slate", "teal", "purple", "orange"]
+# Estados semilla = los 4 actuales (misma clave → sin migrar solicitudes existentes).
+_DEFAULT_STATUSES = [
+    ("planned", "Planificado", "blue", 1),
+    ("active", "Activo", "green", 2),
+    ("paused", "Pausado", "amber", 3),
+    ("closed", "Cerrado", "rose", 4),
+]
 # Tipo de la solicitud (el módulo se muestra como "Solicitudes"; la clave interna
 # sigue siendo projects/PROJECT# — solo cambió la etiqueta, regla del proyecto).
 REQUEST_TYPES = ["project", "report"]
@@ -74,6 +84,8 @@ class WorkspaceService:
         return {
             "areas": sorted((self._normalize_area(item) for item in self._repository.list_areas()),
                             key=lambda area: area["name"].lower()),
+            "projectStatuses": self.list_project_statuses(),
+            "statusColors": STATUS_COLORS,
             "people": sorted(people, key=lambda person: person["fullName"].lower()),
             "projects": sorted(projects, key=lambda project: project["updatedAt"], reverse=True),
             "taskStatuses": [
@@ -141,6 +153,98 @@ class WorkspaceService:
                     f"Ya existe el área solicitante \"{existing.get('name')}\". "
                     "Selecciónala de la lista o edítala si el nombre tiene un error.")
 
+    # ── Estados de solicitud (catálogo vivo: etiqueta + color de una paleta) ──
+    def list_project_statuses(self) -> list[dict[str, Any]]:
+        items = self._repository.list_statuses()
+        if not items:
+            items = self._seed_default_statuses()
+        return sorted((self._normalize_status(i) for i in items),
+                      key=lambda s: (s["order"], s["label"].lower()))
+
+    def _seed_default_statuses(self) -> list[dict[str, Any]]:
+        """Primera vez: materializa los 4 estados actuales como items reales (para
+        que se puedan editar/borrar). Ids = claves actuales → las solicitudes ya
+        guardadas (status="active"…) siguen calzando sin migración."""
+        now = self._now()
+        items = []
+        for key, label, color, order in _DEFAULT_STATUSES:
+            item = {
+                "PK": f"STATUS#{key}", "SK": "PROFILE", "entityType": "PROJECT_STATUS",
+                "statusId": key, "label": label, "color": color, "order": order,
+                "createdAt": now, "updatedAt": now,
+            }
+            self._repository.put_item(item)
+            items.append(item)
+        return items
+
+    def create_status(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        self.list_project_statuses()  # asegura semilla antes del primer alta manual
+        label = self._required_text(payload, "label", "Nombre del estado")
+        color = self._allowed(payload.get("color") or "slate", STATUS_COLORS, "Color del estado")
+        self._ensure_status_label_free(label)
+        existing = self._repository.list_statuses()
+        order = max((int(s.get("order", 0)) for s in existing), default=0) + 1
+        now = self._now()
+        status_id = uuid4().hex
+        item = {
+            "PK": f"STATUS#{status_id}", "SK": "PROFILE", "entityType": "PROJECT_STATUS",
+            "statusId": status_id, "label": label, "color": color, "order": order,
+            "createdAt": now, "updatedAt": now,
+            "createdBy": identity["userId"], "updatedBy": identity["userId"],
+        }
+        self._repository.put_item(item)
+        return self._normalize_status(item)
+
+    def update_status(self, status_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        status_id = self._required_text({"statusId": status_id}, "statusId", "Estado")
+        self.list_project_statuses()
+        values: dict[str, Any] = {"updatedAt": self._now(), "updatedBy": identity["userId"]}
+        if "label" in payload:
+            label = self._required_text(payload, "label", "Nombre del estado")
+            self._ensure_status_label_free(label, exclude_id=status_id)
+            values["label"] = label
+        if "color" in payload:
+            values["color"] = self._allowed(payload["color"], STATUS_COLORS, "Color del estado")
+        return self._normalize_status(self._repository.update_status(status_id, values))
+
+    def delete_status(self, status_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        status_id = self._required_text({"statusId": status_id}, "statusId", "Estado")
+        # Impedir y avisar: no dejar solicitudes con un estado fantasma.
+        in_use = sum(1 for p in self._repository.list_projects() if p.get("status") == status_id)
+        if in_use:
+            raise ValidationError(
+                f"No se puede eliminar: {in_use} solicitud(es) usan este estado. "
+                "Reasígnalas a otro estado antes de eliminarlo.")
+        self._repository.delete_status(status_id)
+        return {"statusId": status_id, "removed": True}
+
+    def _ensure_status_label_free(self, label: str, exclude_id: str = "") -> None:
+        label_norm = self._norm_name(label)
+        for existing in self._repository.list_statuses():
+            if existing.get("statusId") == exclude_id:
+                continue
+            if self._norm_name(existing.get("label", "")) == label_norm:
+                raise ValidationError(
+                    f"Ya existe el estado \"{existing.get('label')}\". "
+                    "Selecciónalo de la lista o edítalo si el nombre tiene un error.")
+
+    def _valid_status(self, value: Any) -> str:
+        """Estado opcional; si viene, debe existir en el catálogo."""
+        status_id = str(value or "").strip()
+        if not status_id:
+            return ""
+        if not any(s["id"] == status_id for s in self.list_project_statuses()):
+            raise ValidationError("El estado seleccionado ya no existe. Recarga y vuelve a intentarlo.")
+        return status_id
+
+    def _normalize_status(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": item["statusId"],
+            "label": item.get("label", ""),
+            "color": item.get("color", "slate"),
+            "order": int(item.get("order", 0)),
+        }
+
     def create_person(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         first_name = self._required_text(payload, "firstName", "Nombre")
         last_name = self._required_text(payload, "lastName", "Apellido")
@@ -185,7 +289,7 @@ class WorkspaceService:
             "entityType": "PROJECT",
             "projectId": project_id,
             "name": name,
-            "status": self._allowed_optional(payload.get("status"), PROJECT_STATUSES, "Estado del proyecto"),
+            "status": self._valid_status(payload.get("status")),
             "requestType": self._allowed_optional(payload.get("requestType"), REQUEST_TYPES, "Tipo de la solicitud"),
             "requestingAreaId": self._valid_area_id(payload.get("requestingAreaId")),
             "ownerPersonId": self._optional_text(payload, "ownerPersonId"),
@@ -253,7 +357,7 @@ class WorkspaceService:
         if "description" in payload:
             values["description"] = self._optional_text(payload, "description")
         if "status" in payload:
-            values["status"] = self._allowed_optional(payload["status"], PROJECT_STATUSES, "Estado del proyecto")
+            values["status"] = self._valid_status(payload["status"])
         if "requestType" in payload:
             values["requestType"] = self._allowed_optional(payload["requestType"], REQUEST_TYPES, "Tipo de la solicitud")
         if "requestingAreaId" in payload:

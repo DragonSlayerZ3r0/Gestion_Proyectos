@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Módulo Proyectos y tareas (workspace). Inyección de dependencias desde el shell.
 export function createWorkspaceModule(ctx) {
-  const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, priorityLabel } = ctx;
+  const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel } = ctx;
 
       async function renderWorkspace() {
         elements.statusPanel.hidden = true;
@@ -184,10 +184,7 @@ export function createWorkspaceModule(ctx) {
         const options = [
           ["all", "Todos"],
           ["none", "Sin estado"],
-          ["planned", "Planificados"],
-          ["active", "Activos"],
-          ["paused", "Pausados"],
-          ["closed", "Cerrados"]
+          ...projectStatusList().map((s) => [s.id, s.label])
         ];
         return options
           .map(([status, label]) => `
@@ -426,7 +423,7 @@ export function createWorkspaceModule(ctx) {
                   ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
                 </div>
                 <div class="projectHeaderRight">
-                  ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}" data-status="${escapeAttribute(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
+                  ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
                   <div class="projectActions">
                     <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cancelar" : "Crear tarea"}</button>
                     <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
@@ -739,7 +736,7 @@ export function createWorkspaceModule(ctx) {
                 </select>
               </label>
               <div class="areaCatalogControls">
-                <button type="button" class="tinyButton ghost" data-area-fix hidden>Corregir nombre del área</button>
+                ${renderEditIconButton("Corregir nombre del área", "data-area-fix hidden")}
               </div>
               <div class="areaInlineForm" data-area-form data-mode="create" hidden>
                 <input type="text" data-area-input placeholder="${escapeAttribute(AREA_EXAMPLE)}" aria-label="Nombre del área solicitante" />
@@ -749,10 +746,24 @@ export function createWorkspaceModule(ctx) {
                 </div>
               </div>
               <label>Estado
-                <select name="status">
+                <select name="status" data-status-select>
                   ${projectStatusOptions(project.status)}
                 </select>
               </label>
+              <div class="statusCatalogControls">
+                ${renderEditIconButton("Corregir el estado", "data-status-fix hidden")}
+                ${renderDeleteIconButton("Eliminar el estado", "data-status-del hidden")}
+              </div>
+              <div class="areaInlineForm statusInlineForm" data-status-form data-mode="create" data-color="" hidden>
+                <input type="text" data-status-input placeholder="Nombre del estado (p. ej. En revisión)" aria-label="Nombre del estado" />
+                <div class="statusSwatches" data-status-swatches role="group" aria-label="Color del estado">
+                  ${(state.workspace.statusColors || []).map((c) => `<button type="button" class="statusSwatch statusTone-${c}" data-color="${c}" title="${statusColorName(c)}" aria-label="${statusColorName(c)}"></button>`).join("")}
+                </div>
+                <div class="areaInlineActions">
+                  <button type="button" class="tinyButton" data-status-save>Guardar estado</button>
+                  <button type="button" class="tinyButton ghost" data-status-cancel>Cancelar</button>
+                </div>
+              </div>
               <label>Responsable
                 <select name="ownerPersonId">
                   <option value="">Ninguno</option>
@@ -763,33 +774,10 @@ export function createWorkspaceModule(ctx) {
               <button class="primaryButton" type="submit">Guardar solicitud</button>
               ${notice ? `<p class="saveFeedback" role="status">${escapeHtml(notice)}</p>` : ""}
             </form>
-            <div class="detailList">
-              <strong>Miembros</strong>
-              ${project.members.length ? project.members.map((member) => renderMemberRoleControl(project.id, member, peopleById)).join("") : `<p class="emptyText">Aún no hay miembros asignados.</p>`}
-            </div>
             <div class="detailDanger">
               <button class="dangerButton" type="button" data-delete-project="${project.id}" data-delete-name="${escapeAttribute(project.name)}">Eliminar solicitud</button>
             </div>
           </aside>
-        `;
-      }
-
-      function renderMemberRoleControl(projectId, member, peopleById) {
-        const person = peopleById[member.personId];
-        return `
-          <label class="memberRoleRow">
-            <span
-              class="memberChip inline"
-              draggable="true"
-              data-member-drag-project="${projectId}"
-              data-member-drag-person="${member.personId}"
-            >${escapeHtml(person?.fullName || "Persona no encontrada")}</span>
-            <select data-member-role="${projectId}" data-member-person="${member.personId}" aria-label="Rol de la persona">
-              <option value="owner" ${member.role === "owner" ? "selected" : ""}>Responsable</option>
-              <option value="member" ${member.role === "member" ? "selected" : ""}>Miembro</option>
-              <option value="reader" ${member.role === "reader" ? "selected" : ""}>Lector</option>
-            </select>
-          </label>
         `;
       }
 
@@ -835,30 +823,34 @@ export function createWorkspaceModule(ctx) {
         `;
       }
 
+      // Estados: catálogo vivo (etiqueta + color de paleta) desde el backend.
+      function projectStatusList() {
+        return state.workspace?.projectStatuses || [];
+      }
+      function projectStatusById(id) {
+        return projectStatusList().find((s) => s.id === id) || null;
+      }
       function projectStatusOptions(currentStatus) {
-        return [
-          ["", "Ninguno"],
-          ...Object.entries(projectStatusLabels())
-        ]
-          .map(([key, label]) => `<option value="${key}" ${key === currentStatus ? "selected" : ""}>${label}</option>`)
-          .join("");
+        const opts = [`<option value="" ${currentStatus ? "" : "selected"}>Sin estado</option>`];
+        for (const s of projectStatusList()) {
+          opts.push(`<option value="${s.id}" ${s.id === currentStatus ? "selected" : ""}>${escapeHtml(s.label)}</option>`);
+        }
+        opts.push(`<option value="__new__">+ Agregar estado…</option>`);
+        return opts.join("");
       }
 
       function projectStatusLabel(status) {
-        return projectStatusLabels()[status] || "Sin estado";
+        return projectStatusById(status)?.label || "Sin estado";
       }
 
+      // Color como clase de tono de la paleta (define badge y borde de la tarjeta).
       function projectStatusClass(status) {
-        return `projectStatus-${status || "unknown"}`;
+        const color = projectStatusById(status)?.color;
+        return color ? `statusTone-${color}` : "";
       }
-
-      function projectStatusLabels() {
-        return {
-          planned: "Planificado",
-          active: "Activo",
-          paused: "Pausado",
-          closed: "Cerrado"
-        };
+      const STATUS_COLOR_NAMES = { blue: "Azul", green: "Verde", amber: "Ámbar", rose: "Rojo", slate: "Gris", teal: "Turquesa", purple: "Morado", orange: "Naranja" };
+      function statusColorName(color) {
+        return STATUS_COLOR_NAMES[color] || color;
       }
 
       function taskStatusClass(status) {
@@ -1104,6 +1096,106 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
+        // Estado: catálogo vivo desde el selector (igual que áreas, más color y
+        // borrado). "+ Agregar estado…" crea, "Corregir" edita, "Eliminar" borra
+        // (el backend impide borrar uno en uso). Se actualiza el select en el DOM
+        // sin re-render para no perder lo editado en el resto del formulario.
+        const statusSelect = document.querySelector("[data-status-select]");
+        const statusForm = document.querySelector("[data-status-form]");
+        if (statusSelect && statusForm) {
+          const statusFix = document.querySelector("[data-status-fix]");
+          const statusDel = document.querySelector("[data-status-del]");
+          const statusInput = statusForm.querySelector("[data-status-input]");
+          const isRealStatus = () => statusSelect.value && statusSelect.value !== "__new__";
+          const syncStatusButtons = () => {
+            if (statusFix) statusFix.hidden = !isRealStatus();
+            if (statusDel) statusDel.hidden = !isRealStatus();
+          };
+          const pickSwatch = (color) => {
+            statusForm.dataset.color = color || "";
+            for (const sw of statusForm.querySelectorAll(".statusSwatch")) {
+              sw.classList.toggle("selected", sw.dataset.color === color);
+            }
+          };
+          syncStatusButtons();
+          statusSelect.addEventListener("change", () => {
+            if (statusSelect.value === "__new__") {
+              statusForm.hidden = false;
+              statusForm.dataset.mode = "create";
+              statusInput.value = "";
+              pickSwatch((state.workspace.statusColors || [])[0] || "slate");
+              statusInput.focus();
+            } else {
+              statusForm.hidden = true;
+            }
+            syncStatusButtons();
+          });
+          statusFix?.addEventListener("click", () => {
+            const current = projectStatusById(statusSelect.value);
+            if (!current) return;
+            statusForm.hidden = false;
+            statusForm.dataset.mode = "edit";
+            statusInput.value = current.label;
+            pickSwatch(current.color);
+            statusInput.focus();
+          });
+          for (const sw of statusForm.querySelectorAll(".statusSwatch")) {
+            sw.addEventListener("click", () => pickSwatch(sw.dataset.color));
+          }
+          statusForm.querySelector("[data-status-cancel]")?.addEventListener("click", () => {
+            statusForm.hidden = true;
+            if (statusSelect.value === "__new__") statusSelect.value = "";
+            syncStatusButtons();
+          });
+          statusDel?.addEventListener("click", async () => {
+            const current = projectStatusById(statusSelect.value);
+            if (!current) return;
+            if (!window.confirm(`¿Eliminar el estado "${current.label}"?`)) return;
+            try {
+              await apiRequest(`api/project-statuses/${current.id}`, { method: "DELETE" });
+              state.workspace.projectStatuses = state.workspace.projectStatuses.filter((s) => s.id !== current.id);
+              statusSelect.querySelector(`option[value="${current.id}"]`)?.remove();
+              statusSelect.value = "";
+              statusForm.hidden = true;
+              syncStatusButtons();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+          statusForm.querySelector("[data-status-save]")?.addEventListener("click", async () => {
+            const label = statusInput.value.trim();
+            const color = statusForm.dataset.color || "slate";
+            if (!label) { statusInput.focus(); return; }
+            try {
+              if (statusForm.dataset.mode === "edit") {
+                const id = statusSelect.value;
+                const payload = await apiRequest(`api/project-statuses/${id}`, {
+                  method: "PATCH", body: JSON.stringify({ label, color })
+                });
+                const opt = statusSelect.querySelector(`option[value="${id}"]`);
+                if (opt) opt.textContent = payload.data.label;
+                const local = state.workspace.projectStatuses.find((s) => s.id === id);
+                if (local) { local.label = payload.data.label; local.color = payload.data.color; }
+              } else {
+                const payload = await apiRequest("api/project-statuses", {
+                  method: "POST", body: JSON.stringify({ label, color })
+                });
+                state.workspace.projectStatuses.push(payload.data);
+                state.workspace.projectStatuses.sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label, "es"));
+                const opt = document.createElement("option");
+                opt.value = payload.data.id;
+                opt.textContent = payload.data.label;
+                statusSelect.insertBefore(opt, statusSelect.querySelector('option[value="__new__"]'));
+                statusSelect.value = payload.data.id;
+              }
+              statusForm.hidden = true;
+              syncStatusButtons();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        }
+
         // Sección Personas (colapsable; el trabajo diario es sobre proyectos).
         const peopleToggle = document.querySelector("#peopleSectionToggle");
         if (peopleToggle) peopleToggle.addEventListener("click", () => {
@@ -1178,16 +1270,6 @@ export function createWorkspaceModule(ctx) {
             }
             try {
               await addProjectMember(select.dataset.projectMember, select.value);
-            } catch (error) {
-              alert(error.message);
-            }
-          });
-        }
-
-        for (const select of document.querySelectorAll("[data-member-role]")) {
-          select.addEventListener("change", async () => {
-            try {
-              await updateProjectMember(select.dataset.memberRole, select.dataset.memberPerson, { role: select.value });
             } catch (error) {
               alert(error.message);
             }
@@ -1353,6 +1435,8 @@ export function createWorkspaceModule(ctx) {
         const values = Object.fromEntries(form.entries());
         // "+ Agregar área nueva…" quedó seleccionado sin guardarla: no es un área real.
         if (values.requestingAreaId === "__new__") values.requestingAreaId = "";
+        // Igual para "+ Agregar estado…" sin haberlo creado.
+        if (values.status === "__new__") values.status = "";
         const unlock = lockSubmit(target);
         try {
           await updateProject(target.dataset.projectDetail, values);
@@ -1558,18 +1642,6 @@ export function createWorkspaceModule(ctx) {
         state.activeProjectId = projectId;
         state.selectedDetail = { type: "project", id: projectId };
         state.saveNotice = { target: `project:${projectId}`, message: "✓ Guardado" };
-        renderWorkspace();
-      }
-
-      async function updateProjectMember(projectId, personId, values) {
-        const payload = await apiRequest(`api/projects/${projectId}/members/${personId}`, {
-          method: "PATCH",
-          body: JSON.stringify(values)
-        });
-        const member = findProject(projectId)?.members.find((item) => item.personId === personId);
-        if (member) Object.assign(member, payload.data);
-        state.activeProjectId = projectId;
-        state.selectedDetail = { type: "project", id: projectId };
         renderWorkspace();
       }
 

@@ -106,6 +106,9 @@ GET /api/datalake/ingest/records
 POST /api/datalake/ingest/records/scan
 POST /api/areas
 PATCH /api/areas/{areaId}
+POST /api/project-statuses
+PATCH /api/project-statuses/{statusId}
+DELETE /api/project-statuses/{statusId}
 POST /api/people
 PATCH /api/people/{personId}
 DELETE /api/people/{personId}

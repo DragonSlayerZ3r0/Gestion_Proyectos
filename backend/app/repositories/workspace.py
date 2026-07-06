@@ -15,6 +15,16 @@ class WorkspaceRepository(BaseRepository):
     def update_area(self, area_id: str, values: dict[str, Any]) -> dict[str, Any]:
         return self._update({"PK": f"AREA#{area_id}", "SK": "PROFILE"}, values)
 
+    # ── Estados de solicitud (catálogo vivo: etiqueta + color) ────────────────
+    def list_statuses(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("PROJECT_STATUS")
+
+    def update_status(self, status_id: str, values: dict[str, Any]) -> dict[str, Any]:
+        return self._update({"PK": f"STATUS#{status_id}", "SK": "PROFILE"}, values)
+
+    def delete_status(self, status_id: str) -> None:
+        self._table.delete_item(Key={"PK": f"STATUS#{status_id}", "SK": "PROFILE"})
+
     # ── Personas ──────────────────────────────────────────────────────────────
     def list_people(self) -> list[dict[str, Any]]:
         return self._query_entity_type("PERSON")

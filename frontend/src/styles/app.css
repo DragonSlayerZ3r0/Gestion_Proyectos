@@ -1270,6 +1270,10 @@
     stroke-width: 1.9;
   }
 
+  /* Papelera de borrado: mismo tamaño que el lápiz, en rojo (acción destructiva). */
+  .iconTinyButton--danger { color: #b42318; }
+  .iconTinyButton--danger:hover { background: #fff1f0; }
+
   .cardActions {
     display: flex;
     justify-content: flex-end;
@@ -1344,21 +1348,15 @@
     border-color: #9bcac4;
   }
 
-  .projectOverviewCard.projectStatus-planned {
-    border-left-color: #3b82f6;
-  }
-
-  .projectOverviewCard.projectStatus-active {
-    border-left-color: var(--accent);
-  }
-
-  .projectOverviewCard.projectStatus-paused {
-    border-left-color: #d99a00;
-  }
-
-  .projectOverviewCard.projectStatus-closed {
-    border-left-color: #d92d20;
-  }
+  /* Borde de la tarjeta por tono de estado (paleta del catálogo vivo). */
+  .projectOverviewCard.statusTone-blue { border-left-color: #3b82f6; }
+  .projectOverviewCard.statusTone-green { border-left-color: var(--accent); }
+  .projectOverviewCard.statusTone-amber { border-left-color: #d99a00; }
+  .projectOverviewCard.statusTone-rose { border-left-color: #d92d20; }
+  .projectOverviewCard.statusTone-slate { border-left-color: #64748b; }
+  .projectOverviewCard.statusTone-teal { border-left-color: #14b8a6; }
+  .projectOverviewCard.statusTone-purple { border-left-color: #a855f7; }
+  .projectOverviewCard.statusTone-orange { border-left-color: #f97316; }
 
   .projectOverviewHeader {
     display: flex;
@@ -1562,29 +1560,30 @@
     white-space: nowrap;
   }
 
-  .statusBadge[data-status="active"] {
-    border-color: #9bcac4;
-    background: var(--accent-soft);
-    color: var(--accent-strong);
-  }
+  /* Badge por tono de estado (paleta del catálogo vivo). */
+  .statusBadge.statusTone-green { border-color: #9bcac4; background: var(--accent-soft); color: var(--accent-strong); }
+  .statusBadge.statusTone-blue { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+  .statusBadge.statusTone-rose { border-color: #f3afa8; background: #fff1f0; color: #b42318; }
+  .statusBadge.statusTone-amber { border-color: #d9c58b; background: #fff8e1; color: #7a5d00; }
+  .statusBadge.statusTone-slate { border-color: #cbd5e1; background: #f1f5f9; color: #475569; }
+  .statusBadge.statusTone-teal { border-color: #99f6e4; background: #f0fdfa; color: #0f766e; }
+  .statusBadge.statusTone-purple { border-color: #d8b4fe; background: #faf5ff; color: #7e22ce; }
+  .statusBadge.statusTone-orange { border-color: #fed7aa; background: #fff7ed; color: #c2410c; }
 
-  .statusBadge[data-status="planned"] {
-    border-color: #93c5fd;
-    background: #eff6ff;
-    color: #1d4ed8;
-  }
-
-  .statusBadge[data-status="closed"] {
-    border-color: #f3afa8;
-    background: #fff1f0;
-    color: #b42318;
-  }
-
-  .statusBadge[data-status="paused"] {
-    border-color: #d9c58b;
-    background: #fff8e1;
-    color: #7a5d00;
-  }
+  /* Catálogo de estados: botones Corregir/Eliminar + paleta de colores (swatches). */
+  .statusCatalogControls { display: flex; gap: 8px; margin: -6px 0 4px; }
+  .statusCatalogControls .tinyButton { font-size: 0.75rem; }
+  .statusInlineForm .statusSwatches { display: flex; flex-wrap: wrap; gap: 6px; }
+  .statusSwatch { width: 22px; height: 22px; border-radius: 999px; border: 2px solid transparent; cursor: pointer; padding: 0; box-shadow: inset 0 0 0 2px #ffffff; }
+  .statusSwatch.statusTone-blue { background: #3b82f6; }
+  .statusSwatch.statusTone-green { background: var(--accent); }
+  .statusSwatch.statusTone-amber { background: #d99a00; }
+  .statusSwatch.statusTone-rose { background: #d92d20; }
+  .statusSwatch.statusTone-slate { background: #64748b; }
+  .statusSwatch.statusTone-teal { background: #14b8a6; }
+  .statusSwatch.statusTone-purple { background: #a855f7; }
+  .statusSwatch.statusTone-orange { background: #f97316; }
+  .statusSwatch.selected { border-color: #1f2d33; }
 
   .projectMemberSelect {
     margin: 0 12px 10px;
@@ -1768,8 +1767,7 @@
     margin-top: 16px;
   }
 
-  .detailForm label,
-  .memberRoleRow {
+  .detailForm label {
     display: grid;
     gap: 6px;
     color: #304148;
@@ -1778,8 +1776,7 @@
 
   .detailForm input,
   .detailForm select,
-  .detailForm textarea,
-  .memberRoleRow select {
+  .detailForm textarea {
     width: 100%;
     min-height: 40px;
     border: 1px solid var(--line-strong);
@@ -1794,25 +1791,6 @@
     resize: vertical;
   }
 
-  .detailList {
-    display: grid;
-    gap: 10px;
-    margin-top: 18px;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-
-  .memberRoleRow {
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--panel-soft);
-    padding: 10px;
-  }
-
-  .memberRoleRow span {
-    font-weight: 650;
-    line-height: 1.3;
-  }
 
   .detailHint {
     margin-top: 14px;
