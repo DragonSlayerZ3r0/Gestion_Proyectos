@@ -10,6 +10,14 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-06 · decisión — El seguimiento muestra su autor (+ NameDirectory compartido)
+
+Cada entrada de seguimiento ahora muestra quién la registró, junto a la fecha y atenuado. El dato ya se guardaba (`createdBy` = correo del autor), solo no se exponía → cambio de visualización sin migración. Como el autor es un *usuario* (correo), no una *persona* del directorio, se resuelve a nombre real con Identity Center. Para no duplicar esa lógica (ya existía en `AthenaMonitorService._resolve_names`), se extrajo a `services/name_directory.py::NameDirectory` (segundo consumidor → extracción, no copy-paste); Athena ahora delega ahí y comparten la caché NAMEMAP. Fallback: nombre → correo → se omite. Ver `docs/02_modulos_funcionales.md`.
+
+## 2026-07-05 · cambio-de-rumbo — Nace la v2 multinube: Plataforma_Inteligencia
+
+Se decidió que la plataforma evolucione a **multinube** (modelo Databricks/Foundry: núcleo portable + adaptadores por nube). Se creó el proyecto hermano `../Plataforma_Inteligencia` (repo git propio) como v2: primitivos portables (Postgres, contenedores/FastAPI, OIDC, Terraform), `core/` sin SDKs de nube (guardrail `check-portability.sh`) y módulos cloud-nativos como plugins. Plan: la v2 alcanza paridad primero EN AWS y reemplaza a esta v1; al arrancar su Fase 1, este proyecto pasa a solo-corrección-de-errores y lo nuevo nace allá. El código de aquí se reutiliza pieza por pieza (mapa en `Plataforma_Inteligencia/docs/03_mapa_reutilizacion.md`). Mientras tanto, este proyecto sigue operando con normalidad.
+
 ## 2026-07-05 · estándar — Guardado rápido: merge local + fin del N+1 + botón con estados
 
 El "Guardar" de Solicitudes se sentía lento y ambiguo (¿guardó o presiono de nuevo?). Causa raíz: cada guardado recargaba TODO el workspace, y `GET /api/workspace` hacía 3 consultas DynamoDB por proyecto (N+1, ~31 consultas con 10 solicitudes). Fix: (1) el PATCH fusiona su respuesta en el estado local y repinta, sin recarga completa; (2) el backend trae miembros/tareas/seguimientos de TODOS los proyectos en 3 consultas globales (GSI `byEntityType`) y agrupa en memoria; (3) todo botón Guardar pasa a "Guardando…" deshabilitado al clic y "✓ Guardado" al confirmar. Se descartó la UI optimista (complejidad de reconciliación innecesaria con estas latencias). Quedó como estándar #11 en `docs/06_frontend_ux.md`.

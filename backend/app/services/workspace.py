@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from core.errors import ValidationError  # re-exportado para compatibilidad
 from repositories.workspace import WorkspaceRepository
+from services.name_directory import NameDirectory
 
 
 TASK_STATUSES = ["pending", "in_progress", "review", "done"]
@@ -46,8 +47,20 @@ class WorkspaceService:
         for item in self._repository.list_all_tasks_full():
             tasks_by.setdefault(item.get("projectId", ""), []).append(self._normalize_task(item))
         updates_by: dict[str, list] = {}
+        all_updates: list[dict[str, Any]] = []
         for item in self._repository.list_all_updates():
-            updates_by.setdefault(item.get("projectId", ""), []).append(self._normalize_update(item))
+            update = self._normalize_update(item)
+            updates_by.setdefault(item.get("projectId", ""), []).append(update)
+            all_updates.append(update)
+
+        # Autor legible del seguimiento: se resuelve el correo (createdBy) a nombre
+        # una sola vez para todas las entradas (caché compartida con Athena). Sin
+        # autores, no se toca Identity Center ni la caché.
+        authors = [u["createdBy"] for u in all_updates if u["createdBy"]]
+        if authors:
+            names = NameDirectory().resolve(authors)
+            for update in all_updates:
+                update["createdByName"] = names.get(update["createdBy"], "")
 
         for project in projects:
             project["members"] = members_by.get(project["id"], [])
@@ -347,7 +360,11 @@ class WorkspaceService:
             "updatedBy": identity["userId"],
         }
         self._repository.put_item(item)
-        return self._normalize_update(item)
+        update = self._normalize_update(item)
+        # Nombre del autor listo desde ya (así la entrada recién creada no muestra
+        # el correo hasta la próxima recarga completa).
+        update["createdByName"] = NameDirectory().resolve([update["createdBy"]]).get(update["createdBy"], "")
+        return update
 
     def update_project_update(self, project_id: str, update_id: str, payload: dict[str, Any],
                               identity: dict[str, str]) -> dict[str, Any]:
@@ -362,7 +379,11 @@ class WorkspaceService:
             values["text"] = text
         if "date" in payload:
             values["date"] = self._validate_update_date(payload.get("date") or "")
-        return self._normalize_update(self._repository.update_project_update(project_id, update_id, values))
+        update = self._normalize_update(self._repository.update_project_update(project_id, update_id, values))
+        # El autor no cambia al editar, pero se resuelve para no perder el nombre
+        # en el merge del frontend (createdBy se conserva en el item).
+        update["createdByName"] = NameDirectory().resolve([update["createdBy"]]).get(update["createdBy"], "")
+        return update
 
     def delete_project_update(self, project_id: str, update_id: str,
                               identity: dict[str, str]) -> dict[str, Any]:
@@ -464,6 +485,8 @@ class WorkspaceService:
             "projectId": item["projectId"],
             "date": item.get("date", ""),
             "text": item.get("text", ""),
+            "createdBy": item.get("createdBy", ""),     # correo del autor
+            "createdByName": "",                        # nombre legible (se resuelve en get_workspace)
             "createdAt": item.get("createdAt", ""),
             "updatedAt": item.get("updatedAt", ""),
         }

@@ -509,9 +509,12 @@ export function createWorkspaceModule(ctx) {
                 </div>
               </form>`;
           }
+          // Autor discreto junto a la fecha: nombre resuelto, o el correo, o nada.
+          const author = u.createdByName || u.createdBy || "";
+          const authorHtml = author ? ` · <span class="projectUpdateAuthor" title="Registrado por ${escapeAttribute(author)}">${escapeHtml(author)}</span>` : "";
           return `
             <div class="projectUpdateRow">
-              <span class="projectUpdateDate">${escapeHtml(updateDateLabel(u.date))}</span>
+              <span class="projectUpdateDate">${escapeHtml(updateDateLabel(u.date))}${authorHtml}</span>
               <span class="projectUpdateText">${escapeHtml(u.text)}</span>
               ${renderEditIconButton("Editar seguimiento", `data-update-edit="${project.id}" data-update-id="${u.id}"`)}
             </div>`;

@@ -11,6 +11,7 @@ import boto3
 from core.errors import ValidationError
 from repositories.athena_monitor import AthenaMonitorRepository
 from repositories.catalog import CatalogRepository
+from services.name_directory import NameDirectory
 from services.sql_context import SqlCatalogContext
 from services.sql_lint import ANTIPATTERNS as _ANTIPATTERNS, lint_sql as _lint_sql
 from services.llm import LlmService
@@ -33,9 +34,7 @@ except Exception:        # pragma: no cover - si faltara el vendor, el lint qued
 # metadatos (no ejecuta queries) → no cuesta nada de Athena.
 HUB_ROLE_ARN = "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader"
 REGION = "us-east-1"
-# Identity Center (cuenta de la app): mapea usrNNNNN@/nombre.apellido@ → nombre real
-# de CUALQUIER usuario institucional, esté o no registrado en la app.
-IDENTITY_STORE_ID = "d-90662bac01"
+# La resolución de correo→nombre (Identity Center) vive en services/name_directory.
 CACHE_TTL = 8 * 3600        # 8h: el historial reciente cambia seguido
 RECENT_TTL = 30 * 60        # ventanas que incluyen HOY: el día en curso sigue creciendo
 HUNG_AFTER = 20 * 60
@@ -299,34 +298,9 @@ class AthenaMonitorService:
         return role or sess or ui.get("type") or "desconocido"
 
     def _resolve_names(self, actors: list[str]) -> dict[str, str]:
-        """{actor(email) -> nombre} vía Identity Center, con caché en DynamoDB. Solo
-        resuelve los que faltan (los positivos quedan cacheados → casi sin llamadas)."""
-        cache = self._db.get_name_map()
-        missing = [a for a in dict.fromkeys(actors) if "@" in a and a not in cache]
-        if missing:
-            ids = boto3.client("identitystore", region_name=REGION)  # cuenta de la app
-            for a in missing:
-                nm = self._lookup_identity(ids, a)
-                if nm:
-                    cache[a] = nm
-            self._db.put_name_map(cache)
-        return cache
-
-    def _lookup_identity(self, ids: Any, actor: str) -> str:
-        """Nombre de un usuario por su userName (usrNNNNN@) o su email (nombre.apellido@)."""
-        for path in ("userName", "emails.value"):
-            try:
-                uid = ids.get_user_id(
-                    IdentityStoreId=IDENTITY_STORE_ID,
-                    AlternateIdentifier={"UniqueAttribute": {"AttributePath": path, "AttributeValue": actor}},
-                )["UserId"]
-            except Exception:
-                continue
-            try:
-                return ids.describe_user(IdentityStoreId=IDENTITY_STORE_ID, UserId=uid).get("DisplayName") or ""
-            except Exception:
-                return ""
-        return ""
+        """{actor(email) -> nombre}; la lógica vive en NameDirectory (compartida con
+        el autor del seguimiento de Solicitudes), reusando la misma caché."""
+        return NameDirectory(self._db).resolve(actors)
 
     # ── Ingesta incremental (CloudTrail + Athena, asumiendo el rol del hub) ────
     _INGEST_OVERLAP = 2 * 3600      # re-lee el borde: eventos/finales que llegan tarde
