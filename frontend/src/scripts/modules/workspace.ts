@@ -3,6 +3,53 @@
 export function createWorkspaceModule(ctx) {
   const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel } = ctx;
 
+  // Columnas de la tabla de solicitudes: definición única (orden, etiqueta, clave
+  // de orden, ancho por defecto). "Solicitud" es el identificador → siempre visible.
+  const PROJECT_COLUMNS = [
+    { key: "name", label: "Solicitud", always: true, width: 240 },
+    { key: "type", label: "Tipo", width: 90 },
+    { key: "area", label: "Área", width: 140 },
+    { key: "status", label: "Estado", width: 120 },
+    { key: "owner", label: "Responsable", width: 150 },
+    { key: "tasks", label: "Tareas", num: true, width: 80 },
+    { key: "activity", label: "Última actividad (seguimiento)", width: 300 },
+  ];
+  const PROJECT_TABLE_LS = "gp.projectTable.v1"; // columnas visibles + anchos (por navegador)
+  let columnsCloser = null; // handler de cierre del menú "Columnas" al hacer clic fuera
+
+  function loadTablePrefs() {
+    if (state._projectTablePrefsLoaded) return;
+    state._projectTablePrefsLoaded = true;
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROJECT_TABLE_LS) || "{}");
+      state.projectColumns = saved.columns || {};
+      state.projectColWidths = saved.widths || {};
+    } catch {
+      state.projectColumns = {};
+      state.projectColWidths = {};
+    }
+  }
+  function saveTablePrefs() {
+    try {
+      localStorage.setItem(PROJECT_TABLE_LS, JSON.stringify({
+        columns: state.projectColumns || {}, widths: state.projectColWidths || {},
+      }));
+    } catch { /* localStorage no disponible: se pierde solo la persistencia */ }
+  }
+  function isColVisible(key) {
+    const col = PROJECT_COLUMNS.find((c) => c.key === key);
+    if (col?.always) return true;
+    const v = state.projectColumns?.[key];
+    return v === undefined ? true : !!v; // por defecto visible
+  }
+  function colWidth(key) {
+    const col = PROJECT_COLUMNS.find((c) => c.key === key);
+    return state.projectColWidths?.[key] || col?.width || 120;
+  }
+  function visibleColumns() {
+    return PROJECT_COLUMNS.filter((c) => isColVisible(c.key));
+  }
+
       async function renderWorkspace() {
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
@@ -28,6 +75,7 @@ export function createWorkspaceModule(ctx) {
         if (!workspace) {
           return;
         }
+        loadTablePrefs();
 
         const peopleById = Object.fromEntries(workspace.people.map((person) => [person.id, person]));
         const visibleProjects = getVisibleProjects(workspace.projects, peopleById);
@@ -90,7 +138,15 @@ export function createWorkspaceModule(ctx) {
                 <div class="projectFilters" role="group" aria-label="Filtrar solicitudes por estado">
                   ${renderProjectStatusFilters()}
                 </div>
-                <span class="countPill">${projectCountText}</span>
+                <div class="projectFilterBar">
+                  ${renderProjectDimensionFilters()}
+                  ${anyProjectFilterActive() ? `<button class="tinyButton ghost" type="button" id="clearProjectFilters">Limpiar filtros</button>` : ""}
+                  <div class="projectColumnsControl">
+                    <button class="tinyButton ghost" type="button" id="projectColumnsBtn" aria-haspopup="true" aria-expanded="${state.projectColumnsMenuOpen ? "true" : "false"}">Columnas ▾</button>
+                    ${state.projectColumnsMenuOpen ? renderColumnsMenu() : ""}
+                  </div>
+                  <span class="countPill">${projectCountText}</span>
+                </div>
               </div>
               <div class="projectTableWrap">
                 ${renderProjectTable(visibleProjects, activeProject, peopleById)}
@@ -143,11 +199,23 @@ export function createWorkspaceModule(ctx) {
 
       function getVisibleProjects(projects, peopleById) {
         const query = normalizeSearch(state.projectSearch);
+        const typeF = state.projectTypeFilter || "all";
+        const areaF = state.projectAreaFilter || "all";
+        const ownerF = state.projectOwnerFilter || "all";
         return projects.filter((project) => {
           if (state.projectStatusFilter === "none" && project.status) {
             return false;
           }
           if (state.projectStatusFilter !== "all" && state.projectStatusFilter !== "none" && project.status !== state.projectStatusFilter) {
+            return false;
+          }
+          if (typeF !== "all" && (typeF === "__none__" ? !!project.requestType : (project.requestType || "") !== typeF)) {
+            return false;
+          }
+          if (areaF !== "all" && (areaF === "__none__" ? !!project.requestingAreaId : (project.requestingAreaId || "") !== areaF)) {
+            return false;
+          }
+          if (ownerF !== "all" && (ownerF === "__none__" ? !!project.ownerPersonId : (project.ownerPersonId || "") !== ownerF)) {
             return false;
           }
           if (!query) {
@@ -196,6 +264,67 @@ export function createWorkspaceModule(ctx) {
             >${label}</button>
           `)
           .join("");
+      }
+
+      // Filtros por dimensión (dropdowns): Tipo, Área, Responsable. Las opciones
+      // salen de los valores presentes en TODAS las solicitudes (no del subconjunto
+      // ya filtrado), para que la selección actual siempre sea válida.
+      function renderProjectDimensionFilters() {
+        const projects = state.workspace?.projects || [];
+        const peopleById = Object.fromEntries((state.workspace?.people || []).map((p) => [p.id, p]));
+
+        const typeV = state.projectTypeFilter || "all";
+        const typeSel = `<label class="filterSelect">Tipo
+          <select data-filter="type">
+            <option value="all">Todos</option>
+            <option value="project" ${typeV === "project" ? "selected" : ""}>Proyecto</option>
+            <option value="report" ${typeV === "report" ? "selected" : ""}>Reporte</option>
+            ${projects.some((p) => !p.requestType) ? `<option value="__none__" ${typeV === "__none__" ? "selected" : ""}>Sin tipo</option>` : ""}
+          </select></label>`;
+
+        const areaV = state.projectAreaFilter || "all";
+        const areaIds = [...new Set(projects.map((p) => p.requestingAreaId).filter(Boolean))]
+          .sort((a, b) => (areaName(a) || "").localeCompare(areaName(b) || "", "es"));
+        const areaSel = `<label class="filterSelect">Área
+          <select data-filter="area">
+            <option value="all">Todas</option>
+            ${areaIds.map((id) => `<option value="${id}" ${areaV === id ? "selected" : ""}>${escapeHtml(areaName(id) || id)}</option>`).join("")}
+            ${projects.some((p) => !p.requestingAreaId) ? `<option value="__none__" ${areaV === "__none__" ? "selected" : ""}>Sin área</option>` : ""}
+          </select></label>`;
+
+        const ownerV = state.projectOwnerFilter || "all";
+        const ownerIds = [...new Set(projects.map((p) => p.ownerPersonId).filter(Boolean))]
+          .sort((a, b) => (peopleById[a]?.fullName || "").localeCompare(peopleById[b]?.fullName || "", "es"));
+        const ownerSel = `<label class="filterSelect">Responsable
+          <select data-filter="owner">
+            <option value="all">Todos</option>
+            ${ownerIds.map((id) => `<option value="${id}" ${ownerV === id ? "selected" : ""}>${escapeHtml(peopleById[id]?.fullName || id)}</option>`).join("")}
+            ${projects.some((p) => !p.ownerPersonId) ? `<option value="__none__" ${ownerV === "__none__" ? "selected" : ""}>Sin responsable</option>` : ""}
+          </select></label>`;
+
+        return typeSel + areaSel + ownerSel;
+      }
+
+      function anyProjectFilterActive() {
+        return (state.projectStatusFilter && state.projectStatusFilter !== "all")
+          || (state.projectTypeFilter && state.projectTypeFilter !== "all")
+          || (state.projectAreaFilter && state.projectAreaFilter !== "all")
+          || (state.projectOwnerFilter && state.projectOwnerFilter !== "all")
+          || !!state.projectSearch;
+      }
+
+      // Menú "Columnas": mostrar/ocultar cada columna (Solicitud siempre fija).
+      function renderColumnsMenu() {
+        return `
+          <div class="columnsMenu" role="menu">
+            <p class="columnsMenuTitle">Mostrar columnas</p>
+            ${PROJECT_COLUMNS.map((c) => `
+              <label class="columnsMenuItem ${c.always ? "disabled" : ""}">
+                <input type="checkbox" data-col-toggle="${c.key}" ${isColVisible(c.key) ? "checked" : ""} ${c.always ? "disabled" : ""} />
+                ${escapeHtml(c.label)}
+              </label>`).join("")}
+            <button class="tinyButton ghost" type="button" data-col-reset>Restablecer columnas</button>
+          </div>`;
       }
 
       function renderProjectSearchScopeButton(scope, label) {
@@ -271,7 +400,11 @@ export function createWorkspaceModule(ctx) {
       function projSortTh(key, label, extraClass) {
         const active = state.projectSort?.key === key;
         const arrow = active ? (state.projectSort.dir === 1 ? " ▲" : " ▼") : "";
-        return `<th class="sortableTh ${active ? "active" : ""} ${extraClass || ""}" data-proj-sort="${key}" title="Ordenar por ${escapeAttribute(label)}">${escapeHtml(label)}${arrow}</th>`;
+        // Etiqueta = ordenar (clic); asa a la derecha = arrastrar para el ancho.
+        return `<th class="sortableTh ${active ? "active" : ""} ${extraClass || ""}">
+          <span class="thLabel" data-proj-sort="${key}" title="Ordenar por ${escapeAttribute(label)}">${escapeHtml(label)}${arrow}</span>
+          <span class="colResize" data-col-resize="${key}" title="Arrastra para ajustar el ancho"></span>
+        </th>`;
       }
 
       // Señales al seleccionar una fila SIN robar el viewport (anti scroll-hijacking):
@@ -308,35 +441,56 @@ export function createWorkspaceModule(ctx) {
         }
       }
 
+      // Celda por columna (permite ocultar/mostrar y reordenar sin duplicar lógica).
+      function renderProjectCell(key, project, peopleById) {
+        switch (key) {
+          case "name":
+            return `<td class="projName">${escapeHtml(project.name)}</td>`;
+          case "type":
+            return `<td>${requestTypeLabel(project.requestType) || `<span class="emptyText">—</span>`}</td>`;
+          case "area":
+            return `<td>${areaName(project.requestingAreaId) ? escapeHtml(areaName(project.requestingAreaId)) : `<span class="emptyText">—</span>`}</td>`;
+          case "status":
+            return `<td>${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}">${projectStatusLabel(project.status)}</span>` : `<span class="emptyText">—</span>`}</td>`;
+          case "owner":
+            return `<td>${escapeHtml(peopleById[project.ownerPersonId]?.fullName || "—")}</td>`;
+          case "tasks": {
+            const done = project.tasks.filter((t) => t.status === "done").length;
+            return `<td class="num">${done}/${project.tasks.length}</td>`;
+          }
+          case "activity": {
+            const upd = (project.updates || [])[0];
+            if (!upd) return `<td class="projActivity"><span class="emptyText">Sin seguimiento aún</span></td>`;
+            // Texto completo (sin recortar en JS): la columna recorta con elipsis y,
+            // al ensancharla, se ve más; el tooltip muestra todo.
+            const full = `${updateDateLabel(upd.date)} · ${upd.text}`;
+            return `<td class="projActivity" title="${escapeAttribute(full)}"><span class="projActivityDate">${escapeHtml(updateDateLabel(upd.date))}</span> · ${escapeHtml(upd.text)}</td>`;
+          }
+        }
+        return `<td></td>`;
+      }
+
       function renderProjectTable(projects, activeProject, peopleById) {
         if (!projects.length) {
           return `<p class="emptyText projectTableEmpty">No hay resultados con los filtros actuales.</p>`;
         }
+        const cols = visibleColumns();
+        const colgroup = `<colgroup>${cols.map((c) => `<col style="width:${colWidth(c.key)}px" />`).join("")}<col style="width:32px" /></colgroup>`;
+        const head = cols.map((c) => projSortTh(c.key, c.label, c.num ? "num" : "")).join("");
         const rows = sortProjectsForTable(projects, peopleById).map((project) => {
-          const owner = peopleById[project.ownerPersonId]?.fullName || "—";
-          const done = project.tasks.filter((t) => t.status === "done").length;
-          const upd = (project.updates || [])[0];
-          const snippet = upd ? (upd.text.length > 46 ? `${upd.text.slice(0, 46)}…` : upd.text) : "";
-          const activity = upd
-            ? `<span class="projActivityDate">${escapeHtml(updateDateLabel(upd.date))}</span> · ${escapeHtml(snippet)}`
-            : `<span class="emptyText">Sin seguimiento aún</span>`;
           const selected = activeProject?.id === project.id;
+          const cells = cols.map((c) => renderProjectCell(c.key, project, peopleById)).join("");
           return `
             <tr class="projectRow ${selected ? "selected" : ""}" data-project-row="${project.id}" data-project-id="${project.id}" title="Ver detalle de ${escapeAttribute(project.name)}">
-              <td class="projName">${escapeHtml(project.name)}</td>
-              <td>${requestTypeLabel(project.requestType) || `<span class="emptyText">—</span>`}</td>
-              <td>${areaName(project.requestingAreaId) ? escapeHtml(areaName(project.requestingAreaId)) : `<span class="emptyText">—</span>`}</td>
-              <td>${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}">${projectStatusLabel(project.status)}</span>` : `<span class="emptyText">—</span>`}</td>
-              <td>${escapeHtml(owner)}</td>
-              <td class="num">${done}/${project.tasks.length}</td>
-              <td class="projActivity">${activity}</td>
+              ${cells}
               <td class="projChevron" title="Ir al detalle">${selected ? "▾" : "›"}</td>
             </tr>`;
         }).join("");
         return `
-          <table class="projectTable">
+          <table class="projectTable resizable">
+            ${colgroup}
             <thead>
-              <tr>${projSortTh("name", "Solicitud")}${projSortTh("type", "Tipo")}${projSortTh("area", "Área")}${projSortTh("status", "Estado")}${projSortTh("owner", "Responsable")}${projSortTh("tasks", "Tareas", "num")}${projSortTh("activity", "Última actividad (seguimiento)")}<th class="projChevronTh" aria-hidden="true"></th></tr>
+              <tr>${head}<th class="projChevronTh" aria-hidden="true"></th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>`;
@@ -986,6 +1140,83 @@ export function createWorkspaceModule(ctx) {
           button.addEventListener("click", () => {
             state.projectStatusFilter = button.dataset.projectStatusFilter || "all";
             renderWorkspace();
+          });
+        }
+
+        // Dropdowns de filtro (Tipo/Área/Responsable).
+        for (const sel of document.querySelectorAll("[data-filter]")) {
+          sel.addEventListener("change", () => {
+            const dim = sel.dataset.filter;
+            if (dim === "type") state.projectTypeFilter = sel.value;
+            else if (dim === "area") state.projectAreaFilter = sel.value;
+            else if (dim === "owner") state.projectOwnerFilter = sel.value;
+            renderWorkspace();
+          });
+        }
+        document.querySelector("#clearProjectFilters")?.addEventListener("click", () => {
+          state.projectStatusFilter = "all";
+          state.projectTypeFilter = "all";
+          state.projectAreaFilter = "all";
+          state.projectOwnerFilter = "all";
+          state.projectSearch = "";
+          renderWorkspace();
+        });
+
+        // Menú "Columnas" (mostrar/ocultar) + cierre al hacer clic fuera.
+        document.querySelector("#projectColumnsBtn")?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          state.projectColumnsMenuOpen = !state.projectColumnsMenuOpen;
+          renderWorkspace();
+        });
+        for (const cb of document.querySelectorAll("[data-col-toggle]")) {
+          cb.addEventListener("change", () => {
+            state.projectColumns = { ...(state.projectColumns || {}), [cb.dataset.colToggle]: cb.checked };
+            saveTablePrefs();
+            renderWorkspace();
+          });
+        }
+        document.querySelector("[data-col-reset]")?.addEventListener("click", () => {
+          state.projectColumns = {};
+          state.projectColWidths = {};
+          saveTablePrefs();
+          renderWorkspace();
+        });
+        if (columnsCloser) { document.removeEventListener("click", columnsCloser); columnsCloser = null; }
+        if (state.projectColumnsMenuOpen) {
+          columnsCloser = (event) => {
+            if (!event.target.closest(".projectColumnsControl")) {
+              state.projectColumnsMenuOpen = false;
+              renderWorkspace();
+            }
+          };
+          setTimeout(() => document.addEventListener("click", columnsCloser), 0);
+        }
+
+        // Arrastrar el borde de un encabezado para ajustar el ancho de la columna.
+        // Actualiza el <col> en vivo (fluido) y persiste al soltar.
+        for (const handle of document.querySelectorAll("[data-col-resize]")) {
+          handle.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const key = handle.dataset.colResize;
+            const startX = event.clientX;
+            const startW = colWidth(key);
+            const idx = visibleColumns().findIndex((c) => c.key === key);
+            const col = document.querySelectorAll(".projectTable.resizable colgroup col")[idx];
+            document.body.classList.add("colResizing");
+            const onMove = (moveEvent) => {
+              const width = Math.max(60, startW + (moveEvent.clientX - startX));
+              state.projectColWidths = { ...(state.projectColWidths || {}), [key]: width };
+              if (col) col.style.width = `${width}px`;
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+              document.body.classList.remove("colResizing");
+              saveTablePrefs();
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
           });
         }
 

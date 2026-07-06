@@ -3450,8 +3450,25 @@
   .catalogUsageNote { margin: 6px 0 0; color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
 
   /* ── Proyectos: tabla maestro-detalle + Personas colapsable ─────────────── */
-  .projectTablePanel { padding: 14px 16px 8px; }
-  .projectTableHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  /* min-width:0: la tabla de ancho fijo (table-layout: fixed) puede ser más ancha
+     que la pantalla; sin esto, el panel (item de grid) se expandiría al contenido
+     y empujaría la página de lado. Con min-width:0 el panel respeta su columna y la
+     tabla se desplaza DENTRO de .projectTableWrap. */
+  .projectTablePanel { padding: 14px 16px 8px; min-width: 0; }
+  .projectTableHead { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+  /* Barra de filtros por dimensión (dropdowns) + Columnas + contador. */
+  .projectFilterBar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px 14px; }
+  .filterSelect { display: flex; flex-direction: column; gap: 3px; font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+  .filterSelect select { font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--text); padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; min-width: 120px; }
+  .projectFilterBar .countPill { margin-left: auto; }
+  /* Menú "Columnas": botón + panel flotante con casillas. */
+  .projectColumnsControl { position: relative; }
+  .columnsMenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 200px; background: #fff; border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(15, 31, 38, 0.14); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .columnsMenuTitle { margin: 2px 6px 4px; font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .columnsMenuItem { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: 0.86rem; cursor: pointer; }
+  .columnsMenuItem:hover { background: var(--surface-muted, #f6f8fa); }
+  .columnsMenuItem.disabled { color: var(--muted); cursor: default; }
+  .columnsMenu .tinyButton { margin-top: 4px; }
   /* Listados grandes: altura máxima (~11 filas) con scroll interno y encabezado
      fijo — la página no crece infinita; búsqueda y filtros reducen el conjunto. */
   .projectTableWrap { overflow: auto; -webkit-overflow-scrolling: touch; max-height: 480px; }
@@ -3460,6 +3477,16 @@
   .projectTable th { text-align: left; color: var(--muted); font-weight: 600; font-size: 0.78rem; padding: 8px 12px; border-bottom: 2px solid var(--line); white-space: nowrap; }
   .projectTable td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   .projectTable th.num, .projectTable td.num { text-align: right; }
+  /* Columnas de ancho fijo (arrastrables): el <col> del colgroup manda el ancho;
+     el contenido que no cabe se recorta con elipsis (más ancho = más contenido). */
+  .projectTable.resizable { table-layout: fixed; width: max-content; min-width: 100%; }
+  .projectTable.resizable td, .projectTable.resizable th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sortableTh { position: relative; }
+  .thLabel { cursor: pointer; display: inline-block; max-width: calc(100% - 10px); overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .colResize { position: absolute; top: 0; right: 0; width: 9px; height: 100%; cursor: col-resize; }
+  .colResize::after { content: ""; position: absolute; right: 3px; top: 22%; height: 56%; width: 2px; border-radius: 2px; background: var(--line-strong); opacity: 0; transition: opacity 120ms ease; }
+  .sortableTh:hover .colResize::after { opacity: 0.7; }
+  body.colResizing { cursor: col-resize; user-select: none; }
   .projectRow { cursor: pointer; transition: background 120ms ease; }
   .projectRow:hover { background: var(--surface-muted, #f6f8fa); }
   .projectRow.selected { background: var(--accent-soft, #e6f4f1); }
@@ -3471,9 +3498,30 @@
   .projChevron { width: 28px; text-align: center; color: var(--muted); font-size: 0.95rem; font-weight: 700; user-select: none; }
   .projectRow:hover .projChevron { color: var(--accent-strong); }
   .projectRow.selected .projChevron { color: var(--accent-strong); }
-  .projActivity { color: #50656d; font-size: 0.8rem; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .projActivity { color: #50656d; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .projActivityDate { font-weight: 700; color: var(--accent-strong); }
   .projectTableEmpty { padding: 14px 4px; }
+
+  /* Responsive de la tabla de Solicitudes (va DESPUÉS de las reglas base para
+     poder sobreescribirlas en pantallas chicas). */
+  @media (max-width: 780px) {
+    .projectTablePanel { padding: 12px 12px 6px; }
+    /* Chips de Estado: tira con scroll lateral (como pestañas), no varias líneas. */
+    .projectFilters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+    .projectFilters .filterChip { flex: none; }
+    /* Dropdowns de filtro: comparten ancho (2 por fila en teléfono) y crecen. */
+    .projectFilterBar { align-items: stretch; gap: 8px 10px; }
+    .filterSelect { flex: 1 1 140px; }
+    .filterSelect select { min-width: 0; width: 100%; }
+    .projectColumnsControl { flex: 1 1 auto; }
+    .projectColumnsControl > .tinyButton { width: 100%; }
+    .projectFilterBar .countPill { margin-left: 0; order: 9; align-self: center; }
+    /* El menú de columnas anclado a la derecha para no salirse de la pantalla. */
+    .columnsMenu { left: auto; right: 0; max-width: min(80vw, 260px); }
+    /* La tabla conserva sus anchos (arrastrables) y se desplaza de lado dentro de
+       su contenedor; la página no se rompe. Algo menos alta para ver el detalle. */
+    .projectTableWrap { max-height: 62vh; }
+  }
 
   .projectsEmptyCta { text-align: center; padding: 40px 20px; }
   .projectsEmptyCta h3 { margin: 0 0 6px; }

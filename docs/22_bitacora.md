@@ -10,6 +10,18 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-06 · estándar — Responsive obligatorio como parte de "terminado"
+
+El usuario señaló que ya varias veces tuvo que recordar verificar el responsive. Se elevó a **regla dura**: ninguna UI se da por terminada sin probarla en ~1280/~768/~390 px, preferiblemente con el preview real (no solo razonando el CSS). Quedó en AGENTS.md (definición de terminado), `docs/06` (regla #6) y memoria (feedback `responsive-verificar-siempre`, se recuerda cada sesión). Se creó `.claude/launch.json` (servidor `frontend-dev`) para poder verificar en vivo.
+
+## 2026-07-06 · incidente — Responsive de la tabla configurable (overflow horizontal en móvil)
+
+Al hacer la tabla de ancho fijo (`table-layout: fixed`, sección anterior), en móvil la tabla (~1150px) empujaba la página de lado en vez de scrollear dentro de su contenedor. Causa: `.projectTablePanel` es item de grid con `min-width: auto` → se expandía al contenido. Fix: `min-width: 0` en el panel (verificado en preview a 390px: panel 374px, scroll interno OK, sin overflow de página). Segundo hallazgo: mis primeros overrides `@media` no aplicaban porque estaban ANTES de las reglas base de la tabla en el archivo (misma especificidad → gana la más tardía); se movieron a un `@media` posterior. Ambas reglas quedaron documentadas en `docs/06` (reglas al construir UI). También: chips de Estado como tira con scroll lateral y dropdowns 2 por fila en teléfono.
+
+## 2026-07-06 · decisión — Tabla de solicitudes configurable (filtros + columnas + anchos)
+
+Se ampliaron los filtros y se hizo la tabla personalizable. Decisión de diseño (consultada, según estándares): **chips de Estado + dropdowns** para Tipo/Área/Responsable — se descartó "todo dropdown" (degradaba el filtro más común de 1 a 2 clics) y "filtros por columna estilo Excel" (choca con el clic-para-ordenar ya existente y es el más complejo). Se agregó: menú "Columnas" (mostrar/ocultar; "Solicitud" siempre visible) y **anchos arrastrables** (`table-layout: fixed` + colgroup + asa en el th; el texto se recorta con elipsis y ensanchar revela más — resuelve el "ver más de Última actividad"). Columnas y anchos se persisten en localStorage (`gp.projectTable.v1`), no en backend (por navegador es lo sensato para preferencias de vista). Todo frontend. Ver `docs/02_modulos_funcionales.md` y estándar en `docs/06`.
+
 ## 2026-07-06 · decisión — Se elimina el bloque "Miembros" duplicado del detalle
 
 "Personas relacionadas" (izquierda) y "Miembros" (panel derecho) mostraban el MISMO dato (`project.members`) con dos nombres distintos — redundante y rompía la consistencia de vocabulario (#9). Además el selector de rol (Responsable/Miembro/Lector) del bloque "Miembros" **no gobernaba ningún permiso** (verificado: la autorización es por `roles` del perfil, no por rol de miembro) y sobrecargaba la palabra "Responsable", que ya existe como campo propio. Se quitó el bloque "Miembros" y su código muerto (`renderMemberRoleControl`, `updateProjectMember`, binding `data-member-role`, CSS `.memberRoleRow`/`.detailList`). Queda una sola lista ("Personas relacionadas") + el campo Responsable. El atributo `role` permanece inerte en los items; el endpoint PATCH /members queda sin uso. Ver `docs/08_proyectos_tareas.md`.
