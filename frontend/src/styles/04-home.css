@@ -1,0 +1,1010 @@
+  /* ── Inicio (dashboard) ── */
+  .homeGrid { grid-template-columns: 1fr; gap: 18px; }
+  .homeTabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .homeTab {
+    border: none; background: transparent; color: var(--muted);
+    padding: 10px 18px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .homeTab:hover { color: var(--text); }
+  .homeTab.active { color: var(--accent-strong, #1f6f64); border-bottom-color: var(--accent-strong, #1f6f64); }
+  .homePanel h2 { margin: 2px 0 12px; }
+  .homePanel h3 { font-size: 0.85rem; margin: 0 0 8px; color: var(--text); }
+  .homeStatsRow { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+  .homeStatCard {
+    flex: 1 1 130px; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; background: var(--panel-soft, #f7f9fa);
+  }
+  .homeStatCard strong { display: block; font-size: 1.5rem; line-height: 1.1; color: var(--accent-strong, #1f6f64); }
+  .homeStatCard span { font-size: 0.78rem; color: var(--muted); }
+  .homeStatCard.homeNet { background: #eef6f4; border-color: #b8dad5; }
+  .homeStatCard.homeNet strong { color: #15564d; }
+  .homeStatCard.homeCreditCard strong { color: #1e7a3c; }
+  .homeChartsRow { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .homeChartBox { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .homeChartBox canvas { width: 100% !important; height: 240px !important; }
+  .homeTopList { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .athenaQueryRow { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--panel); }
+  .athenaQueryMeta { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+  .athenaSql { margin: 6px 0 0; padding: 8px 34px 8px 8px; background: var(--surface-muted); border-radius: 6px; font-size: 0.78rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; color: var(--text-soft); user-select: text; }
+  .athenaSql.full { max-height: 420px; }
+  /* Tramo del SQL marcado como antipatrón (se ubica de un vistazo al leer el query). */
+  .athenaSql .sqlBad { background: #fee2e2; color: var(--danger); font-weight: 700; border-radius: 3px; padding: 0 2px; }
+  /* Botón "copiar SQL": flota sobre la esquina superior derecha del bloque, no
+     estorba la selección manual de texto ni el scroll interno del <pre>. */
+  .athenaSqlWrap { position: relative; margin-top: 6px; }
+  .athenaSqlWrap .athenaSql { margin-top: 0; }
+  .athenaCopyBtn {
+    position: absolute; top: 12px; right: 6px; z-index: 1;
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; line-height: 1; cursor: pointer; border-radius: 6px;
+    background: #eef1f4; color: #566069; border: 1px solid var(--line);
+    opacity: 0.55; transition: opacity 0.15s ease;
+  }
+  .athenaSqlWrap:hover .athenaCopyBtn { opacity: 1; }
+  .athenaCopyBtn:hover { background: #e2e6ea; }
+  .athenaCopyBtn.copied { opacity: 1; background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+  .antipBadges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .antipBadge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: #fee2e2; color: var(--danger); border: 1px solid var(--danger-border); }
+  /* Badge compuesto: la etiqueta es un interruptor (marca/desmarca en el query) y el
+     ícono "ⓘ" es una acción aparte (solo muestra/oculta la recomendación) — cada
+     clic hace UNA cosa, no ambas a la vez. */
+  .antipBadgeGroup { padding: 1px 2px 1px 8px; gap: 4px; }
+  .antipBadgeLabel { cursor: pointer; font: inherit; font-weight: 700; color: inherit; background: none; border: none; padding: 0; line-height: 1.3; }
+  .antipBadgeGroup:hover .antipBadgeLabel { text-decoration: underline; }
+  .antipBadgeOff { background: transparent; color: #94a3b8; border-color: #e2e8f0; }
+  .antipBadgeOff .antipInfoBtn { color: #94a3b8; }
+  .antipInfoBtn { cursor: pointer; font: inherit; background: none; border: none; padding: 0 2px; opacity: 0.7; border-radius: 999px; line-height: 1.3; }
+  .antipInfoBtn:hover { opacity: 1; }
+  .antipInfoBtn.open { opacity: 1; background: var(--danger); color: var(--on-accent); }
+  .antipBadgeOff .antipInfoBtn.open { background: #94a3b8; }
+  .antipReco { margin-top: 6px; background: var(--surface-muted); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .antipRecoRow { font-size: 0.78rem; line-height: 1.45; color: #334155; }
+  .antipRecoRow b { font-weight: 700; color: var(--danger); }
+  /* Tabla "Por usuario" como highlight table: chips de columnas + orden + tinte por celda. */
+  .athColChips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px 16px; }
+  .athColChip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--panel); font-size: 0.78rem; font-weight: 600; color: #334455; cursor: pointer; }
+  .athColChip:hover { border-color: #94a3b8; }
+  .athColChip.off { opacity: 0.45; }
+  .athColChip.off .athColLab { text-decoration: line-through; }
+  .athColDot { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .athSortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  .athSortable:hover { color: #0f172a; }
+  .athHeatTable th.act { color: #0f172a; }
+  .athSortAr { font-size: 0.7rem; margin-left: 1px; }
+  .athUserCell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Drill por usuario: nombre clicable + chevron + fila de detalle. */
+  .athUserToggle { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; padding: 0; cursor: pointer; color: var(--text); font: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .athUserToggle:hover { color: var(--accent-strong, var(--accent)); }
+  .athUserChev { font-size: 0.7rem; color: var(--muted); transition: transform 0.15s ease; flex: none; }
+  .athUserToggle.open .athUserChev { transform: rotate(90deg); }
+  .athUserDetailTr > td { background: var(--surface-muted); padding: 10px 16px; }
+  .athUserApHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; }
+  .athApControls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .athApSortLbl { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); }
+  .athApSortLbl select { font-size: 0.78rem; padding: 2px 6px; }
+  .athApDir { width: 26px; height: 26px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 0.9rem; color: #334155; line-height: 1; }
+  .athApDir:hover { border-color: #94a3b8; }
+  /* Chips de filtro por antipatrón (desde el desglose del usuario). */
+  .athApChips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .athApChip { padding: 2px 9px; border: 1px solid var(--danger-border); border-radius: 999px; background: var(--panel); color: var(--danger); font-size: 0.72rem; font-weight: 600; cursor: pointer; }
+  .athApChip:hover { background: #fee2e2; }
+  .athApChip.on { background: var(--danger); color: var(--on-accent); border-color: var(--danger); }
+  .athApShown { display: block; margin: 0 0 8px; }
+  /* Guía informativa del panel Athena (ícono ⓘ + panel desplegable). */
+  .athInfoBtn { border: none; background: transparent; color: var(--accent-strong, var(--accent)); cursor: pointer; font-size: 0.95rem; padding: 0 2px; vertical-align: middle; }
+  .athInfoBtn:hover { opacity: 0.7; }
+  .athInfo { background: var(--surface-muted); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 12px 0 4px; font-size: 0.82rem; line-height: 1.5; color: #334155; }
+  .athInfo p { margin: 0 0 8px; }
+  .athInfo p:last-child { margin-bottom: 4px; }
+  .athInfoList { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .athInfoList b { color: var(--danger); }
+  .athUserControls { margin: 0 0 10px; }
+  .athUserFilter { max-width: 280px; }
+  .athUserHint { display: block; margin: 0 0 8px; }
+  .ingStatus { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+  .ingStatusNew { background: #dcfce7; color: #166534; }
+  .ingStatusMod { background: #fef3c7; color: #92400e; }
+  .ingStatusOk { background: #eef2f6; color: #475569; }
+  .athenaFullBtn { margin-top: 6px; }
+  /* Datos "prestados" de la ventana anterior mientras se calcula una nueva. */
+  .athenaProvisional { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 0.8rem; }
+  .athenaQueryActions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
+  .athenaSuggestBtn { margin: 0; }
+  .athenaSuggestBtn:disabled { opacity: 0.6; cursor: default; }
+  /* Sugerencia generada por el LLM (distinta de la recomendación estática por
+     regla en .antipReco): tinte violeta para diferenciarla de un vistazo. El
+     texto viene formateado (mdLite) con párrafos/listas/código, no como bloque
+     plano — cada elemento necesita su propio espaciado dentro de la caja. */
+  .athenaLlmBox { position: relative; margin-top: 6px; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 10px 12px; font-size: 0.78rem; line-height: 1.55; color: #3b0764; }
+  .athenaLlmCopyBtn { top: 8px; right: 8px; }
+  .athenaLlmBox:hover .athenaLlmCopyBtn { opacity: 1; }
+  .athenaLlmTitle { font-weight: 700; color: #6d28d9; margin-bottom: 6px; }
+  .athenaLlmBox p { margin: 0 0 8px; }
+  .athenaLlmBox p:last-child { margin-bottom: 0; }
+  .athenaLlmBox b { color: #6d28d9; }
+  .athenaLlmBox code { background: #ede9fe; color: #5b21b6; padding: 1px 5px; border-radius: 4px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.92em; }
+  .athenaLlmBox ol, .athenaLlmBox ul { margin: 0 0 8px; padding-left: 20px; }
+  .athenaLlmBox li { margin-bottom: 3px; }
+  /* Bloque de código claro (estilo "GitHub light"): un bloque oscuro dentro de una
+     interfaz clara resultaba demasiado agresivo a la vista. */
+  .athenaLlmBox .llmCode { background: #fdfcff; color: #1e293b; border: 1px solid #ddd6fe; border-radius: 6px; padding: 8px 10px; margin: 0 0 8px; font-size: 0.76rem; line-height: 1.45; overflow-x: auto; white-space: pre; font-family: var(--font-mono, ui-monospace, monospace); }
+  .athenaLlmLoading { color: #6b7280; font-style: italic; }
+  .athenaLlmError { background: var(--danger-soft); border-color: var(--danger-border); color: #991b1b; }
+  .homeSectionTitle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 1.06rem; font-weight: 700; color: #0f172a; margin: 0 0 8px; }
+  .homeSectionTitle:hover { color: var(--accent-strong, var(--accent)); }
+  .homeSectionCaret { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--accent-strong, var(--accent)); }
+  .homeSectionCaret svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .homeSectionTitle.collapsed .homeSectionCaret svg { transform: rotate(-90deg); }
+  .homeTopRow { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0 7px 26px; border-bottom: 1px solid var(--line); font-size: 0.84rem; }
+  .homeTopMeta { color: var(--muted); }
+  .homeCredit { color: #1e7a3c; font-weight: 600; }
+  /* Detalle por servicio (desglose por tipo de uso) */
+  .homeSvcRow { border-bottom: 1px solid var(--line); padding: 7px 0 7px 16px; }
+  .homeSvcMain { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; }
+  .homeSvcToggle { flex: 0 0 auto; display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
+  .homeSvcToggle:hover { background: var(--surface-muted, #f1f5f9); color: var(--accent-strong, var(--accent)); }
+  .homeSvcToggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .homeSvcToggle.open svg { transform: rotate(90deg); }
+  .homeSvcName { font-weight: 500; overflow-wrap: anywhere; flex: 1 1 auto; }
+  .homeSvcAmount { flex: 0 0 auto; }
+  .homeSvcDetail { margin: 8px 0 4px; padding: 6px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .homeSvcTable { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .homeSvcTable th { text-align: left; color: var(--muted); font-weight: 600; padding: 7px 12px; border-bottom: 2px solid var(--line); }
+  .homeSvcTable td { padding: 7px 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  /* Bandas alternadas + hover para seguir cada fila de izquierda a derecha. */
+  .homeSvcTable tbody tr:nth-child(even) { background: var(--surface-muted); }
+  .homeSvcTable tbody tr:hover { background: #e8eef2; }
+  .homeSvcTable tr:last-child td { border-bottom: none; }
+  .homeSvcQty, .homeSvcAmt { text-align: right; white-space: nowrap; }
+  /* Archivo agrupado por estado: toggle en la celda Estado + filas de detalle. */
+  .fileStatusToggle { display: inline-flex; align-items: center; gap: 3px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.8rem; font-weight: 600; padding: 0; }
+  .fileStatusToggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .fileStatusToggle.open svg { transform: rotate(90deg); }
+  .fileStatusToggle:hover { color: var(--accent-strong, var(--accent)); }
+  .homeSvcTable tr.fileStatusRow td { background: var(--surface-muted, #f1f5f9); padding-top: 4px; padding-bottom: 4px; }
+  .homeSvcTable tr.fileStatusRow td:first-child { border-left: 2px solid var(--line-strong); }
+  .homeSvcAmt { font-weight: 600; }
+  .homeSvcUnit { color: var(--muted); font-weight: 500; }
+  /* Panel "Responsables" (CloudTrail) dentro del drill día→servicio */
+  .homeRespBox { margin-top: 10px; padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; }
+  .homeRespBox h4 { margin: 0 0 6px; font-size: 0.85rem; }
+  .homeRespRow { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 0.82rem; }
+  .homeRespRow:last-child { border-bottom: none; }
+  .homeRespActor { font-weight: 600; overflow-wrap: anywhere; }
+  /* Variación diaria (detección de picos) */
+  .homeDailyHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .homeDailyFreshness { font-size: 0.78rem; color: var(--muted); margin: 2px 0 8px; }
+  /* Monitoreo de cargas (Data Lake) */
+  .ingestControls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 12px; }
+  .ingestScanning { color: var(--accent-strong, var(--accent)); font-weight: 600; }
+  .ingestDateLbl { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--muted); }
+  .ingestDateLbl input { padding: 4px 6px; border: 1px solid var(--border, #d7dce1); border-radius: 6px; font-size: 0.8rem; }
+  /* Encabezados de tabla ordenables (cargas, detalle diario, tipos de uso) */
+  .sortableTh { cursor: pointer; user-select: none; white-space: nowrap; }
+  .sortableTh:hover { color: var(--accent-strong, var(--accent)); }
+  .sortableTh.active { color: var(--accent-strong, var(--accent)); }
+  .homeSvcTable th.num { text-align: right; }
+  .homeSpikeCallout { background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; border-radius: 8px; padding: 8px 12px; font-size: 0.86rem; margin: 8px 0; }
+  .homeSpikeUp { color: #b45309; font-weight: 700; }
+  .homeSpikeDown { color: #1e7a3c; font-weight: 600; }
+  /* Tabla "Detalle diario": Diario | Gasto del día | Variación diaria */
+  .homeDailyTable { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .homeDailyTable th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px 8px 16px; border-bottom: 1px solid var(--line); }
+  .homeDailyTable td { padding: 7px 8px 7px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .homeDayCellNum { text-align: right; white-space: nowrap; }
+  th.homeDayCellNum { text-align: right; }
+  .homeDayTr { cursor: pointer; }
+  .homeDayTr:hover { background: var(--surface-muted); }
+  .homeDayTr.isSpike td.homeDayCellDate { font-weight: 700; }
+  .homeDayCellDate { white-space: nowrap; }
+  .homeDayDetailTr td { padding: 4px 8px 10px 30px; background: var(--surface-muted, #f9fafb); }
+  .homeDayToggle { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--muted); vertical-align: middle; margin-right: 4px; }
+  .homeDayToggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+  .homeDayToggle.open svg { transform: rotate(90deg); }
+  .homeDayRiserDelta { flex: 0 0 auto; margin-left: auto; }
+  .homeCostHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .homeCostControls { display: flex; gap: 12px; flex-wrap: wrap; }
+  .homeCostControls label { display: flex; flex-direction: column; font-size: 0.74rem; color: var(--muted); gap: 4px; }
+  .homeCostControls select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 0.85rem; }
+  .homeCostHint { font-size: 0.76rem; color: var(--muted); margin: 4px 0 14px; }
+  .homeCostFreshness {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    flex-wrap: wrap; margin: 6px 0 14px; padding: 8px 12px;
+    background: var(--panel-soft, #f7f9fa); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .homeCostUpdated { font-size: 0.82rem; color: var(--text); }
+  .homeCostAgo { color: var(--muted); }
+  .homeViewToggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; align-self: flex-end; height: 33px; }
+  .homeViewBtn { border: none; background: var(--panel, var(--panel)); color: var(--muted); padding: 0 14px; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+  .homeViewBtn.active { background: var(--accent-strong, #1f6f64); color: var(--on-accent); }
+
+  @media (max-width: 860px) {
+    .homeChartsRow { grid-template-columns: 1fr; }
+  }
+
+  .catalogDetail {
+    overflow-y: auto;
+    background: var(--panel-soft);
+  }
+
+  .catalogDetailEmpty {
+    padding: 32px 20px;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+
+  .catalogDetailHeader {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .catalogDetailHeaderTop {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .catalogDetailHeader h3 {
+    margin: 4px 0 0;
+    font-size: 1rem;
+    font-weight: 700;
+    word-break: break-all;
+  }
+
+  .catalogTableTypeLine,
+  .catalogLocation {
+    font-size: 0.76rem;
+    color: var(--muted);
+    margin: 3px 0 0;
+    word-break: break-all;
+  }
+
+  /* Ficha técnica: metadata automática de Glue + tamaño/frescura de S3.
+     Colapsable (details) — oculta por defecto, se despliega hacia abajo. */
+  .catalogFichaWrap {
+    margin-top: 8px;
+  }
+
+  .catalogFichaWrap > summary {
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--accent);
+    user-select: none;
+  }
+
+  .catalogFichaWrap > summary::-webkit-details-marker { display: none; }
+
+  .catalogFichaWrap > summary::before {
+    content: "▸";
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+  }
+
+  .catalogFichaWrap[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .catalogFicha {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 8px;
+    font-size: 0.76rem;
+    color: var(--text);
+  }
+
+  .catalogFicha b {
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .catalogFicha .muted { color: var(--muted); font-style: italic; }
+
+  .catalogTableCtxForm {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .catalogSectionLabel {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 4px;
+  }
+
+  .catalogCtxInput {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 0.83rem;
+    background: var(--panel);
+    color: var(--text);
+    font-family: inherit;
+    resize: none;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .catalogCtxInput:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+  .catalogSearchInput { flex: none; }
+
+  .catalogCtxRow {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .catalogTableSaveNotice,
+  .catalogColSaveNotice {
+    font-size: 0.8rem;
+    color: var(--accent-strong);
+  }
+
+  .catalogColumnSection {
+    padding: 14px 20px 24px;
+  }
+
+  .catalogColumnList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .catalogColumn {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--panel);
+  }
+
+  .catalogColumn.hasCtx { border-color: #b8dad5; }
+
+  .catalogColumnHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+
+  .catalogColumnHeader strong { font-size: 0.85rem; }
+
+  .catalogColumnType {
+    font-size: 0.76rem;
+    background: var(--line);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--muted);
+    font-family: monospace;
+  }
+
+  .catalogPartitionBadge {
+    font-size: 0.72rem;
+    background: #fef3c7;
+    color: #92400e;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid #fcd34d;
+  }
+
+  .catalogColumnComment {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+
+  .catalogColDirtyDot {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
+  .catalogColumn.dirty {
+    border-color: var(--accent);
+  }
+
+  .catalogKeyBadge {
+    font-size: 0.72rem;
+    background: #ede9fe;
+    color: #5b21b6;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid #c4b5fd;
+  }
+
+  /* Fila sensibilidad + ejemplo dentro del contexto de columna */
+  .catalogColumnRow {
+    display: flex;
+    gap: 6px;
+  }
+
+  .catalogColumnSens {
+    flex: 0 0 auto;
+    max-width: 48%;
+  }
+
+  .catalogColumnSample {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .catalogColumnSens,
+  .catalogColumnSample {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-size: 0.78rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+
+  /* Cabecera de columnas: progreso + filtros */
+  .catalogColumnSectionHead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .catalogColProgress {
+    font-size: 0.74rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .catalogColProgressBar {
+    height: 4px;
+    background: var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 6px 0 10px;
+  }
+
+  .catalogColProgressBar span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.25s ease;
+  }
+
+  .catalogColFilters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .catalogColFilterChip {
+    font-size: 0.74rem;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .catalogColFilterChip.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  /* Barra fija de guardado de columnas: siempre visible al pie del detalle */
+  .catalogColSaveBar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
+  }
+
+  .catalogColSaveBar .saveAllColsBtn { flex: 1 1 auto; }
+
+  .catalogColSaveBarMsg {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .catalogColSaveBar .saveAllColsBtn { white-space: nowrap; }
+
+  .catalogColumnCtx {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .catalogColumnDesc,
+  .catalogColumnNotes {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-size: 0.8rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    resize: none;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  .catalogColumnDesc:focus,
+  .catalogColumnNotes:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+  @media (max-width: 900px) {
+    .catalogLayout {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto;
+      height: auto;
+      overflow: visible;
+    }
+
+    .catalogSidebar,
+    .catalogMain,
+    .catalogDetail {
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      max-height: 40vh;
+      overflow-y: auto;
+    }
+  }
+
+  /* ── Grafo de relaciones ─────────────────────────────────────── */
+
+  .catalogMainHeaderTop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .catalogMainHeaderTop .eyebrow { margin: 0; flex: 1; }
+
+  .catalogGraphModal {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 20, 18, 0.72);
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .catalogGraphHeader {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+
+  .catalogGraphLegend {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    font-size: 0.76rem;
+  }
+
+  .graphLegendFk     { color: #1a7f6e; font-weight: 600; }
+  .graphLegendShared { color: #6366f1; font-weight: 600; }
+  .graphLegendParent { color: var(--muted); }
+
+  .graphLegendHint {
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .graphLegendHint2 { color: var(--muted); font-size: 0.72rem; }
+
+  .graphLegendInfoWrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .graphLegendInfoBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .graphLegendInfoBtn:hover,
+  .graphLegendInfoBtn[aria-expanded="true"] {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .graphLegendInfoPopover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 40;
+    width: 320px;
+    max-width: 80vw;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface, var(--panel));
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+    font-size: 0.76rem;
+    line-height: 1.45;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .graphLegendInfoPopover p { margin: 0 0 8px; }
+  .graphLegendInfoPopover p:last-child { margin-bottom: 0; }
+  .graphLegendInfoPopover code {
+    font-size: 0.72rem;
+    background: var(--accent-soft);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  .graphLegendInfoTitle {
+    font-weight: 700;
+    font-size: 0.8rem;
+  }
+
+  .graphLegendInfoNote {
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  .catalogGraphBody {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    position: relative;
+  }
+
+  .catalogGraphSvg {
+    flex: 1;
+    background: var(--bg);
+    cursor: grab;
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .catalogGraphSvg:active { cursor: grabbing; }
+
+  .catalogGraphCanvas {
+    flex: 1;
+    background: var(--bg);
+    cursor: grab;
+    display: block;
+    min-width: 0;
+  }
+
+  .catalogGraphCanvas:active { cursor: grabbing; }
+
+  /* Zoom semántico: lejos solo se leen nombres de tabla */
+  .catalogGraphSvg.zoomFar .graphColumnLabel {
+    opacity: 0 !important;
+    transition: opacity 0.2s ease;
+  }
+  .graphColumnLabel { transition: opacity 0.2s ease; }
+
+  /* Grafos grandes: culling real al alejarse (las columnas y sus enlaces
+     salen del render) y sin efectos de blur, para zoom/pan fluidos */
+  .catalogGraphSvg.bigGraph.zoomFar .graphNode-column,
+  .catalogGraphSvg.bigGraph.zoomFar .graphLink-parent {
+    display: none;
+  }
+  .catalogGraphSvg.bigGraph .graphNode-column {
+    filter: none !important;
+    transition: none;
+  }
+
+  /* Profundidad 2.5D: las columnas del fondo se ven difusas y desaturadas;
+     al seleccionarse o coincidir en búsqueda (.lit) emergen nítidas */
+  .graphNode-column[data-depth="1"] { filter: blur(0.5px) saturate(0.75); }
+  .graphNode-column[data-depth="2"] { filter: blur(1.2px) saturate(0.5); }
+  .graphNode-column.lit,
+  .graphNode-column:hover { filter: none !important; }
+  .graphNode-column { transition: filter 0.25s ease; }
+
+  /* Vista general sin foco: columnas neutras, sin aros de relación */
+  .catalogGraphSvg:not(.hasFocus) .graphNode-column .graphNodeCircle {
+    stroke: none !important;
+  }
+
+  /* Realce al pasar el cursor sobre una columna */
+  .graphNode-column:hover .graphNodeCircle {
+    stroke: var(--accent, #1a7f6e);
+    stroke-width: 2.5;
+    fill-opacity: 1;
+  }
+  .graphNode-column:hover .graphColumnLabel { opacity: 1 !important; }
+
+  .catalogGraphTooltip {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+    max-width: 240px;
+    z-index: 10;
+    color: var(--text);
+  }
+
+  .catalogGraphToolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .catalogGraphSearchWrap {
+    position: relative;
+    min-width: 220px;
+  }
+
+  .catalogGraphSearch {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .catalogGraphSearchResults {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    z-index: 20;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .searchResultItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
+  .searchResultItem:hover { background: var(--accent-soft); }
+
+  .searchResultItem .inspectorItemName {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .catalogGraphFilterChips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .graphFilterChip {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .graphFilterChip.active.graphFilterChipFk { color: #1a7f6e; border-color: #1a7f6e; background: rgba(26,127,110,0.08); }
+  .graphFilterChip.active.graphFilterChipShared { color: #6366f1; border-color: #6366f1; background: rgba(99,102,241,0.08); }
+  .graphFilterChip:not(.active) { opacity: 0.5; text-decoration: line-through; }
+
+  .catalogGraphDbFilter {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+  }
+
+  .catalogGraphMinimap {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    width: 180px;
+    height: 120px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    cursor: pointer;
+    background: var(--panel);
+  }
+
+  @media (max-width: 900px) {
+    .catalogGraphMinimap { display: none; }
+  }
+
+  .pathItem .inspectorSub { color: var(--accent); font-weight: 600; }
+
+  .catalogGraphInspector {
+    width: 300px;
+    max-width: 86vw;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    padding: 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: -6px 0 16px rgba(0, 0, 0, 0.08);
+  }
+
+  .inspectorHeader {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .inspectorDot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+
+  .inspectorHeader strong {
+    font-size: 0.95rem;
+    word-break: break-word;
+  }
+
+  .inspectorMeta {
+    color: var(--muted);
+    font-size: 0.74rem;
+    margin-top: 2px;
+  }
+
+  .inspectorOpenBtn {
+    width: 100%;
+    margin-top: 12px;
+    text-align: left;
+    font-size: 0.78rem;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .inspectorSection {
+    margin-top: 14px;
+  }
+
+  .inspectorSectionTitle {
+    margin: 0 0 6px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .inspectorFkTitle     { color: #1a7f6e; }
+  .inspectorSharedTitle { color: #6366f1; }
+
+  .inspectorList {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .inspectorList li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .inspectorList li:hover { background: var(--accent-soft); }
+
+  /* El nombre de columna ocupa su propia línea: siempre visible, sin que el
+     nombre de tabla (largo) lo aplaste. Tabla y tipo bajan a la 2ª línea. */
+  .inspectorItemName {
+    flex: 1 1 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  .inspectorSub {
+    color: var(--muted);
+    font-size: 0.7rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .inspectorList code {
+    font-size: 0.68rem;
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+
+  .inspectorEmpty {
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  @media (max-width: 900px) {
+    .catalogGraphInspector { display: none; }
+  }
+

@@ -185,9 +185,15 @@ Basados en heurísticas establecidas (jerarquía visual, divulgación progresiva
 10. **Prevenir el error antes que corregirlo**: validaciones con mensaje accionable (p. ej. duplicado de persona → "agrega el segundo apellido o el área"), validadas en backend.
 11. **El guardado cuenta su historia (velocidad real + percibida).** Al hacer clic en Guardar, el botón pasa INMEDIATAMENTE a "Guardando…" deshabilitado (confirma que el clic entró y evita el doble-submit) y al confirmar se muestra "✓ Guardado" junto al botón — nunca dejar al usuario adivinando si debe volver a presionar. En lo real: tras un PATCH se **fusiona la respuesta en el estado local y se repinta** (`mergeProject`/`mergePerson`… en `workspace.ts`), NO se recarga la colección completa; y los endpoints de carga evitan el patrón N+1 (consultas por hijo y por elemento) usando lecturas globales por tipo vía el GSI `byEntityType` agrupadas en memoria. Si una recarga completa es inevitable, se hace manteniendo lo pintado (nunca pasar por una pantalla "Cargando" intermedia). UI optimista (aplicar antes de confirmar) solo si esto no alcanza.
 
+## Estructura del CSS (estándar de estilos)
+
+Los estilos viven en `frontend/src/styles/`, **partidos por módulo con prefijo numérico** e importados EN ORDEN en `index.astro` (la cascada depende del orden): `01-base.css` (tokens `:root` + reset + tipografía + botones/paneles + shell + login + base de workspace), `02-catalog`, `03-admin`, `04-home`, `05-chat`, `06-responsive-misc`, `07-workspace`. Nota: `01-base` sigue siendo el mayor porque la base no estaba limpiamente seccionada; los módulos tardíos sí quedaron aislados.
+
+**Color = tokens.** Toda decisión de color es un token en el `:root` de `01-base.css` (`--accent`, `--panel`, `--on-accent` [texto/íconos sobre color], `--danger`/`--danger-soft`/`--danger-border`, `--surface-muted`, `--text-soft`, `--line`/`--line-strong`, `--muted`…). Regla: **no hardcodear un hex que ya sea un token** — el guardrail `npm run check:css` (`scripts/check-css-tokens.sh`) falla si un valor tokenizado aparece fuera de `:root`. Un color de un solo uso puede ser hex literal; si se repite y representa una decisión de diseño, conviértelo en token. Esto mantiene una sola fuente de verdad del color (y habilita un futuro modo oscuro).
+
 ## Responsive (teléfonos y tablets)
 
-La app debe verse y usarse bien en escritorio, tablet y teléfono. `index.astro` ya trae el `<meta name="viewport">` correcto; los breakpoints viven en `frontend/src/styles/app.css` y siguen esta estrategia por capas:
+La app debe verse y usarse bien en escritorio, tablet y teléfono. `index.astro` ya trae el `<meta name="viewport">` correcto; los breakpoints viven en los archivos de `frontend/src/styles/` (el transversal en `06-responsive-misc.css`, y overrides por módulo dentro de su archivo) y siguen esta estrategia por capas:
 
 | Breakpoint | Qué colapsa |
 | --- | --- |

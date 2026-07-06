@@ -1,0 +1,265 @@
+  /* ── Catálogo ────────────────────────────────────────────────────── */
+  .catalogLayout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) minmax(340px, 420px);
+    gap: 0;
+    height: calc(100vh - 64px);
+    overflow: hidden;
+  }
+
+  /* La altura fija de arriba es un fallback; en escritorio el catálogo se ajusta
+     al espacio real (topbar variable) con flex, para que la barra de guardado
+     fija nunca quede fuera del viewport */
+  @media (min-width: 901px) {
+    .main:has(.catalogLayout) {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .catalogLayout {
+      flex: 1;
+      min-height: 0;
+      height: auto;
+    }
+  }
+
+  .catalogSidebar {
+    border-right: 1px solid var(--line);
+    padding: 14px 0 18px 14px;
+    overflow-y: auto;
+    background: var(--panel-soft);
+  }
+
+  .catalogSidebarHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 12px;
+    margin-bottom: 6px;
+  }
+
+  .catalogSidebarHeader .eyebrow { margin: 0; }
+
+  .catalogSyncBadge {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    padding: 0 12px 8px 0;
+  }
+
+  .catalogSyncBadge.syncing { color: var(--accent-strong); }
+  .catalogSyncBadge.none { color: #b45309; }
+
+  .catalogNoCacheMsg {
+    padding: 24px 16px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.55;
+  }
+
+  .catalogNoCacheMsg p { margin: 0 0 8px; }
+
+  .catalogDbList {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .catalogDbRow {
+    display: flex;
+    flex-direction: column;
+    border-radius: 6px;
+  }
+
+  .catalogDbRow.active { background: var(--accent-soft); }
+  .catalogDbRow:hover { background: var(--line); }
+
+  .catalogDbItemWrap {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .catalogDbFichaWrap {
+    padding: 0 10px 8px 10px;
+    border-top: 1px solid var(--line);
+    margin-top: 2px;
+  }
+
+  .catalogDbFichaWrap > summary {
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--accent);
+    user-select: none;
+    padding-top: 6px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .catalogDbFichaWrap > summary::-webkit-details-marker { display: none; }
+
+  .catalogDbFichaWrap > summary::before {
+    content: "▸";
+    font-size: 0.65rem;
+    transition: transform 0.15s ease;
+  }
+
+  .catalogDbFichaWrap[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .catalogDbFichaWrap .catalogFicha {
+    font-size: 0.72rem;
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: var(--accent-soft);
+    border-radius: 5px;
+  }
+
+  .catalogDbFichaWrap .catalogFicha b {
+    color: var(--accent-strong);
+  }
+
+  .catalogFichaFullRow {
+    flex: 1 1 100%;
+    word-break: break-all;
+  }
+
+  .catalogLocationCode {
+    font-family: monospace;
+    font-size: 0.9em;
+    word-break: break-all;
+    color: var(--text);
+  }
+
+  .catalogDbItem {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+    padding: 8px 4px 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text);
+  }
+
+  .catalogDbRow.active .catalogDbItem { color: var(--accent-strong); font-weight: 600; }
+
+  .catalogSyncDbBtn {
+    flex-shrink: 0;
+    margin-right: 6px;
+    opacity: 0.5;
+    font-size: 0.85rem;
+  }
+
+  .catalogDbRow:hover .catalogSyncDbBtn { opacity: 1; }
+
+  .catalogDbName { font-size: 0.9rem; font-weight: 500; word-break: break-all; }
+  .catalogDbMeta { font-size: 0.72rem; color: var(--muted); }
+
+  .catalogMain {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .catalogMainHeader {
+    padding: 18px 18px 12px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .catalogMainHeader .eyebrow { margin: 0; }
+
+  .catalogSearchBar {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .catalogScopeChips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .catalogScopeChip {
+    padding: 3px 9px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+
+  .catalogScopeChip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .catalogScopeChip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .syncAllBtn svg {
+    display: block;
+  }
+
+  .catalogTableList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .catalogTableCard {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: border-color 0.12s, background 0.12s;
+  }
+
+  .catalogTableCard:hover { border-color: var(--accent); }
+  .catalogTableCard.active { border-color: var(--accent); background: var(--accent-soft); }
+
+  .catalogTableName { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+  .catalogTableMeta { font-size: 0.78rem; color: var(--muted); }
+  .catalogTableDesc { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Resultados de búsqueda: dónde coincidió (chip de alcance + campo + snippet resaltado). */
+  .catMatches { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .catMatch { display: flex; align-items: flex-start; gap: 6px; font-size: 0.76rem; line-height: 1.45; color: var(--muted); }
+  .catMatchScope { flex: none; font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft, #e6f4f1); color: var(--accent-strong, var(--accent)); }
+  .catMatchField { color: var(--muted); }
+  .catMatchText { color: var(--text); overflow-wrap: anywhere; }
+  mark.catSearchHit { background: #fde68a; color: #7c4a03; border-radius: 3px; padding: 0 2px; font-weight: 600; }
+
+  .catalogEmpty { color: var(--muted); font-size: 0.85rem; padding: 12px 0; }
+  .catalogEmptyError { color: var(--danger, #c0392b); line-height: 1.4; }
+

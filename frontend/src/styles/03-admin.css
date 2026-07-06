@@ -1,0 +1,38 @@
+  /* ── Administración de usuarios ── */
+  .adminGrid { grid-template-columns: 1.6fr 1fr; align-items: start; gap: 18px; }
+  .adminUserList { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+  .adminUserCard { border: 1px solid var(--border, #e2e6ea); border-radius: 10px; padding: 14px; background: var(--surface, var(--panel)); }
+  .adminUserHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .adminUserHead strong { display: block; font-size: 0.95rem; }
+  .adminUserEmail { font-size: 0.78rem; color: var(--muted); }
+  .adminStatusBadge { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+  .adminStatusBadge.on { background: #e6f4ea; color: #1e7a3c; }
+  .adminStatusBadge.off { background: #f4e6e6; color: #b03030; }
+  .adminUserControls { display: flex; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+  .adminUserControls label, .adminCreateForm label { display: flex; flex-direction: column; font-size: 0.74rem; color: var(--muted); gap: 4px; }
+  .adminUserControls select, .adminUserControls input, .adminCreateForm select, .adminCreateForm input { padding: 6px 8px; border: 1px solid var(--border, #d7dce1); border-radius: 7px; font-size: 0.85rem; }
+  .adminUserControls .adminNameLabel { flex: 1 1 100%; }
+  .adminModules { display: flex; flex-wrap: wrap; gap: 8px 14px; border: none; padding: 4px 0; margin: 6px 0; }
+  .adminModules legend { font-size: 0.74rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
+  /* Mayor especificidad que `.adminCreateForm label` (column) para que la casilla
+     y su texto queden EN FILA tanto en alta como en edición. */
+  .adminModules .adminModuleChk { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 0.82rem; }
+  .adminModules .adminModuleChk input { margin: 0; flex: 0 0 auto; }
+  .adminModules { flex-direction: column; align-items: flex-start; }
+  .adminModuleGroup { display: flex; flex-direction: column; gap: 4px; }
+  .adminModuleChildren { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-left: 22px; margin-bottom: 2px; }
+  .adminModuleChild { font-size: 0.78rem; color: var(--muted); }
+  .adminUserActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .adminUserHeadRight { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .adminUserSummary { font-size: 0.8rem; color: var(--muted); margin: 8px 0 0; }
+  .adminUserCard.editing { border-color: var(--accent-strong, var(--accent)); box-shadow: 0 0 0 1px var(--accent-strong, var(--accent)) inset; }
+  .adminEditActions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .adminEditActionsRight { display: flex; gap: 8px; }
+  .iconTinyButton { border: 1px solid var(--border, #d7dce1); cursor: pointer; }
+  .iconTinyButton:hover { background: #f1f5f9; }
+  .iconTinyDanger { color: #8f2020; border-color: #e0b4b4; }
+  .iconTinyDanger:hover { background: #fbe9e9; }
+  .adminCreateForm { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+  .adminHint, .adminFormMsg { font-size: 0.78rem; color: var(--muted); }
+  .adminFormMsg.error { color: var(--danger, #c0392b); }
+

@@ -1,0 +1,89 @@
+  /* ── Responsive transversal (teléfonos y tablets) ─────────────────────────
+     Los layouts por módulo ya colapsan a 1 columna en sus propios breakpoints
+     (shell/workspace 780px, catálogo 900px, chat 720px). Este bloque cubre lo
+     transversal que faltaba: tablas anchas con scroll horizontal propio (en vez
+     de romper el layout) y filas de controles/pestañas que desbordan. */
+  @media (max-width: 780px) {
+    /* Tablas anchas (Athena, Facturación, Data Lake): se desplazan de lado
+       dentro de su propio contenedor; el resto de la página no se rompe. */
+    .homeSvcTable,
+    .homeDailyTable {
+      display: block;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    /* Pestañas de Inicio (hasta 5 con Facturación/Athena): scroll lateral. */
+    .homeTabs { overflow-x: auto; scrollbar-width: thin; }
+    .homeTab { white-space: nowrap; flex: none; }
+    /* Controles del monitoreo Athena y de costos apilados sin desbordar. */
+    .athColChips { margin-left: 0; }
+    .athApControls { row-gap: 8px; }
+    .homeCostHeader > div:first-child { width: 100%; }
+    /* Tarjetas de consultas: metadatos en columna si no caben. */
+    .athenaQueryMeta { flex-direction: column; gap: 4px; }
+    /* Panel de info ⓘ y recomendaciones a ancho completo. */
+    .athInfo { max-width: 100%; }
+    /* Seguimiento de proyectos: fecha arriba y texto abajo en pantallas chicas. */
+    .projectUpdateRow { flex-wrap: wrap; }
+    /* Formularios inline (registrar seguimiento, crear tarea): botón debajo. */
+    .projectUpdateForm { grid-template-columns: 1fr; }
+  }
+
+  /* ── Aviso de despliegue en curso (deploy.json, ver scripts/deploy-flag.sh) ──
+     Píldora discreta fija abajo al centro; el punto pulsa (intermitente) para
+     llamar la atención sin estorbar. Con "ready" (versión nueva lista) cambia
+     a verde con botón de recarga. */
+  .deployNotice {
+    position: fixed;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(92vw, 560px);
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    color: #92400e;
+    font-size: 0.8rem;
+    font-weight: 600;
+    box-shadow: 0 8px 28px rgba(31, 42, 46, 0.18);
+  }
+  .deployNoticeDot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #f59e0b;
+    flex: none;
+    animation: deployPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes deployPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.25; transform: scale(0.75); }
+  }
+  .deployNotice.ready { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+  .deployNoticeReload {
+    border: 1px solid #34d399;
+    background: var(--panel);
+    color: #047857;
+    border-radius: 999px;
+    padding: 3px 12px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .deployNoticeReload:hover { background: #d1fae5; }
+
+  /* ── Uso reciente de una tabla del catálogo (quién la consultó en Athena) ── */
+  .catalogUsageBody { padding: 6px 2px 2px; }
+  .catalogUsageTable { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .catalogUsageTable th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  .catalogUsageTable td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  .catalogUsageTable tr:last-child td { border-bottom: none; }
+  .catalogUsageTable th.num, .catalogUsageTable td.num { text-align: right; }
+  .catalogUsageAgo { color: var(--muted); font-size: 0.72rem; }
+  .catalogUsageNote { margin: 6px 0 0; color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
+
