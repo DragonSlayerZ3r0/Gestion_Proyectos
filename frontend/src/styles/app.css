@@ -1415,12 +1415,22 @@
   .projectUpdateForm { margin-bottom: 10px; }
   /* Expandido ("Ver todas") crece hasta un tope y luego scroll interno: la tarjeta
      del proyecto no se alarga infinito aunque la bitácora tenga meses de entradas. */
-  .projectUpdateList { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
-  .projectUpdateRow { display: flex; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 8px; background: #ffffff; border: 1px solid var(--line); }
-  .projectUpdateDate { flex: none; font-size: 0.78rem; font-weight: 700; color: var(--accent-strong); white-space: nowrap; }
-  /* Autor del seguimiento: atenuado, no compite con la fecha ni con el texto. */
+  .projectUpdateList { display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; }
+  /* Agrupado por día: la fecha se muestra una vez como encabezado y debajo sus
+     entradas (evita repetir la fecha en cada renglón cuando hay varias por día). */
+  .projectUpdateDay { display: flex; flex-direction: column; gap: 4px; }
+  .projectUpdateDayHeader { font-size: 0.78rem; font-weight: 700; color: var(--accent-strong); padding: 2px 2px 4px; position: sticky; top: 0; background: var(--panel-soft); z-index: 1; }
+  .projectUpdateRow { display: flex; align-items: flex-start; gap: 10px; padding: 6px 8px; border-radius: 8px; background: #ffffff; border: 1px solid var(--line); }
+  /* Texto a todo el ancho con su meta ENCIMA (caption), no en línea: un nombre
+     largo ya no empuja el texto y todos los renglones alinean a la izquierda. */
+  .projectUpdateBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  /* Meta por entrada: hora (aún más tenue) · autor — atenuada, no compite con el texto. */
+  .projectUpdateMeta { font-size: 0.74rem; color: var(--muted); }
+  /* Hora = dato de tercer nivel: aún más pequeña y tenue que el autor, legible solo
+     si se busca (sin bajar del contraste mínimo del estándar de color). */
+  .projectUpdateTime { font-size: 0.68rem; font-variant-numeric: tabular-nums; opacity: 0.6; }
   .projectUpdateAuthor { font-weight: 500; color: var(--muted); }
-  .projectUpdateText { flex: 1; min-width: 0; font-size: 0.88rem; color: #34454b; overflow-wrap: anywhere; }
+  .projectUpdateText { min-width: 0; font-size: 0.88rem; color: #34454b; overflow-wrap: anywhere; }
   .projectUpdateRow .iconTinyButton { align-self: center; }
   .projectUpdateEditForm { flex-wrap: wrap; align-items: center; }
   .projectUpdateDateInput { flex: none; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 0.82rem; }

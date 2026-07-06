@@ -10,6 +10,10 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-06 · decisión — Seguimiento agrupado por día + hora discreta
+
+Anticipando varias entradas por día, el seguimiento ahora se **agrupa por día** (la fecha va una vez como encabezado fijo, no repetida en cada renglón) y cada entrada muestra su **hora** de registro de forma muy discreta (aún más tenue que el autor, hora de Guatemala desde `createdAt`): `08:15 · GAD Morales, Saul`. Cambio solo de frontend (`createdAt` ya se exponía). Jerarquía visual coherente con los estándares: día > (hora · autor) > texto. Ver `docs/02_modulos_funcionales.md`.
+
 ## 2026-07-06 · decisión — El seguimiento muestra su autor (+ NameDirectory compartido)
 
 Cada entrada de seguimiento ahora muestra quién la registró, junto a la fecha y atenuado. El dato ya se guardaba (`createdBy` = correo del autor), solo no se exponía → cambio de visualización sin migración. Como el autor es un *usuario* (correo), no una *persona* del directorio, se resuelve a nombre real con Identity Center. Para no duplicar esa lógica (ya existía en `AthenaMonitorService._resolve_names`), se extrajo a `services/name_directory.py::NameDirectory` (segundo consumidor → extracción, no copy-paste); Athena ahora delega ahí y comparten la caché NAMEMAP. Fallback: nombre → correo → se omite. Ver `docs/02_modulos_funcionales.md`.

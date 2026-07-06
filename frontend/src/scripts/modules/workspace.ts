@@ -487,38 +487,71 @@ export function createWorkspaceModule(ctx) {
         return d.toLocaleDateString("es-GT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
       }
 
+      // Hora en que se registró la entrada (createdAt es UTC; se muestra en hora de
+      // Guatemala). Discreta: solo para ubicar el momento dentro del día.
+      function updateTimeLabel(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Guatemala" });
+      }
+
       // Seguimiento (bitácora): qué se trabajó cada día. La entrada nueva toma la
       // fecha de HOY sola (la pone el backend); cada entrada es editable (texto y
       // fecha, por si se anotó mal) con el lápiz. Se muestran las 3 más recientes
       // y un "Ver todas (N)" para el resto.
+      function renderUpdateRow(project, u, editing) {
+        if (editing && editing.projectId === project.id && editing.updateId === u.id) {
+          return `
+            <form class="projectUpdateRow projectUpdateEditForm" data-update-edit-form="${project.id}" data-update-id="${u.id}">
+              <input class="projectUpdateDateInput" name="date" type="date" value="${escapeAttribute(u.date)}" required aria-label="Fecha del seguimiento" />
+              <input class="projectUpdateTextInput" name="text" type="text" value="${escapeAttribute(u.text)}" required aria-label="Texto del seguimiento" />
+              <div class="projectUpdateEditActions">
+                <button class="tinyButton" type="submit">Guardar</button>
+                <button class="tinyButton ghost" type="button" data-update-cancel>Cancelar</button>
+                <button class="tinyButton danger" type="button" data-update-delete="${project.id}" data-update-id="${u.id}">Eliminar</button>
+              </div>
+            </form>`;
+        }
+        // Meta discreta por entrada: hora (aún más tenue) · autor. La fecha ya no
+        // va aquí: es el encabezado del día que agrupa estas entradas.
+        const author = u.createdByName || u.createdBy || "";
+        const time = updateTimeLabel(u.createdAt);
+        const meta = [
+          time ? `<span class="projectUpdateTime">${escapeHtml(time)}</span>` : "",
+          author ? `<span class="projectUpdateAuthor" title="Registrado por ${escapeAttribute(author)}">${escapeHtml(author)}</span>` : ""
+        ].filter(Boolean).join(" · ");
+        // Meta ARRIBA del texto (no en línea): el texto ocupa todo el ancho y no
+        // lo empuja un nombre largo; todos los renglones arrancan alineados.
+        return `
+          <div class="projectUpdateRow">
+            <div class="projectUpdateBody">
+              ${meta ? `<span class="projectUpdateMeta">${meta}</span>` : ""}
+              <span class="projectUpdateText">${escapeHtml(u.text)}</span>
+            </div>
+            ${renderEditIconButton("Editar seguimiento", `data-update-edit="${project.id}" data-update-id="${u.id}"`)}
+          </div>`;
+      }
+
       function renderProjectUpdates(project) {
         const updates = project.updates || [];
         const expanded = !!state.updatesExpanded[project.id];
         const visible = expanded ? updates : updates.slice(0, 3);
         const editing = state.updateEditing;
-        const rows = visible.map((u) => {
-          if (editing && editing.projectId === project.id && editing.updateId === u.id) {
-            return `
-              <form class="projectUpdateRow projectUpdateEditForm" data-update-edit-form="${project.id}" data-update-id="${u.id}">
-                <input class="projectUpdateDateInput" name="date" type="date" value="${escapeAttribute(u.date)}" required aria-label="Fecha del seguimiento" />
-                <input class="projectUpdateTextInput" name="text" type="text" value="${escapeAttribute(u.text)}" required aria-label="Texto del seguimiento" />
-                <div class="projectUpdateEditActions">
-                  <button class="tinyButton" type="submit">Guardar</button>
-                  <button class="tinyButton ghost" type="button" data-update-cancel>Cancelar</button>
-                  <button class="tinyButton danger" type="button" data-update-delete="${project.id}" data-update-id="${u.id}">Eliminar</button>
-                </div>
-              </form>`;
-          }
-          // Autor discreto junto a la fecha: nombre resuelto, o el correo, o nada.
-          const author = u.createdByName || u.createdBy || "";
-          const authorHtml = author ? ` · <span class="projectUpdateAuthor" title="Registrado por ${escapeAttribute(author)}">${escapeHtml(author)}</span>` : "";
-          return `
-            <div class="projectUpdateRow">
-              <span class="projectUpdateDate">${escapeHtml(updateDateLabel(u.date))}${authorHtml}</span>
-              <span class="projectUpdateText">${escapeHtml(u.text)}</span>
-              ${renderEditIconButton("Editar seguimiento", `data-update-edit="${project.id}" data-update-id="${u.id}"`)}
-            </div>`;
-        }).join("");
+        // Agrupar por día (las entradas ya vienen ordenadas de la más reciente a la
+        // más antigua): la fecha se muestra UNA vez como encabezado y debajo van
+        // sus entradas — evita repetir "lun, 6 jul 2026" en cada renglón.
+        const groups = [];
+        for (const u of visible) {
+          const last = groups[groups.length - 1];
+          if (last && last.date === u.date) last.items.push(u);
+          else groups.push({ date: u.date, items: [u] });
+        }
+        const rows = groups.map((g) => `
+          <div class="projectUpdateDay">
+            <div class="projectUpdateDayHeader">${escapeHtml(updateDateLabel(g.date))}</div>
+            ${g.items.map((u) => renderUpdateRow(project, u, editing)).join("")}
+          </div>`).join("");
         return `
           <section class="projectUpdatesBlock">
             <div class="blockHeader">
