@@ -247,11 +247,14 @@ class WorkspaceService:
 
     def create_person(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         first_name = self._required_text(payload, "firstName", "Nombre")
-        last_name = self._required_text(payload, "lastName", "Apellido")
+        # Apellido OPCIONAL: permite registrar por un solo nombre (p. ej. el nombre
+        # de un proveedor cuando la persona de contacto cambia).
+        last_name = self._optional_text(payload, "lastName")
+        full_name = f"{first_name} {last_name}".strip()
         # Evita duplicados accidentales (mismo nombre completo, ignorando
         # mayúsculas/acentos). Si es un homónimo real, diferéncialo (segundo
         # apellido, área) — mensaje claro en vez de registrar silenciosamente.
-        full_norm = self._norm_name(f"{first_name} {last_name}")
+        full_norm = self._norm_name(full_name)
         for existing in self._repository.list_people():
             if self._norm_name(existing.get("fullName", "")) == full_norm:
                 raise ValidationError(
@@ -266,7 +269,7 @@ class WorkspaceService:
             "personId": person_id,
             "firstName": first_name,
             "lastName": last_name,
-            "fullName": f"{first_name} {last_name}",
+            "fullName": full_name,
             "area": self._optional_text(payload, "area"),
             "notes": self._optional_text(payload, "notes"),
             "availabilityNotes": self._optional_text(payload, "availabilityNotes"),
@@ -292,6 +295,8 @@ class WorkspaceService:
             "status": self._valid_status(payload.get("status")),
             "requestType": self._allowed_optional(payload.get("requestType"), REQUEST_TYPES, "Tipo de la solicitud"),
             "requestingAreaId": self._valid_area_id(payload.get("requestingAreaId")),
+            "requestDate": self._optional_date(payload.get("requestDate"), "Fecha de solicitud"),
+            "dueDate": self._optional_date(payload.get("dueDate"), "Fecha de entrega"),
             "ownerPersonId": self._optional_text(payload, "ownerPersonId"),
             "description": self._optional_text(payload, "description"),
             "createdAt": now,
@@ -328,13 +333,14 @@ class WorkspaceService:
             "updatedAt": self._now(),
             "updatedBy": identity["userId"]
         }
-        if "firstName" in payload:
-            values["firstName"] = self._required_text(payload, "firstName", "Nombre")
-        if "lastName" in payload:
-            values["lastName"] = self._required_text(payload, "lastName", "Apellido")
-        if "firstName" in values or "lastName" in values:
-            first_name = values.get("firstName") or self._required_text(payload, "currentFirstName", "Nombre")
-            last_name = values.get("lastName") or self._required_text(payload, "currentLastName", "Apellido")
+        # El formulario de detalle envía siempre firstName + lastName. Apellido
+        # OPCIONAL (registro por un solo nombre, p. ej. proveedores); recomputamos
+        # el nombre completo desde el payload.
+        if "firstName" in payload or "lastName" in payload:
+            first_name = self._required_text(payload, "firstName", "Nombre")
+            last_name = self._optional_text(payload, "lastName")
+            values["firstName"] = first_name
+            values["lastName"] = last_name
             values["fullName"] = f"{first_name} {last_name}".strip()
         if "area" in payload:
             values["area"] = self._optional_text(payload, "area")
@@ -362,6 +368,10 @@ class WorkspaceService:
             values["requestType"] = self._allowed_optional(payload["requestType"], REQUEST_TYPES, "Tipo de la solicitud")
         if "requestingAreaId" in payload:
             values["requestingAreaId"] = self._valid_area_id(payload["requestingAreaId"])
+        if "requestDate" in payload:
+            values["requestDate"] = self._optional_date(payload.get("requestDate"), "Fecha de solicitud")
+        if "dueDate" in payload:
+            values["dueDate"] = self._optional_date(payload.get("dueDate"), "Fecha de entrega")
         if "ownerPersonId" in payload:
             values["ownerPersonId"] = self._optional_text(payload, "ownerPersonId")
 
@@ -423,6 +433,19 @@ class WorkspaceService:
         task_id = self._required_text({"taskId": task_id}, "taskId", "Tarea")
         self._repository.delete_task(project_id, task_id)
         return {"projectId": project_id, "taskId": task_id, "removed": True}
+
+    def _optional_date(self, value: Any, label: str) -> str:
+        """Fecha opcional AAAA-MM-DD (la que envía <input type=date>); "" si viene vacía."""
+        value = str(value or "").strip()
+        if not value:
+            return ""
+        if not _DATE_RE.match(value):
+            raise ValidationError(f"{label} debe tener formato AAAA-MM-DD.")
+        try:
+            datetime.fromisoformat(value)
+        except ValueError:
+            raise ValidationError(f"{label} no es una fecha válida.")
+        return value
 
     # ── Seguimiento (bitácora): qué se trabajó cada día en el proyecto ─────────
     def _validate_update_date(self, value: str) -> str:
@@ -575,6 +598,8 @@ class WorkspaceService:
             "status": item.get("status", ""),
             "requestType": item.get("requestType", ""),
             "requestingAreaId": item.get("requestingAreaId", ""),
+            "requestDate": item.get("requestDate", ""),
+            "dueDate": item.get("dueDate", ""),
             "ownerPersonId": item.get("ownerPersonId", ""),
             "description": item.get("description", ""),
             "updatedAt": item.get("updatedAt", ""),

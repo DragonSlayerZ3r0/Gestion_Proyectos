@@ -119,10 +119,14 @@ export function createWorkspaceModule(ctx) {
                 <button class="primaryButton" type="submit">Nuevo</button>
               </form>
               <div class="workspaceControls">
-                <input id="projectSearch" class="searchInput" type="search" placeholder="Buscar en solicitudes y tareas" value="${escapeAttribute(state.projectSearch)}" />
-                <div class="searchScope" role="group" aria-label="Buscar en">
-                  ${renderProjectSearchScopeButton("projects", "Solicitudes")}
-                  ${renderProjectSearchScopeButton("tasks", "Tareas")}
+                <input id="projectSearch" class="searchInput" type="search" placeholder="Buscar por nombre, descripción, persona…" value="${escapeAttribute(state.projectSearch)}" />
+                <div class="searchScopeGroup">
+                  <span class="searchScopeLabel">Buscar en:</span>
+                  <div class="searchScope segmented" role="group" aria-label="Buscar en">
+                    ${renderProjectSearchScopeButton("all", "Todo")}
+                    ${renderProjectSearchScopeButton("projects", "Solicitudes")}
+                    ${renderProjectSearchScopeButton("tasks", "Tareas")}
+                  </div>
                 </div>
               </div>
             </section>
@@ -167,8 +171,9 @@ export function createWorkspaceModule(ctx) {
               ${peopleOpen ? `
               <div class="peopleBody" data-people-drop-zone>
                 <form id="personQuickForm" class="personCreateForm" ${state.showPersonForm ? "" : "hidden"}>
-                  <input name="firstName" type="text" placeholder="Nombre" required />
-                  <input name="lastName" type="text" placeholder="Apellido" required />
+                  <input name="firstName" type="text" placeholder="Nombre o proveedor" required />
+                  <input name="lastName" type="text" placeholder="Apellido (opcional)" />
+                  <p class="fieldHint">Para un proveedor, escribe su nombre en el primer campo y deja el apellido vacío.</p>
                   <details class="optionalDetails">
                     <summary>Más datos</summary>
                     <input name="area" type="text" placeholder="Área" />
@@ -202,6 +207,7 @@ export function createWorkspaceModule(ctx) {
         const typeF = state.projectTypeFilter || "all";
         const areaF = state.projectAreaFilter || "all";
         const ownerF = state.projectOwnerFilter || "all";
+        const involvesF = state.projectInvolvesFilter || "all";
         return projects.filter((project) => {
           if (state.projectStatusFilter === "none" && project.status) {
             return false;
@@ -218,30 +224,62 @@ export function createWorkspaceModule(ctx) {
           if (ownerF !== "all" && (ownerF === "__none__" ? !!project.ownerPersonId : (project.ownerPersonId || "") !== ownerF)) {
             return false;
           }
-          if (!query) {
+          // "Involucra a": la persona es el responsable O una persona relacionada
+          // (miembro). Para rastrear a un proveedor por todas sus solicitudes.
+          if (involvesF !== "all") {
+            const isOwner = project.ownerPersonId === involvesF;
+            const isMember = project.members.some((member) => member.personId === involvesF);
+            if (!isOwner && !isMember) {
+              return false;
+            }
+          }
+          const tokens = searchTokens(state.projectSearch);
+          if (!tokens.length) {
             return true;
           }
-          const matchesProject = state.projectSearchScopes.projects && projectSearchText(project, peopleById).includes(query);
-          const matchesTasks = state.projectSearchScopes.tasks && project.tasks.some((task) => taskSearchText(task, peopleById).includes(query));
-          return matchesProject || matchesTasks;
+          // Alcance de una sola opción: "all" busca en ambos; "projects"/"tasks" acota.
+          const scope = state.projectSearchScope || "all";
+          const inProjects = (scope === "all" || scope === "projects")
+            && matchesAllTokens(projectSearchText(project, peopleById), tokens);
+          const inTasks = (scope === "all" || scope === "tasks")
+            && project.tasks.some((task) => matchesAllTokens(taskSearchText(task, peopleById), tokens));
+          return inProjects || inTasks;
         });
       }
 
+      // Búsqueda por palabras (AND): TODAS las palabras deben aparecer → escribir más
+      // acota en vez de ampliar, y "aqua licencia" encuentra "Licenciamiento Aqua".
+      function searchTokens(query) {
+        return normalizeSearch(query).split(/\s+/).filter(Boolean);
+      }
+      function matchesAllTokens(haystack, tokens) {
+        return tokens.every((token) => haystack.includes(token));
+      }
+
+      // Campos buscables de una solicitud: nombre + descripción + área + responsable
+      // + miembros. Lo estructurado (estado, tipo, prioridad) se acota con los filtros.
       function projectSearchText(project, peopleById) {
         const owner = peopleById[project.ownerPersonId]?.fullName || "";
         const members = project.members
           .map((member) => peopleById[member.personId]?.fullName || "")
           .join(" ");
-        return normalizeSearch(`${project.name} ${project.description || ""} ${owner} ${members}`);
+        const area = areaName(project.requestingAreaId) || "";
+        return normalizeSearch(`${project.name} ${project.description || ""} ${area} ${owner} ${members}`);
       }
 
+      // Campos buscables de una tarea: título + notas + responsable (sin etiquetas de
+      // prioridad/estado ni la clave cruda — esas generaban coincidencias fantasma).
       function taskSearchText(task, peopleById) {
         const assignee = peopleById[task.assigneePersonId]?.fullName || "";
-        return normalizeSearch(`${task.title} ${task.notes || ""} ${assignee} ${priorityLabel(task.priority)} ${taskStatusLabel(task.status)} ${task.status || ""}`);
+        return normalizeSearch(`${task.title} ${task.notes || ""} ${assignee}`);
       }
 
+      // Normalización: minúsculas, sin espacios sobrantes y SIN acentos (así
+      // "analitica" encuentra "Analítica"), igual que la deduplicación del backend.
       function normalizeSearch(value) {
-        return String(value || "").trim().toLowerCase();
+        return String(value || "")
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .trim().toLowerCase();
       }
 
       function taskStatusLabel(statusKey) {
@@ -302,7 +340,23 @@ export function createWorkspaceModule(ctx) {
             ${projects.some((p) => !p.ownerPersonId) ? `<option value="__none__" ${ownerV === "__none__" ? "selected" : ""}>Sin responsable</option>` : ""}
           </select></label>`;
 
-        return typeSel + areaSel + ownerSel;
+        // "Involucra a": personas que son responsable O están relacionadas en alguna
+        // solicitud (para rastrear a un proveedor por todas sus solicitudes).
+        const involvesV = state.projectInvolvesFilter || "all";
+        const involvedIds = new Set();
+        for (const p of projects) {
+          if (p.ownerPersonId) involvedIds.add(p.ownerPersonId);
+          for (const m of (p.members || [])) involvedIds.add(m.personId);
+        }
+        const involvedList = [...involvedIds]
+          .sort((a, b) => (peopleById[a]?.fullName || "").localeCompare(peopleById[b]?.fullName || "", "es"));
+        const involvesSel = `<label class="filterSelect">Involucra a
+          <select data-filter="involves">
+            <option value="all">Cualquiera</option>
+            ${involvedList.map((id) => `<option value="${id}" ${involvesV === id ? "selected" : ""}>${escapeHtml(peopleById[id]?.fullName || id)}</option>`).join("")}
+          </select></label>`;
+
+        return typeSel + areaSel + ownerSel + involvesSel;
       }
 
       function anyProjectFilterActive() {
@@ -310,6 +364,7 @@ export function createWorkspaceModule(ctx) {
           || (state.projectTypeFilter && state.projectTypeFilter !== "all")
           || (state.projectAreaFilter && state.projectAreaFilter !== "all")
           || (state.projectOwnerFilter && state.projectOwnerFilter !== "all")
+          || (state.projectInvolvesFilter && state.projectInvolvesFilter !== "all")
           || !!state.projectSearch;
       }
 
@@ -328,10 +383,11 @@ export function createWorkspaceModule(ctx) {
       }
 
       function renderProjectSearchScopeButton(scope, label) {
-        const isActive = Boolean(state.projectSearchScopes[scope]);
+        // Control segmentado de UNA sola opción (no toggles): "Todo" busca en ambos.
+        const isActive = (state.projectSearchScope || "all") === scope;
         return `
           <button
-            class="scopeChip ${isActive ? "active" : ""}"
+            class="scopeSeg ${isActive ? "active" : ""}"
             type="button"
             data-project-search-scope="${scope}"
             aria-pressed="${isActive ? "true" : "false"}"
@@ -574,6 +630,7 @@ export function createWorkspaceModule(ctx) {
                   <h2>${escapeHtml(project.name)}</h2>
                   ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
                   ${areaName(project.requestingAreaId) ? `<p>Área solicitante: <strong>${escapeHtml(areaName(project.requestingAreaId))}</strong></p>` : ""}
+                  ${(project.requestDate || project.dueDate) ? `<p class="projectDates">${project.requestDate ? `Solicitud: <strong>${escapeHtml(updateDateLabel(project.requestDate))}</strong>` : ""}${project.requestDate && project.dueDate ? " · " : ""}${project.dueDate ? `Entrega: <strong>${escapeHtml(updateDateLabel(project.dueDate))}</strong>` : ""}</p>` : ""}
                   ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
                 </div>
                 <div class="projectHeaderRight">
@@ -843,7 +900,7 @@ export function createWorkspaceModule(ctx) {
             </div>
             <form id="personDetailForm" class="detailForm" data-person-detail="${person.id}">
               <label>Nombre<input name="firstName" type="text" value="${escapeAttribute(person.firstName)}" required /></label>
-              <label>Apellido<input name="lastName" type="text" value="${escapeAttribute(person.lastName)}" required /></label>
+              <label>Apellido (opcional)<input name="lastName" type="text" value="${escapeAttribute(person.lastName)}" /></label>
               <label>Área<input name="area" type="text" value="${escapeAttribute(person.area)}" /></label>
               <label>Estado
                 <select name="status">
@@ -885,13 +942,13 @@ export function createWorkspaceModule(ctx) {
                 </select>
               </label>
               <label>Área solicitante
-                <select name="requestingAreaId" data-area-select>
-                  ${areaOptions(project.requestingAreaId)}
-                </select>
+                <div class="fieldWithActions">
+                  <select name="requestingAreaId" data-area-select>
+                    ${areaOptions(project.requestingAreaId)}
+                  </select>
+                  ${renderEditIconButton("Corregir nombre del área", "data-area-fix hidden")}
+                </div>
               </label>
-              <div class="areaCatalogControls">
-                ${renderEditIconButton("Corregir nombre del área", "data-area-fix hidden")}
-              </div>
               <div class="areaInlineForm" data-area-form data-mode="create" hidden>
                 <input type="text" data-area-input placeholder="${escapeAttribute(AREA_EXAMPLE)}" aria-label="Nombre del área solicitante" />
                 <div class="areaInlineActions">
@@ -900,14 +957,14 @@ export function createWorkspaceModule(ctx) {
                 </div>
               </div>
               <label>Estado
-                <select name="status" data-status-select>
-                  ${projectStatusOptions(project.status)}
-                </select>
+                <div class="fieldWithActions">
+                  <select name="status" data-status-select>
+                    ${projectStatusOptions(project.status)}
+                  </select>
+                  ${renderEditIconButton("Corregir el estado", "data-status-fix hidden")}
+                  ${renderDeleteIconButton("Eliminar el estado", "data-status-del hidden")}
+                </div>
               </label>
-              <div class="statusCatalogControls">
-                ${renderEditIconButton("Corregir el estado", "data-status-fix hidden")}
-                ${renderDeleteIconButton("Eliminar el estado", "data-status-del hidden")}
-              </div>
               <div class="areaInlineForm statusInlineForm" data-status-form data-mode="create" data-color="" hidden>
                 <input type="text" data-status-input placeholder="Nombre del estado (p. ej. En revisión)" aria-label="Nombre del estado" />
                 <div class="statusSwatches" data-status-swatches role="group" aria-label="Color del estado">
@@ -924,7 +981,11 @@ export function createWorkspaceModule(ctx) {
                   ${state.workspace.people.map((person) => `<option value="${person.id}" ${person.id === project.ownerPersonId ? "selected" : ""}>${escapeHtml(person.fullName)}</option>`).join("")}
                 </select>
               </label>
-              <label>Descripción<textarea name="description" rows="4">${escapeHtml(project.description)}</textarea></label>
+              <div class="detailRow2">
+                <label>Fecha de solicitud<input name="requestDate" type="date" value="${escapeAttribute(project.requestDate || "")}" /></label>
+                <label>Fecha de entrega<input name="dueDate" type="date" value="${escapeAttribute(project.dueDate || "")}" /></label>
+              </div>
+              <label>Descripción<textarea name="description" rows="3">${escapeHtml(project.description)}</textarea></label>
               <button class="primaryButton" type="submit">Guardar solicitud</button>
               ${notice ? `<p class="saveFeedback" role="status">${escapeHtml(notice)}</p>` : ""}
             </form>
@@ -1061,18 +1122,8 @@ export function createWorkspaceModule(ctx) {
         for (const button of document.querySelectorAll("[data-project-search-scope]")) {
           button.addEventListener("click", () => {
             const scope = button.dataset.projectSearchScope;
-            if (!scope || !(scope in state.projectSearchScopes)) {
-              return;
-            }
-            const nextValue = !state.projectSearchScopes[scope];
-            const otherScope = scope === "projects" ? "tasks" : "projects";
-            if (!nextValue && !state.projectSearchScopes[otherScope]) {
-              return;
-            }
-            state.projectSearchScopes = {
-              ...state.projectSearchScopes,
-              [scope]: nextValue
-            };
+            if (!["all", "projects", "tasks"].includes(scope)) return;
+            state.projectSearchScope = scope;   // una sola elección
             renderWorkspace();
           });
         }
@@ -1143,13 +1194,14 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
-        // Dropdowns de filtro (Tipo/Área/Responsable).
+        // Dropdowns de filtro (Tipo/Área/Responsable/Involucra a).
         for (const sel of document.querySelectorAll("[data-filter]")) {
           sel.addEventListener("change", () => {
             const dim = sel.dataset.filter;
             if (dim === "type") state.projectTypeFilter = sel.value;
             else if (dim === "area") state.projectAreaFilter = sel.value;
             else if (dim === "owner") state.projectOwnerFilter = sel.value;
+            else if (dim === "involves") state.projectInvolvesFilter = sel.value;
             renderWorkspace();
           });
         }
@@ -1158,6 +1210,7 @@ export function createWorkspaceModule(ctx) {
           state.projectTypeFilter = "all";
           state.projectAreaFilter = "all";
           state.projectOwnerFilter = "all";
+          state.projectInvolvesFilter = "all";
           state.projectSearch = "";
           renderWorkspace();
         });

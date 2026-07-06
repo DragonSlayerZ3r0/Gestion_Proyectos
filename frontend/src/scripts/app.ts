@@ -82,10 +82,7 @@
         projectStatusFilter: "all",
         projectSearch: "",
         personSearch: "",
-        projectSearchScopes: {
-          projects: true,
-          tasks: true
-        },
+        projectSearchScope: "all",  // alcance de la búsqueda: "all" | "projects" | "tasks"
         expandedBoardProjectId: null,
         peopleSectionOpen: false,  // sección "Personas registradas" colapsada por defecto
         projectSort: null,         // orden de la tabla de solicitudes {key, dir}; null = orden del backend

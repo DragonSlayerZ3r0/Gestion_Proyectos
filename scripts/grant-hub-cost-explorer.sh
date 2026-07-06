@@ -45,4 +45,5 @@ fi
 aws iam put-role-policy --role-name "$ROLE_NAME" \
   --policy-name CostExplorerReadOnly --policy-document "$PERMS"
 
-echo "Listo: arn:aws:iam::396913696127:role/${ROLE_NAME}"
+TARGET_ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+echo "Listo: arn:aws:iam::${TARGET_ACCOUNT}:role/${ROLE_NAME}"

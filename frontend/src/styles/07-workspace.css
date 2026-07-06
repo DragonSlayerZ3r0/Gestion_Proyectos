@@ -6,9 +6,13 @@
   .projectTablePanel { padding: 14px 16px 8px; min-width: 0; }
   .projectTableHead { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
   /* Barra de filtros por dimensión (dropdowns) + Columnas + contador. */
-  .projectFilterBar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px 14px; }
-  .filterSelect { display: flex; flex-direction: column; gap: 3px; font-size: 0.72rem; font-weight: 600; color: var(--muted); }
-  .filterSelect select { font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--text); padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); min-width: 120px; }
+  .projectFilterBar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px 12px; }
+  /* Todos los filtros del mismo ancho (uniforme) → se ven consistentes; el contenido
+     largo (nombres) se recorta en el select nativo, la lista completa igual se ve. */
+  .filterSelect { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 600; color: var(--muted); flex: none; }
+  .filterSelect select { font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--text); height: 34px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); box-sizing: border-box; width: 158px; min-width: 0; }
+  /* Botones de la barra (Limpiar, Columnas) a la misma altura que los selects. */
+  .projectFilterBar > .tinyButton, .projectColumnsControl > .tinyButton { height: 34px; }
   .projectFilterBar .countPill { margin-left: auto; }
   /* Menú "Columnas": botón + panel flotante con casillas. */
   .projectColumnsControl { position: relative; }
@@ -78,8 +82,6 @@
 
   /* Área solicitante: mini-formulario inline bajo el selector (crear/corregir
      sin salir del editor de la solicitud). */
-  .areaCatalogControls { margin: -6px 0 4px; }
-  .areaCatalogControls [data-area-fix] { font-size: 0.75rem; }
   .areaInlineForm { display: flex; flex-direction: column; gap: 8px; margin: -2px 0 8px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-muted); }
   .areaInlineForm input { width: 100%; box-sizing: border-box; }
   .areaInlineActions { display: flex; gap: 8px; flex-wrap: wrap; }

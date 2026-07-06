@@ -267,6 +267,18 @@ export class GestionProyectosStack extends Stack {
         mode: "assume",
         roleArn: "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader",
       },
+      {
+        id: "068657603409",
+        name: "aws-bdr-cta-analitica-mod-datos-desa",
+        mode: "assume",
+        roleArn: "arn:aws:iam::068657603409:role/gestion-proyectos-cost-reader",
+      },
+      {
+        id: "732517664745",
+        name: "aws-bdr-cta-analitica-mod-datos-prod",
+        mode: "assume",
+        roleArn: "arn:aws:iam::732517664745:role/gestion-proyectos-cost-reader",
+      },
     ];
     const assumeCostRoleArns = costAccounts
       .filter((a) => a.mode === "assume" && a.roleArn)

@@ -8,7 +8,7 @@ La gestión de proyectos y tareas se concentra en una pantalla de trabajo simple
 
 La pantalla funciona como una vista general de proyectos con sus personas y tareas relacionadas. El flujo principal permite:
 
-- Registrar persona rápido con nombre y apellido como campos mínimos.
+- Registrar persona rápido con el nombre como único campo obligatorio; el **apellido es opcional** (permite registrar por un solo nombre, p. ej. el nombre de un proveedor cuando la persona de contacto cambia). Un hint lo explica en el formulario.
 - Completar datos opcionales solo si el usuario los necesita: área, notas, vacaciones u observaciones.
 - Buscar proyectos y tareas desde un mismo input con alcance seleccionable: `Proyectos`, `Tareas` o ambos.
 - Buscar personas desde una búsqueda independiente en la franja `Personas registradas`.
