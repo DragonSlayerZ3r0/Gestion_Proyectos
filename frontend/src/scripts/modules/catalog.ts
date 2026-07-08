@@ -872,9 +872,11 @@ export function createCatalogModule(ctx) {
         return new Promise((resolve, reject) => {
           if (window.d3) { resolve(); return; }
           const s = document.createElement("script");
-          s.src = "https://unpkg.com/d3@7/dist/d3.min.js";
+          // Auto-hospedado en /vendor/ (d3 7.9.0): laptops corporativas con salida
+          // restringida solo alcanzan dominios de AWS — no usar CDNs externos.
+          s.src = "/vendor/d3.min.js";
           s.onload = resolve;
-          s.onerror = () => reject(new Error("No fue posible cargar D3 desde CDN."));
+          s.onerror = () => reject(new Error("No fue posible cargar D3."));
           document.head.appendChild(s);
         });
       }

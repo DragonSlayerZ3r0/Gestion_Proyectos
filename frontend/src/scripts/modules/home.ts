@@ -58,9 +58,11 @@ export function createHomeModule(ctx) {
         return new Promise((resolve, reject) => {
           if (window.Chart) { resolve(); return; }
           const s = document.createElement("script");
-          s.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js";
+          // Auto-hospedado en /vendor/ (chart.js 4.4.1): laptops corporativas con
+          // salida restringida solo alcanzan dominios de AWS — no usar CDNs externos.
+          s.src = "/vendor/chart.umd.js";
           s.onload = resolve;
-          s.onerror = () => reject(new Error("No fue posible cargar Chart.js desde CDN."));
+          s.onerror = () => reject(new Error("No fue posible cargar Chart.js."));
           document.head.appendChild(s);
         });
       }

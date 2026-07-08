@@ -12,11 +12,14 @@
 export function createDrawModule(ctx) {
   const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton } = ctx;
 
-  const EXCALIDRAW_VERSION = "0.17.6";
+  // AUTO-HOSPEDADO (2026-07-07): los archivos viven en /vendor/ del propio bucket
+  // del frontend (frontend/public/vendor/, versiones fijadas: React 18.2.0 +
+  // Excalidraw 0.17.6). NO usar CDNs externos (unpkg/jsdelivr): laptops
+  // corporativas con salida restringida solo alcanzan los dominios de AWS.
   const CDN = {
-    react: "https://unpkg.com/react@18.2.0/umd/react.production.min.js",
-    reactDom: "https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js",
-    excalidraw: `https://unpkg.com/@excalidraw/excalidraw@${EXCALIDRAW_VERSION}/dist/excalidraw.production.min.js`,
+    react: "/vendor/react.production.min.js",
+    reactDom: "/vendor/react-dom.production.min.js",
+    excalidraw: "/vendor/excalidraw/excalidraw.production.min.js",
   };
   let excaliLoadPromise = null; // carga única de los scripts por sesión
   let excaliRoot = null;        // React root montado (para desmontar limpio)
@@ -35,8 +38,9 @@ export function createDrawModule(ctx) {
   async function loadExcalidraw() {
     if (window.ExcalidrawLib) return;
     if (!excaliLoadPromise) {
-      // Fuentes/íconos del editor se sirven desde el mismo CDN del paquete.
-      window.EXCALIDRAW_ASSET_PATH = `https://unpkg.com/@excalidraw/excalidraw@${EXCALIDRAW_VERSION}/dist/`;
+      // Fuentes e idiomas del editor, también auto-hospedados: la ruta debe ser la
+      // carpeta que CONTIENE excalidraw-assets/ (equivalente al dist/ del paquete).
+      window.EXCALIDRAW_ASSET_PATH = "/vendor/excalidraw/";
       excaliLoadPromise = (async () => {
         await loadScript(CDN.react);
         await loadScript(CDN.reactDom);

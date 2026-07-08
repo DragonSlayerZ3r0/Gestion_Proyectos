@@ -2,6 +2,8 @@
   "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
     "baseUrl": "."
-  }
+  },
+  // public/vendor = librerías de terceros AUTO-HOSPEDADAS (React, Excalidraw, D3,
+  // Chart.js) — minificadas; `astro check` no debe analizarlas (revienta memoria).
+  "exclude": ["dist", "public/vendor"]
 }
-

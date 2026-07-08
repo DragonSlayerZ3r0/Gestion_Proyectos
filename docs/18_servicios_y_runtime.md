@@ -17,7 +17,7 @@ Documento para personal desarrollador. Complementa `docs/01_arquitectura_aws.md`
 |  CloudWatch | Logs y depuración del backend ejecutado en Lambda durante el desarrollo. | Automático | Log group `/aws/lambda/gestion-proyectos-dev-api` (retención 30 días) | — | —  |
 |  CDK (CloudFormation) | Toda la infraestructura como código, stack único, ambiente `dev`, cuenta `186281981036`. | `infra/lib/gestion-proyectos-stack.ts` | Stack `GestionProyectosDevStack` | Perfil SSO `gestion-proyectos-dev` | `npm run infra:deploy` falla si la sesión SSO expiró  |
 
-Contenido esperado del bucket frontend: `index.html` (la página única de Astro), `_astro/` (JS/CSS con hash del build), `icono_gp.png` y `config.json`. Este último se publica por separado con los valores runtime del ambiente; la sincronización utiliza `--exclude config.json` para preservarlo. Archivos como `.DS_Store` son residuos de macOS y pueden eliminarse.
+Contenido esperado del bucket frontend: `index.html` (la página única de Astro), `_astro/` (JS/CSS con hash del build), `icono_gp.png`, `vendor/` (librerías de terceros auto-hospedadas: D3, Chart.js, React y Excalidraw con sus assets — sin CDNs externos, hay laptops corporativas que solo alcanzan dominios de AWS) y `config.json`. Este último se publica por separado con los valores runtime del ambiente; la sincronización utiliza `--exclude config.json` para preservarlo. Archivos como `.DS_Store` son residuos de macOS y pueden eliminarse.
 
 Regla transversal: **el frontend accede a DynamoDB, Glue, Athena y S3 Data Lake exclusivamente mediante API Gateway y Lambda**. Lambda valida el permiso funcional en DynamoDB; los controles visibles reflejan el resultado.
 
