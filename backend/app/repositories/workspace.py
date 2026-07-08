@@ -15,6 +15,9 @@ class WorkspaceRepository(BaseRepository):
     def update_area(self, area_id: str, values: dict[str, Any]) -> dict[str, Any]:
         return self._update({"PK": f"AREA#{area_id}", "SK": "PROFILE"}, values)
 
+    def delete_area(self, area_id: str) -> None:
+        self._table.delete_item(Key={"PK": f"AREA#{area_id}", "SK": "PROFILE"})
+
     # ── Estados de solicitud (catálogo vivo: etiqueta + color) ────────────────
     def list_statuses(self) -> list[dict[str, Any]]:
         return self._query_entity_type("PROJECT_STATUS")
@@ -97,6 +100,24 @@ class WorkspaceRepository(BaseRepository):
 
     def delete_project_update(self, project_id: str, update_id: str) -> None:
         self._table.delete_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"UPDATE#{update_id}"})
+
+    # ── Adjuntos (archivos en S3 / queries inline) ────────────────────────────
+    def get_attachment(self, project_id: str, attachment_id: str) -> dict[str, Any] | None:
+        response = self._table.get_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"ATTACH#{attachment_id}"})
+        return response.get("Item")
+
+    def update_attachment(self, project_id: str, attachment_id: str, values: dict[str, Any]) -> dict[str, Any]:
+        return self._update({"PK": f"PROJECT#{project_id}", "SK": f"ATTACH#{attachment_id}"}, values)
+
+    def delete_attachment(self, project_id: str, attachment_id: str) -> None:
+        self._table.delete_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"ATTACH#{attachment_id}"})
+
+    def list_all_attachments(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("ATTACHMENT")
+
+    def list_project_attachments(self, project_id: str) -> list[dict[str, Any]]:
+        return self._query_all(
+            KeyConditionExpression=Key("PK").eq(f"PROJECT#{project_id}") & Key("SK").begins_with("ATTACH#"))
 
     # ── Hijos de TODOS los proyectos en un viaje por tipo (GSI byEntityType) ──
     # Evita el N+1 de get_workspace (3 consultas por proyecto); el servicio

@@ -52,7 +52,9 @@ PERSON
 PK = PERSON#<personId>
 SK = PROFILE
 
-AREA (área solicitante — catálogo vivo editable; las solicitudes guardan requestingAreaId)
+AREA (catálogo vivo de áreas, COMPARTIDO por "Área solicitante" y "Área destino";
+  las solicitudes guardan requestingAreaId y targetAreaId. Borrado protegido si
+  alguna solicitud la usa en cualquiera de los dos campos)
 PK = AREA#<areaId>
 SK = PROFILE
 

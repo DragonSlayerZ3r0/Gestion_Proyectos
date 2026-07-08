@@ -38,8 +38,6 @@ export function createHomeModule(ctx) {
         if (state.homeCostAccounts && state.homeCostAccounts.length) return state.homeCostAccounts;
         return [{ id: state.homeCostAccount, label: state.homeCostAccount }];
       }
-      const TASK_STATUS_LABELS = { pending: "Pendiente", in_progress: "En progreso", review: "En revisión", done: "Completada", sin_estado: "Sin estado" };
-      const PROJECT_STATUS_LABELS = { planned: "Planificado", active: "Activo", paused: "Pausado", closed: "Cerrado", sin_estado: "Sin estado" };
       const CHART_COLORS = ["#2f8f83", "#4f9ed8", "#e0a93b", "#9b6dd0", "#d96d6d", "#5cb85c", "#7a8a99", "#c97fb0"];
 
       // Sub-módulo del monitoreo de cargas (pestaña Data Lake). Inicio lo compone
@@ -152,25 +150,8 @@ export function createHomeModule(ctx) {
         const isAdmin = (state.profile?.user?.roles || []).includes("admin");
         const s = state.homeSummary;
 
-        const summaryBlock = state.homeSummaryError
-          ? `<article class="panel"><p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeSummaryError)}</p></article>`
-          : !s
-          ? `<article class="panel"><p class="catalogEmpty">Cargando resumen…</p></article>`
-          : `
-          <article class="panel homePanel">
-            <p class="eyebrow">Vista general</p>
-            <h2>Resumen operativo</h2>
-            <div class="homeStatsRow">
-              ${homeStatCard("Proyectos", s.projects.total)}
-              ${homeStatCard("Tareas", s.tasks.total)}
-              ${homeStatCard("Personas", s.people.total)}
-            </div>
-            <div class="homeChartsRow">
-              <div class="homeChartBox"><h3>Tareas por estado</h3><canvas id="homeTasksChart"></canvas></div>
-              <div class="homeChartBox"><h3>Proyectos por estado</h3><canvas id="homeProjectsChart"></canvas></div>
-            </div>
-          </article>`;
-
+        // La pestaña "Resumen" (operativo de solicitudes) se eliminó (2026-07-06):
+        // ese contenido es dominio de Solicitudes y vive allá como Tablero de avance.
         const catalogBlock = !s
           ? ""
           : `
@@ -199,7 +180,6 @@ export function createHomeModule(ctx) {
         const homeTabs = state.profile?.homeTabs;
         // Compatibilidad: si el perfil no trae homeTabs (cache previa), los dos
         // básicos on y los sensibles según rol (mismo default que el backend).
-        const canResumen = !homeTabs || homeTabs.includes("home_resumen");
         const canDatalake = !homeTabs || homeTabs.includes("home_datalake");
         const canFacturacion = homeTabs ? homeTabs.includes("home_facturacion") : isAdmin;
         const canAthena = homeTabs ? homeTabs.includes("home_athena") : isAdmin;
@@ -208,14 +188,14 @@ export function createHomeModule(ctx) {
           ? ""
           : `<article class="panel homePanel homeCostPanel" id="homeCostPanel">${costPanelInner()}</article>`;
         const tabs = [];
-        if (canResumen) tabs.push({ id: "resumen", label: "Resumen" });
         if (canDatalake) tabs.push({ id: "datalake", label: "Data Lake" });
         if (canFacturacion) tabs.push({ id: "facturacion", label: "Facturación" });
         if (canAthena) tabs.push({ id: "athena", label: "Athena" });
 
-        // Asegura que la pestaña activa exista entre las visibles.
+        // Asegura que la pestaña activa exista entre las visibles (incluye a los
+        // usuarios que tenían "resumen" activa antes de eliminarse esa pestaña).
         if (!tabs.some((t) => t.id === state.homeTab)) {
-          state.homeTab = tabs.length ? tabs[0].id : "resumen";
+          state.homeTab = tabs.length ? tabs[0].id : "datalake";
         }
         const tab = state.homeTab;
 
@@ -239,7 +219,7 @@ export function createHomeModule(ctx) {
             : catalogBlock;
           body = catalogPart + datalakeModule.sectionHtml();
         } else {
-          body = summaryBlock;
+          body = `<article class="panel"><p class="catalogEmpty">Selecciona una pestaña.</p></article>`;
         }
 
         const savedScroll = elements.contentPanel.scrollTop;
@@ -1387,28 +1367,8 @@ export function createHomeModule(ctx) {
       async function drawHomeCharts() {
         try { await loadChartJs(); } catch { return; }
         destroyHomeCharts();
-        const Chart = window.Chart;
-        const s = state.homeSummary;
-        if (s) {
-          const tEl = elements.contentPanel.querySelector("#homeTasksChart");
-          if (tEl) {
-            const entries = Object.entries(s.tasks.byStatus);
-            state.homeCharts.tasks = new Chart(tEl, {
-              type: "doughnut",
-              data: { labels: entries.map(([k]) => TASK_STATUS_LABELS[k] || k), datasets: [{ data: entries.map(([, v]) => v), backgroundColor: CHART_COLORS }] },
-              options: { plugins: { legend: { position: "bottom" } }, maintainAspectRatio: false },
-            });
-          }
-          const pEl = elements.contentPanel.querySelector("#homeProjectsChart");
-          if (pEl) {
-            const entries = Object.entries(s.projects.byStatus);
-            state.homeCharts.projects = new Chart(pEl, {
-              type: "bar",
-              data: { labels: entries.map(([k]) => PROJECT_STATUS_LABELS[k] || k), datasets: [{ data: entries.map(([, v]) => v), backgroundColor: CHART_COLORS[0] }] },
-              options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, maintainAspectRatio: false },
-            });
-          }
-        }
+        // Los gráficos del Resumen operativo (tareas/proyectos) se eliminaron con
+        // la pestaña Resumen; quedan los del Data Lake y los de costos.
         datalakeModule.drawChart();
         drawCostCharts();
       }

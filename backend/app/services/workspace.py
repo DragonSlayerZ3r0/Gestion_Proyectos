@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from core.errors import ValidationError  # re-exportado para compatibilidad
 from repositories.workspace import WorkspaceRepository
+from services.attachments import AttachmentService
 from services.name_directory import NameDirectory
 
 
@@ -62,15 +63,26 @@ class WorkspaceService:
             update = self._normalize_update(item)
             updates_by.setdefault(item.get("projectId", ""), []).append(update)
             all_updates.append(update)
+        # Adjuntos (archivos S3 + queries) agrupados por solicitud, mismo viaje único.
+        attach_service = AttachmentService(self._repository)
+        attachments_by: dict[str, list] = {}
+        all_attachments: list[dict[str, Any]] = []
+        for item in self._repository.list_all_attachments():
+            att = attach_service.normalize(item)
+            attachments_by.setdefault(item.get("projectId", ""), []).append(att)
+            all_attachments.append(att)
 
-        # Autor legible del seguimiento: se resuelve el correo (createdBy) a nombre
-        # una sola vez para todas las entradas (caché compartida con Athena). Sin
-        # autores, no se toca Identity Center ni la caché.
+        # Autor legible (createdBy correo → nombre): se resuelve UNA vez para
+        # seguimientos y adjuntos juntos (caché compartida con Athena). Sin autores,
+        # no se toca Identity Center ni la caché.
         authors = [u["createdBy"] for u in all_updates if u["createdBy"]]
+        authors += [a["createdBy"] for a in all_attachments if a["createdBy"]]
         if authors:
             names = NameDirectory().resolve(authors)
             for update in all_updates:
                 update["createdByName"] = names.get(update["createdBy"], "")
+            for att in all_attachments:
+                att["createdByName"] = names.get(att["createdBy"], "")
 
         for project in projects:
             project["members"] = members_by.get(project["id"], [])
@@ -80,6 +92,10 @@ class WorkspaceService:
             project["updates"] = sorted(
                 updates_by.get(project["id"], []),
                 key=lambda u: (u["date"], u["createdAt"]), reverse=True)
+            # Adjuntos: lo más reciente primero.
+            project["attachments"] = sorted(
+                attachments_by.get(project["id"], []),
+                key=lambda a: a["createdAt"], reverse=True)
 
         return {
             "areas": sorted((self._normalize_area(item) for item in self._repository.list_areas()),
@@ -142,6 +158,19 @@ class WorkspaceService:
             "updatedBy": identity["userId"]
         }
         return self._normalize_area(self._repository.update_area(area_id, values))
+
+    def delete_area(self, area_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        area_id = self._required_text({"areaId": area_id}, "areaId", "Área solicitante")
+        # Impedir y avisar (igual que estados): el catálogo es compartido por los
+        # campos "Área solicitante" y "Área destino" — se cuentan ambos usos.
+        in_use = sum(1 for p in self._repository.list_projects()
+                     if p.get("requestingAreaId") == area_id or p.get("targetAreaId") == area_id)
+        if in_use:
+            raise ValidationError(
+                f"No se puede eliminar: {in_use} solicitud(es) usan esta área "
+                "(como solicitante o destino). Reasígnalas antes de eliminarla.")
+        self._repository.delete_area(area_id)
+        return {"areaId": area_id, "removed": True}
 
     def _ensure_area_name_free(self, name: str, exclude_id: str = "") -> None:
         name_norm = self._norm_name(name)
@@ -246,20 +275,21 @@ class WorkspaceService:
         }
 
     def create_person(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        # Un SOLO campo de nombre (firstName): puede ser nombre, nombre y apellido,
+        # nombre completo o el nombre de un proveedor. lastName queda opcional/vacío
+        # (la UI ya no lo pide); fullName = lo que se escribió.
         first_name = self._required_text(payload, "firstName", "Nombre")
-        # Apellido OPCIONAL: permite registrar por un solo nombre (p. ej. el nombre
-        # de un proveedor cuando la persona de contacto cambia).
         last_name = self._optional_text(payload, "lastName")
         full_name = f"{first_name} {last_name}".strip()
-        # Evita duplicados accidentales (mismo nombre completo, ignorando
-        # mayúsculas/acentos). Si es un homónimo real, diferéncialo (segundo
-        # apellido, área) — mensaje claro en vez de registrar silenciosamente.
+        # Evita duplicados accidentales (mismo nombre, ignorando mayúsculas/acentos).
+        # Si es un homónimo real, diferéncialo — mensaje claro en vez de registrar
+        # silenciosamente.
         full_norm = self._norm_name(full_name)
         for existing in self._repository.list_people():
             if self._norm_name(existing.get("fullName", "")) == full_norm:
                 raise ValidationError(
                     f"Ya existe una persona registrada como \"{existing.get('fullName')}\". "
-                    "Si es otra persona con el mismo nombre, agrega un segundo apellido o el área para diferenciarla.")
+                    "Si es otra, agrega el apellido o el área para diferenciarla.")
         now = self._now()
         person_id = uuid4().hex
         item = {
@@ -295,8 +325,10 @@ class WorkspaceService:
             "status": self._valid_status(payload.get("status")),
             "requestType": self._allowed_optional(payload.get("requestType"), REQUEST_TYPES, "Tipo de la solicitud"),
             "requestingAreaId": self._valid_area_id(payload.get("requestingAreaId")),
+            "targetAreaId": self._valid_area_id(payload.get("targetAreaId")),
             "requestDate": self._optional_date(payload.get("requestDate"), "Fecha de solicitud"),
             "dueDate": self._optional_date(payload.get("dueDate"), "Fecha de entrega"),
+            "progress": self._optional_progress(payload.get("progress")),
             "ownerPersonId": self._optional_text(payload, "ownerPersonId"),
             "description": self._optional_text(payload, "description"),
             "createdAt": now,
@@ -368,10 +400,14 @@ class WorkspaceService:
             values["requestType"] = self._allowed_optional(payload["requestType"], REQUEST_TYPES, "Tipo de la solicitud")
         if "requestingAreaId" in payload:
             values["requestingAreaId"] = self._valid_area_id(payload["requestingAreaId"])
+        if "targetAreaId" in payload:
+            values["targetAreaId"] = self._valid_area_id(payload["targetAreaId"])
         if "requestDate" in payload:
             values["requestDate"] = self._optional_date(payload.get("requestDate"), "Fecha de solicitud")
         if "dueDate" in payload:
             values["dueDate"] = self._optional_date(payload.get("dueDate"), "Fecha de entrega")
+        if "progress" in payload:
+            values["progress"] = self._optional_progress(payload.get("progress"))
         if "ownerPersonId" in payload:
             values["ownerPersonId"] = self._optional_text(payload, "ownerPersonId")
 
@@ -425,6 +461,12 @@ class WorkspaceService:
 
     def delete_project(self, project_id: str, identity: dict[str, str]) -> dict[str, Any]:
         project_id = self._required_text({"projectId": project_id}, "projectId", "Proyecto")
+        # Borrar los binarios de S3 de sus adjuntos antes de eliminar los items
+        # (delete_project borra todos los hijos por PK, pero no toca S3).
+        attach_service = AttachmentService(self._repository)
+        for att in self._repository.list_project_attachments(project_id):
+            if att.get("kind") == "file" and att.get("storageKey"):
+                attach_service._delete_object(att["storageKey"])
         self._repository.delete_project(project_id)
         return {"projectId": project_id, "removed": True}
 
@@ -433,6 +475,21 @@ class WorkspaceService:
         task_id = self._required_text({"taskId": task_id}, "taskId", "Tarea")
         self._repository.delete_task(project_id, task_id)
         return {"projectId": project_id, "taskId": task_id, "removed": True}
+
+    def _optional_progress(self, value: Any) -> Any:
+        """% de avance MANUAL de la solicitud (0-100, entero); "" = sin definir.
+        Es la opinión del responsable (como en los informes ejecutivos); el
+        derivado de tareas se muestra aparte como sugerencia, no lo pisa."""
+        raw = str(value if value is not None else "").strip()
+        if raw == "":
+            return ""
+        try:
+            pct = int(raw)
+        except ValueError:
+            raise ValidationError("El % de avance debe ser un número entero entre 0 y 100.")
+        if pct < 0 or pct > 100:
+            raise ValidationError("El % de avance debe estar entre 0 y 100.")
+        return pct
 
     def _optional_date(self, value: Any, label: str) -> str:
         """Fecha opcional AAAA-MM-DD (la que envía <input type=date>); "" si viene vacía."""
@@ -598,14 +655,17 @@ class WorkspaceService:
             "status": item.get("status", ""),
             "requestType": item.get("requestType", ""),
             "requestingAreaId": item.get("requestingAreaId", ""),
+            "targetAreaId": item.get("targetAreaId", ""),
             "requestDate": item.get("requestDate", ""),
             "dueDate": item.get("dueDate", ""),
+            "progress": item.get("progress", "") if item.get("progress", "") == "" else int(item.get("progress")),
             "ownerPersonId": item.get("ownerPersonId", ""),
             "description": item.get("description", ""),
             "updatedAt": item.get("updatedAt", ""),
             "members": [],
             "tasks": [],
-            "updates": []
+            "updates": [],
+            "attachments": []
         }
 
     def _normalize_update(self, item: dict[str, Any]) -> dict[str, Any]:

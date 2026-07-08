@@ -10,6 +10,46 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-07 · estándar — Guardrail check:python ahora cubre TODO el árbol propio
+
+`check:python` compilaba con globs explícitos (`app/*.py`, `repositories/`, `services/`, `scripts/`) y **omitía `app/modules/` y `app/core/`**: un error de sintaxis en un archivo de rutas (p. ej. `workspace_routes.py`) pasaba `npm run check` sin avisar. Cambio: `python3 -m compileall -q -x '(_vendor|__pycache__)' backend/app backend/scripts` — recursivo (cualquier subpaquete futuro queda cubierto solo, no se vuelve a pudrir) excluyendo `_vendor/sqlglot` (terceros, no lo mantenemos). Validado: compila los 44 archivos propios, excluye los 177 de vendor, y una prueba negativa (archivo roto en `modules/`) sale con exit 1. Sigue siendo solo chequeo de sintaxis/compilación, no de runtime.
+
+## 2026-07-07 · incidente — Pestaña retirada (home_resumen) se colaba como módulo de menú
+
+Al quitar `home_resumen` de HOME_TABS (eliminación de la pestaña Resumen), los usuarios que ya tenían la fila `MODULE#home_resumen` guardada la vieron aparecer como entrada de navegación ("Inicio · Resumen") que renderizaba **andamiaje viejo** (`viewCopy` en app.ts: "Proyectos recientes / Validar el primer inicio de sesión con Cognito"). Causa: `_normalize_modules` excluía del menú solo las claves en `HOME_TAB_KEYS`; al salir de ahí, la clave dejó de filtrarse. Fix: (1) `RETIRED_HOME_TAB_KEYS = {"home_resumen"}` en el manifiesto; `_MENU_EXCLUDE_KEYS = HOME_TAB_KEYS | RETIRED` (backend excluye del menú tanto activas como retiradas, sin resolverla como pestaña funcional); (2) se **eliminó el andamiaje muerto** `viewCopy` + el render placeholder de app.ts (nadie lo usaba salvo claves desconocidas) — el fallback ahora muestra el Panel. Lección: al retirar una clave de menú/pestaña, seguir excluyéndola de la navegación (los datos por usuario persisten). Ver `docs/02`.
+
+## 2026-07-07 · decisión — Pruebas de humo automáticas: capacidad bajo demanda (opt-in)
+
+El usuario definió que las pruebas de humo automáticas (para atrapar regresiones de interacción que `npm run check` no ve) son una capacidad **opt-in**: se construyen/corren **solo cuando él lo pida explícitamente**; en cualquier otro caso, deploy normal (check + verificación en preview). Ningún agente debe agregarlas ni ejecutarlas por iniciativa propia. Plan al solicitarse: harness headless (jsdom/Playwright) sobre flujos críticos (CRUD de área/estado, cambio de vista, filtros/búsqueda), como `npm run check:smoke`. Documentado en AGENTS.md y memoria (`verificar-flujos-afectados`).
+
+## 2026-07-07 · estándar — Verificar los FLUJOS afectados (npm run check no atrapa interacción)
+
+Tras varios bugs que el usuario tuvo que cazar (todos compilaban y pasaban `npm run check`), se formalizó la regla: `npm run check` NO detecta regresiones de interacción/lógica. Parte de "terminado": al tocar lógica COMPARTIDA (helper/estado/render que usan varios flujos — máquinas de mostrar/ocultar formularios, cableado de catálogos, sets de claves del manifiesto), re-verificar en el preview CADA flujo que esa lógica controla (crear/editar/cancelar/borrar/"+Agregar nuevo…"/cambiar opción), no solo el que motivó el cambio. Quedó en AGENTS.md (definición de terminado) y en memoria (`verificar-flujos-afectados`, se recuerda cada sesión). Casos de origen: bug de "Agregar área/estado nuevo" y filtración de `home_resumen` (ambos 2026-07-07).
+
+## 2026-07-07 · decisión — Registro de persona con un solo campo de nombre
+
+El campo Apellido se eliminó de la UI (registro y edición): un único campo "Nombre" donde va nombre, nombre y apellido, nombre completo o proveedor. Frontend puro salvo un mensaje: `firstName` guarda lo que se escribe, `lastName` queda vacío (claves persistidas intactas; el backend ya trataba lastName como opcional). Al editar una persona antigua con apellido, el campo muestra su `fullName` completo. Ver `docs/08`.
+
+## 2026-07-07 · incidente — "Agregar área/estado nuevo" no abría el formulario
+
+Regresión del cambio "borrar dentro del flujo de edición": al mover Eliminar dentro del mini-formulario, la función `syncAreaButtons`/`syncStatusButtons` incluyó `if (!isRealX()) form.hidden = true`. Pero "+ Agregar…" tiene value `__new__` (no es un valor real) → el handler de change abría el formulario y el sync lo cerraba de inmediato. Fix: el sync SOLO togglea el lápiz; la apertura/cierre del formulario la manejan los handlers de change/cancel/guardar. Verificado en preview (elegir "Agregar…" deja el form abierto; elegir un área real vuelve a mostrar el lápiz). Lección: no mezclar visibilidad del formulario con la sincronización de botones.
+
+## 2026-07-07 · estándar — Borrado de catálogo dentro del flujo de edición (sin papelera visible)
+
+El usuario señaló que la papelera roja siempre visible junto a los selectores (área/estado) hacía ruido visual. Matiz al estándar icono/texto: **borrar un ítem de CATÁLOGO es una acción rara → vive dentro del mini-formulario de edición** (lápiz → formulario → botón "Eliminar X" en danger, con confirmación y protección backend), no como icono permanente. La papelera visible queda para ítems de fila donde borrar es trabajo diario. Aplicado a área solicitante/destino y estado; documentado en `docs/06` (estándar #5).
+
+## 2026-07-06 · decisión — Área destino en solicitudes (catálogo COMPARTIDO con área solicitante)
+
+Se agregó **Área destino** (`targetAreaId`: a quién va dirigido el trabajo). Decisión clave: **comparte el catálogo `AREA`** con Área solicitante en vez de crear uno aparte — las áreas de la organización son las mismas entidades; un catálogo por campo duplicaría nombres y correcciones. De paso se completó el CRUD de áreas con **eliminar** (faltaba): papelera inline en ambos campos, protegida en backend si alguna solicitud usa el área como solicitante O destino (mismo patrón impedir-y-avisar de estados). El cableado del catálogo se generalizó: crear/corregir/eliminar desde cualquiera de los dos selects actualiza ambos en el DOM sin re-render. Ver `docs/02`, `docs/04`, `docs/05`.
+
+## 2026-07-06 · estándar — Un filtro que aplica debe tener su control visible
+
+Detectado por el usuario en el Tablero de avance: la búsqueda de texto seguía filtrando el tablero pero su input estaba oculto (se buscaba "pendo" en Gestión y el Tablero mostraba "1 de 16" sin forma de ver ni quitar la búsqueda). Regla: **si un filtro aplica a una vista, su control debe estar visible en esa vista** — nunca un filtro invisible. Fix: el buscador + alcance ahora se muestran también en el Tablero; solo el formulario "Nuevo" y Personas quedan exclusivos de Gestión. Ver `docs/02`.
+
+## 2026-07-06 · decisión — Tablero de avance en Solicitudes; se elimina la pestaña Resumen del Panel
+
+El "Resumen operativo" del Panel (contadores + dona + barras de proyectos/tareas/personas) se eliminó: era dominio de Solicitudes metido en el módulo de infraestructura, estaba desactualizado (decía "Proyectos", color fijo por estado) y era decorativo (números sin acción). Se rechazó una primera propuesta de KPIs-filtro; el usuario pidió el formato de sus informes ejecutivos (barras de avance por iniciativa + "¿qué falta?/¿cuándo?" + estatus por estado, estilo PowerPoint/Excel). Resultado: **vistas "Gestión | Tablero de avance"** en Solicitudes con **filtros compartidos** (preparas el filtro en Gestión y presentas en el Tablero; se conservan al alternar). El % de avance es **manual** (`progress` en PROJECT, 0-100) con **auto-sugerencia derivada de tareas** (si el campo está vacío el tablero usa completadas/total; el editor muestra el cálculo junto al campo) — se eligió manual porque es la práctica actual de los informes y casi ninguna solicitud tiene tareas aún. Nombre "Gestión" elegido sobre "Listado" (comunica el trabajo, no la forma). `home_resumen` fuera de HOME_TABS y DEFAULT_NEW_USER_KEYS (la clave por usuario queda inerte); Panel abre en Data Lake. Ver `docs/02`.
+
 ## 2026-07-06 · decisión — Facturación: +2 cuentas (mod-datos desa/prod)
 
 Se agregaron al dashboard de Facturación las cuentas `068657603409` (aws-bdr-cta-analitica-mod-datos-desa) y `732517664745` (aws-bdr-cta-analitica-mod-datos-prod), ambas `mode:"assume"`. Proceso completo ejecutado: (1) se creó el rol `gestion-proyectos-cost-reader` en cada cuenta con `grant-hub-cost-explorer.sh` usando el acceso SSO admin del usuario (permission set `aws-ps-admin-analitica-bdr`, que tiene en ambas cuentas) — el rol confía en la Lambda `186281981036:role/gestion-proyectos-dev-api-role` y otorga CE+CloudTrail; (2) se agregaron a `costAccounts` en el CDK; (3) `cdk deploy`. Verificado end-to-end contra AWS real: COST_ACCOUNTS de la Lambda lista las 4, el rol de la Lambda puede AssumeRole los 2 nuevos, y CE responde con datos (mod-desa $1.23, mod-prod $0.09 el mes en curso). Fix cosmético en el script (el echo final imprimía siempre el id del hub). Ver `docs/02` (sección "Cuentas del selector").

@@ -2,7 +2,7 @@ import os
 from typing import Any
 
 from core.errors import UserNotConfiguredError  # re-exportado para compatibilidad
-from modules.manifest import ADMIN_DEFAULT_HOME_TABS, HOME_TAB_KEYS, MODULES
+from modules.manifest import ADMIN_DEFAULT_HOME_TABS, HOME_TAB_KEYS, MODULES, RETIRED_HOME_TAB_KEYS
 from repositories.users import UsersRepository
 
 
@@ -17,6 +17,9 @@ _CURRENT_LABELS = {m["key"]: m["label"] for m in MODULES}
 MODULE_ORDER = {module["key"]: index for index, module in enumerate(DEFAULT_MODULES)}
 
 _HOME_TAB_KEYS = set(HOME_TAB_KEYS)
+# Claves excluidas del MENÚ (pestañas activas + retiradas): las retiradas ya no
+# son pestañas, pero siguen sin ser entradas de navegación.
+_MENU_EXCLUDE_KEYS = _HOME_TAB_KEYS | set(RETIRED_HOME_TAB_KEYS)
 
 __all__ = ["UserService", "UserNotConfiguredError", "DEFAULT_MODULES", "MODULE_ORDER"]
 
@@ -51,11 +54,12 @@ class UserService:
         if not items:
             return DEFAULT_MODULES
 
-        # Las pestañas de Inicio se excluyen del menú: van en `homeTabs`.
+        # Las pestañas de Inicio (activas o retiradas) se excluyen del menú: las
+        # activas van en `homeTabs`; las retiradas quedan inertes.
         modules = []
         for item in items:
             key = item["moduleKey"]
-            if key in _HOME_TAB_KEYS:
+            if key in _MENU_EXCLUDE_KEYS:
                 continue
             if item.get("enabled", False):
                 modules.append({

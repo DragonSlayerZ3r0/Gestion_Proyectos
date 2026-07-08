@@ -20,49 +20,6 @@
 
       const moduleOrder = ["projects", "home", "catalog", "chat", "admin"];
 
-      const viewCopy = {
-        home: {
-          title: "Panel",
-          eyebrow: "Vista general",
-          body: "Resumen operativo de proyectos, tareas y accesos habilitados.",
-          metricLabel: "Elementos activos",
-          metricValue: "5",
-          items: ["Proyectos recientes", "Tareas asignadas", "Accesos disponibles"]
-        },
-        projects: {
-          title: "Solicitudes",
-          eyebrow: "Gestión operativa",
-          body: "Mesa de trabajo para registrar personas, crear proyectos y crear tareas sin cambiar de pantalla.",
-          metricLabel: "Vista única",
-          metricValue: "1",
-          items: ["Personas registradas", "Proyectos activos", "Tareas por estado"]
-        },
-        tasks: {
-          title: "Tareas",
-          eyebrow: "Seguimiento",
-          body: "Seguimiento simple de tareas por estado, prioridad y responsable.",
-          metricLabel: "Estados base",
-          metricValue: "4",
-          items: ["Pendiente", "En progreso", "En revisión", "Completada"]
-        },
-        catalog: {
-          title: "Catálogo",
-          eyebrow: "Data Lake",
-          body: "Exploración controlada de Glue Catalog con contexto funcional.",
-          metricLabel: "Acceso",
-          metricValue: "Controlado",
-          items: ["Bases permitidas", "Tablas documentadas", "Preview limitado"]
-        },
-        admin: {
-          title: "Administración",
-          eyebrow: "Gobierno funcional",
-          body: "Gestión inicial de usuarios, módulos habilitados y auditoría.",
-          metricLabel: "Controles",
-          metricValue: "3",
-          items: ["Usuarios funcionales", "Módulos habilitados", "Auditoría"]
-        }
-      };
-
       const state = {
         config: null,
         authClient: null,
@@ -83,11 +40,17 @@
         projectSearch: "",
         personSearch: "",
         projectSearchScope: "all",  // alcance de la búsqueda: "all" | "projects" | "tasks"
+        workspaceView: "manage",    // vista de Solicitudes: "manage" (Gestión) | "board" (Tablero de avance)
+        boardExpanded: null,        // solicitud expandida en el tablero (qué falta / cuándo)
         expandedBoardProjectId: null,
         peopleSectionOpen: false,  // sección "Personas registradas" colapsada por defecto
         projectSort: null,         // orden de la tabla de solicitudes {key, dir}; null = orden del backend
         updateEditing: null,    // {projectId, updateId} entrada de seguimiento en edición
         updatesExpanded: {},    // por projectId: true = mostrar todo el seguimiento (no solo lo último)
+        attachQueryFor: null,   // projectId con el formulario "+ Query" abierto (o null)
+        attachUploading: {},    // por projectId: true mientras sube un archivo
+        attachError: {},        // por projectId: mensaje de error de la última subida
+        attachNoteFor: null,    // "projectId:attachmentId" con el form "+ Nueva nota" abierto
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
@@ -858,44 +821,11 @@
           return;
         }
 
-        const copy = viewCopy[moduleKey] || viewCopy.home;
-        const items = copy.items.map((item) => `<li>${item}</li>`).join("");
-        elements.statusPanel.hidden = true;
-        elements.contentPanel.hidden = false;
-        elements.contentPanel.className = "contentGrid";
-        elements.viewTitle.textContent = copy.title;
-        elements.contentPanel.innerHTML = `
-          <article class="panel modulePanel">
-            <p class="eyebrow">${copy.eyebrow}</p>
-            <div class="panelHeader">
-              <div>
-                <h2>${copy.title}</h2>
-                <p>${copy.body}</p>
-              </div>
-              <div class="metric">
-                <strong>${copy.metricValue}</strong>
-                <span>${copy.metricLabel}</span>
-              </div>
-            </div>
-            <ul class="workList">${items}</ul>
-          </article>
-          <article class="panel profilePanel">
-            <h2>Perfil</h2>
-            <dl>
-              <div><dt>Usuario</dt><dd>${state.profile.user.email}</dd></div>
-              <div><dt>Perfiles</dt><dd>${state.profile.user.roles.join(", ")}</dd></div>
-              <div><dt>Ambiente</dt><dd>${state.profile.environment}</dd></div>
-            </dl>
-          </article>
-          <article class="panel actionPanel">
-            <h2>Siguientes acciones</h2>
-            <ul class="workList">
-              <li>Validar el primer inicio de sesión con Cognito.</li>
-              <li>Confirmar módulos visibles según permisos.</li>
-              <li>Priorizar el primer flujo operativo.</li>
-            </ul>
-          </article>
-        `;
+        // Clave desconocida (p. ej. una pestaña retirada que quedó en datos viejos).
+        // El backend ya la excluye del menú y renderNav resetea el módulo activo, así
+        // que esto casi nunca ocurre; como red de seguridad se muestra el Panel en
+        // vez de renderizar andamiaje inexistente.
+        homeModule.render();
       }
 
 

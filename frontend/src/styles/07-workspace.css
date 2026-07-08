@@ -14,6 +14,45 @@
   /* Botones de la barra (Limpiar, Columnas) a la misma altura que los selects. */
   .projectFilterBar > .tinyButton, .projectColumnsControl > .tinyButton { height: 34px; }
   .projectFilterBar .countPill { margin-left: auto; }
+
+  /* ── Vistas de Solicitudes: Gestión | Tablero de avance ─────────────────── */
+  .workspaceHeroTop { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  .wsViewToggle { flex: none; }
+
+  /* Tablero de avance (informe ejecutivo): estatus por estado + barras por área. */
+  .boardCounts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .boardCount { background: var(--panel-soft); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; min-width: 92px; }
+  .boardCountLabel { display: inline-block; font-size: 0.72rem; font-weight: 700; border-radius: 999px; }
+  .boardCountLabel[class*="statusTone-"] { padding: 1px 8px; border: 1px solid transparent; }
+  .boardCountLabel:not([class*="statusTone-"]) { color: var(--muted); }
+  .boardCountN { display: block; font-size: 1.3rem; font-weight: 700; color: var(--text); margin-top: 2px; }
+
+  .boardGroup { margin-bottom: 14px; }
+  .boardGroupTitle { margin: 0 0 6px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); }
+  .boardRow { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; transition: border-color 120ms ease; }
+  .boardRow:hover, .boardRow.open { border-color: var(--line-strong); }
+  .boardRowGrid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) 56px; gap: 14px; align-items: center; }
+  .boardRowInfo { min-width: 0; }
+  .boardRowName { display: block; font-weight: 700; font-size: 0.9rem; color: #23333a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .boardRowMeta { font-size: 0.76rem; color: var(--muted); }
+  .boardDone { color: var(--accent-strong); font-weight: 650; }
+  /* Barra 0-100% con marcas cada 10% (formato familiar de los informes en Excel). */
+  .boardBar { position: relative; height: 18px; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .boardBar.empty { background: repeating-linear-gradient(45deg, var(--surface-muted), var(--surface-muted) 6px, var(--panel) 6px, var(--panel) 12px); }
+  .boardFill { height: 100%; background: #5dcaa5; }
+  .boardFill.done { background: var(--accent); }
+  .boardTick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+  .boardPct { font-size: 0.9rem; font-weight: 700; text-align: right; }
+  .boardPct.done { color: var(--accent-strong); }
+
+  .boardDetail { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .boardDetailHead, .boardDetailRow { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) minmax(0, 0.7fr); gap: 12px; padding: 3px 2px; }
+  .boardDetailHead { font-size: 0.7rem; font-weight: 700; color: var(--muted); }
+  .boardDetailRow { font-size: 0.82rem; color: var(--text-soft); }
+  .boardDetailName { font-weight: 650; }
+  .boardDetailNote { margin: 8px 0 0; font-size: 0.8rem; color: var(--muted); }
+  .boardDetailNote.ok { color: var(--accent-strong); }
+  .boardHint { margin: 4px 2px 6px; font-size: 0.74rem; color: var(--muted); }
   /* Menú "Columnas": botón + panel flotante con casillas. */
   .projectColumnsControl { position: relative; }
   .columnsMenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 200px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(15, 31, 38, 0.14); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
@@ -22,6 +61,18 @@
   .columnsMenuItem:hover { background: var(--surface-muted); }
   .columnsMenuItem.disabled { color: var(--muted); cursor: default; }
   .columnsMenu .tinyButton { margin-top: 4px; }
+  /* Popover "Filtros": mismo cascarón que Columnas, con las dimensiones apiladas
+     a ancho completo. El badge muestra cuántas dimensiones están activas. */
+  .projectFilterControl { position: relative; flex: none; }
+  .filterBadge { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-size: 0.68rem; font-weight: 700; line-height: 1; }
+  .filtersMenu { min-width: 220px; gap: 10px; }
+  .filtersMenu .filterSelect { width: 100%; flex: none; }
+  .filtersMenu .filterSelect select { width: 100%; }
+  /* Chips de filtros activos: visibles en la barra, removibles con su ×. */
+  .activeFilterChip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border-radius: 14px; background: var(--surface-muted); border: 1px solid var(--line); font-size: 0.78rem; color: var(--text); }
+  .activeFilterChipText strong { font-weight: 700; color: var(--muted); }
+  .activeFilterChipRemove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: none; border-radius: 50%; background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; cursor: pointer; }
+  .activeFilterChipRemove:hover { background: var(--line); color: var(--text); }
   /* Listados grandes: altura máxima (~11 filas) con scroll interno y encabezado
      fijo — la página no crece infinita; búsqueda y filtros reducen el conjunto. */
   .projectTableWrap { overflow: auto; -webkit-overflow-scrolling: touch; max-height: 480px; }
@@ -55,6 +106,38 @@
   .projActivityDate { font-weight: 700; color: var(--accent-strong); }
   .projectTableEmpty { padding: 14px 4px; }
 
+  /* ── Adjuntos ─────────────────────────────────────────────────────────────
+     Franja índice en el encabezado del detalle: junta todos los adjuntos de la
+     solicitud (archivos S3 + queries) con su etiqueta de origen; zona para
+     arrastrar/pegar y crear queries. Mismo look de bloque que Seguimiento. */
+  .attachBlock { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); padding: 12px; }
+  .attachGrid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .attachItem { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 4px 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 0.8rem; }
+  .attachItem.query { background: var(--surface-muted); }
+  .attachOpen { display: inline-flex; align-items: center; gap: 6px; min-width: 0; border: none; background: transparent; font: inherit; color: var(--text); cursor: pointer; padding: 2px 2px; }
+  .attachOpen:hover { color: var(--accent-strong); }
+  .attachIcon { flex: none; font-size: 0.9rem; line-height: 1; }
+  .attachName { min-width: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Selector "Relacionar con" por adjunto (General / seguimiento / + Nueva nota). */
+  .attachRelate { flex: none; max-width: 200px; font: inherit; font-size: 0.72rem; color: var(--muted); background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; padding: 2px 4px; cursor: pointer; }
+  .attachItem .iconTinyButton { flex: none; }
+  /* Zona para arrastrar/pegar + acciones de alta. */
+  .attachDropzone { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--panel); }
+  .attachDropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
+  .attachDropHint { font-size: 0.78rem; color: var(--muted); }
+  .attachAddActions { display: flex; gap: 8px; }
+  .attachFileBtn { cursor: pointer; }
+  .attachQueryForm, .attachNoteForm { margin-top: 10px; flex-direction: column; align-items: stretch; gap: 8px; }
+  .attachQueryForm textarea { font: inherit; font-size: 0.86rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; resize: vertical; }
+  .attachNoteForm input { font: inherit; font-size: 0.86rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; }
+  .attachStatus { margin-top: 8px; font-size: 0.8rem; color: var(--muted); }
+  .attachStatus.error { color: var(--danger); }
+  /* Chips SOLO-vista de adjuntos DENTRO de una entrada de seguimiento (contexto);
+     se agregan/relacionan desde la franja, aquí solo se abren. */
+  .attachInline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+  .attachChip { display: inline-flex; align-items: center; gap: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font: inherit; font-size: 0.74rem; color: var(--text); cursor: pointer; }
+  .attachChip:hover { color: var(--accent-strong); border-color: var(--accent); }
+
   /* Responsive de la tabla de Solicitudes (va DESPUÉS de las reglas base para
      poder sobreescribirlas en pantallas chicas). */
   @media (max-width: 780px) {
@@ -74,14 +157,20 @@
     /* La tabla conserva sus anchos (arrastrables) y se desplaza de lado dentro de
        su contenedor; la página no se rompe. Algo menos alta para ver el detalle. */
     .projectTableWrap { max-height: 62vh; }
+    /* Tablero de avance en teléfono: nombre arriba, barra a lo ancho, % al lado. */
+    .boardRowGrid { grid-template-columns: minmax(0, 1fr) 48px; }
+    .boardRowInfo { grid-column: 1 / -1; }
+    .boardDetailHead, .boardDetailRow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .boardDetailHead span:not(:first-child) { display: none; }
   }
 
   .projectsEmptyCta { text-align: center; padding: 40px 20px; }
   .projectsEmptyCta h3 { margin: 0 0 6px; }
   .projectsEmptyCta p { margin: 0 0 16px; color: var(--muted); }
 
-  /* Área solicitante: mini-formulario inline bajo el selector (crear/corregir
-     sin salir del editor de la solicitud). */
+  /* Campos de área (solicitante/destino, catálogo compartido): selector con
+     acciones inline + mini-formulario para crear/corregir sin salir del editor. */
+  .areaField { display: grid; gap: 9px; min-width: 0; }
   .areaInlineForm { display: flex; flex-direction: column; gap: 8px; margin: -2px 0 8px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-muted); }
   .areaInlineForm input { width: 100%; box-sizing: border-box; }
   .areaInlineActions { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -27,8 +27,10 @@ MODULE_KEYS = [m["key"] for m in MODULES]
 # frontend las consume desde el campo `homeTabs` de /api/me. Facturación y
 # Athena son asignables desde Administración; si un usuario nunca fue
 # configurado con esas claves, heredan el comportamiento previo (solo admins).
+# 2026-07-06: la pestaña "Resumen" (home_resumen) se ELIMINÓ — su contenido era
+# dominio de Solicitudes y ahora vive allá como "Tablero de avance". La clave
+# home_resumen guardada por usuario queda inerte (regla: claves nunca se borran).
 HOME_TABS = [
-    {"key": "home_resumen", "label": "Panel · Resumen"},
     {"key": "home_datalake", "label": "Panel · Data Lake"},
     {"key": "home_facturacion", "label": "Panel · Facturación"},
     {"key": "home_athena", "label": "Panel · Athena"},
@@ -37,6 +39,12 @@ HOME_TABS = [
 # Pestañas cuyo default (sin configurar) es solo-admin, por compatibilidad con
 # el comportamiento anterior a que fueran asignables.
 ADMIN_DEFAULT_HOME_TABS = {"home_facturacion", "home_athena"}
+
+# Pestañas de Inicio RETIRADAS: ya no existen, pero usuarios previos las tienen
+# guardadas como fila MODULE#. Se siguen tratando como pestañas de Inicio SOLO
+# para EXCLUIRLAS del menú (si no, se colarían como módulo de navegación y
+# renderizarían andamiaje viejo). No se resuelven como pestañas funcionales.
+RETIRED_HOME_TAB_KEYS = {"home_resumen"}
 
 HOME_TAB_KEYS = [t["key"] for t in HOME_TABS]
 
@@ -52,7 +60,7 @@ _MERGED_AWAY = {"tasks"}   # ya viven dentro del grupo projects
 
 # Claves premarcadas en el formulario "Nuevo usuario". Facturación/Athena NO
 # están: son datos sensibles y asignarlas es decisión explícita del admin.
-DEFAULT_NEW_USER_KEYS = ["home", "home_resumen", "home_datalake", "catalog"]
+DEFAULT_NEW_USER_KEYS = ["home", "home_datalake", "catalog"]
 
 
 def admin_module_groups() -> list[dict]:

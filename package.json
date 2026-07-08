@@ -7,7 +7,7 @@
     "dev": "npm run dev -w frontend",
     "infra:synth": "npm run synth -w infra",
     "infra:deploy": "npm run deploy -w infra",
-    "check:python": "PYTHONPYCACHEPREFIX=/private/tmp/gestion-proyectos-pycache python3 -m py_compile backend/app/*.py backend/app/repositories/*.py backend/app/services/*.py backend/scripts/*.py",
+    "check:python": "PYTHONPYCACHEPREFIX=/private/tmp/gestion-proyectos-pycache python3 -m compileall -q -x '(_vendor|__pycache__)' backend/app backend/scripts",
     "check": "npm run build && npm run check:python && npm run check:dynamo && npm run check:css && npm run infra:synth",
     "check:dynamo": "bash scripts/check-dynamo-pagination.sh",
     "check:css": "bash scripts/check-css-tokens.sh"

@@ -90,6 +90,28 @@ export class GestionProyectosStack extends Stack {
       ]
     });
 
+    // ── Bucket de almacenamiento COMPARTIDO (adjuntos de las apps) ─────────────
+    // Datos privados de usuario (pantallazos, pdf, csv) — NUNCA en el bucket del
+    // frontend (público vía CloudFront y con `s3 sync --delete` en cada deploy).
+    // Un solo bucket por cuenta+ambiente, con un PREFIJO por aplicación
+    // (`gestion-proyectos/…`); el rol de cada app se acota por IAM a su prefijo.
+    // La subida es directa desde el navegador con URL prefirmada → CORS al origen
+    // de CloudFront. RETAIN: los archivos del usuario sobreviven a un destroy.
+    const ATTACHMENTS_PREFIX = "gestion-proyectos/";
+    const attachmentsBucket = new s3.Bucket(this, "AttachmentsBucket", {
+      bucketName: `gad-storage-${props.envName}-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      removalPolicy: RemovalPolicy.RETAIN,
+      cors: [{
+        allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+        allowedOrigins: [`https://${distribution.distributionDomainName}`],
+        allowedHeaders: ["*"],
+        maxAge: 3000
+      }]
+    });
+
     const callbackUrls = [
       "http://localhost:4321/",
       `https://${distribution.distributionDomainName}/`
@@ -364,7 +386,10 @@ export class GestionProyectosStack extends Stack {
         MAIN_TABLE_NAME: table.tableName,
         DEFAULT_MODULES: MODULES.join(","),
         // Fuente única de cuentas de costos (ver costAccounts arriba).
-        COST_ACCOUNTS: JSON.stringify(costAccounts)
+        COST_ACCOUNTS: JSON.stringify(costAccounts),
+        // Almacenamiento de adjuntos (bucket compartido + prefijo de esta app).
+        ATTACHMENTS_BUCKET: attachmentsBucket.bucketName,
+        ATTACHMENTS_PREFIX
       }
     });
 
@@ -372,6 +397,9 @@ export class GestionProyectosStack extends Stack {
     // importado (prod) este permiso lo provee el admin en el rol pre-creado.
     if (ownedRole) {
       table.grantReadWriteData(ownedRole);
+      // Adjuntos: Get/Put/Delete ACOTADO al prefijo de esta app (una app no puede
+      // leer los adjuntos de otra). La Lambda firma las URLs con estos permisos.
+      attachmentsBucket.grantReadWrite(ownedRole, `${ATTACHMENTS_PREFIX}*`);
     }
 
     const httpApi = new apigwv2.HttpApi(this, "HttpApi", {
@@ -442,6 +470,9 @@ export class GestionProyectosStack extends Stack {
     });
     new CfnOutput(this, "FrontendBucketName", {
       value: frontendBucket.bucketName
+    });
+    new CfnOutput(this, "AttachmentsBucketName", {
+      value: attachmentsBucket.bucketName
     });
     new CfnOutput(this, "DistributionId", {
       value: distribution.distributionId
