@@ -308,18 +308,54 @@ export function createDrawModule(ctx) {
       return;
     }
     unmountEditor();
-    if (!state.drawData && !state.drawError) {
+    // La lista se REFRESCA en cada entrada (al abrir el módulo o volver del
+    // editor): las INVITACIONES pendientes llegan aquí — con la carga única
+    // cacheada de antes, un invitado que ya había visitado Pizarra no veía la
+    // invitación hasta recargar la página completa (bug 2026-07-08).
+    const firstLoad = !state.drawData;
+    if (firstLoad && !state.drawError) {
       elements.contentPanel.innerHTML = `<section class="panel"><p class="emptyText">Cargando pizarras…</p></section>`;
+    } else {
+      renderList(); // pinta lo que hay YA; lo fresco repinta al llegar (sin "Cargando")
+    }
+    try {
+      const payload = await apiRequest("api/draw");
+      state.drawData = payload.data;
+      state.drawError = "";
+    } catch (error) {
+      if (firstLoad) state.drawError = error.message; // con datos previos, se conservan
+    }
+    // Solo repintar si el usuario sigue en la LISTA de Pizarra (pudo navegar
+    // a otro módulo o abrir una pizarra mientras cargaba).
+    startListPoll();
+    if (state.activeModule !== "draw" || state.drawView === "editor") return;
+    renderList();
+  }
+
+  // Sondeo de la lista mientras el usuario está PARADO en ella: las invitaciones
+  // aparecen solas (~10 s) sin refrescar la página. Barato y educado: solo corre
+  // con el módulo activo en vista lista y la pestaña visible, y únicamente
+  // repinta si algo cambió (comparación por JSON — no molesta al que escribe).
+  let listPollTimer = null;
+  function startListPoll() {
+    if (listPollTimer) return;
+    listPollTimer = window.setInterval(async () => {
+      if (state.activeModule !== "draw" || state.drawView === "editor" || document.hidden) return;
       try {
         const payload = await apiRequest("api/draw");
+        if (JSON.stringify(payload.data) === JSON.stringify(state.drawData)) return;
         state.drawData = payload.data;
-      } catch (error) {
-        state.drawError = error.message;
-      }
-      // Solo repintar si el usuario sigue en Pizarra (pudo navegar a otro módulo).
-      if (state.activeModule !== "draw") return;
-    }
-    renderList();
+        if (state.activeModule !== "draw" || state.drawView === "editor") return;
+        // Preservar lo tecleado en "Nueva pizarra" si el repintado llega justo ahí.
+        const input = document.querySelector("#drawCreateForm input[name='name']");
+        const draft = input && document.activeElement === input ? input.value : null;
+        renderList();
+        if (draft !== null) {
+          const fresh = document.querySelector("#drawCreateForm input[name='name']");
+          if (fresh) { fresh.value = draft; fresh.focus(); }
+        }
+      } catch {}
+    }, 10000);
   }
 
   function renderList() {
