@@ -1,10 +1,16 @@
 # Estado de implementación
 
-## Últimos avances (2026-07-07: adjuntos, Pizarra, filtros)
+## Últimos avances (2026-07-07/08: adjuntos, Pizarra, filtros, Personal, vendor)
+
+- **Pizarra: colaboración EN VIVO** (2026-07-08): varios usuarios editan el mismo tablero a la vez (cursores con nombre, presencia "N en vivo", autoguardado). API Gateway **WebSocket** serverless `wss://6nb9mm3y1d.execute-api.us-east-1.amazonaws.com/dev` (misma Lambda, ramifica por routeKey; conexiones en Dynamo con TTL; token por query param validado con GetUser). Desplegado en dev; rechazos 400/401 verificados en vivo. Ver `docs/02`.
+- **Personal** (2026-07-08): ausencias del equipo (vacaciones/permiso/incapacidad) + saldo simple por año; vista desde el **menú del usuario** (no módulo); ver = usuario configurado, editar = solo admin. Desplegado en dev. Ver `docs/02`.
+- **Vendor auto-hospedado** (2026-07-07): D3, Chart.js, React y Excalidraw se sirven desde `/vendor/` del bucket del frontend — sin CDNs externos. Ver bitácora.
+
+## Avances de 2026-07-07 (adjuntos, Pizarra, filtros)
 
 - **Adjuntos de solicitudes**: archivos (pantallazos, pdf, csv…) y queries de texto por solicitud. Bucket S3 compartido `gad-storage-dev-186281981036` (privado, RETAIN, prefijo `gestion-proyectos/`, IAM acotado) + presigned PUT/GET; items `ATTACHMENT` en Dynamo; franja "Adjuntos" con selector "Relacionar con" (General / seguimiento / + Nueva nota). Desplegado en dev. Ver `docs/08`.
 - **Módulo Pizarra** (`draw`): lienzo Excalidraw (unpkg bajo demanda), compartir selectivo con aceptación, escenas en S3 bajo `drawings/`. Desplegado en dev; se asigna por usuario en Administración. Ver `docs/02`.
-- **Filtros de Solicitudes**: popover `Filtros ▾` con badge + chips removibles; nuevo filtro y columna "Área destino" (columna oculta por defecto). Ver `docs/06`.
+- **Filtros de Solicitudes**: popover `Filtros ▾` con badge + chips removibles; nuevo filtro y columna "Grupo de trabajo" (antes "Área destino"; `targetAreaId`, columna oculta por defecto). Ver `docs/06`.
 - **Guardrail**: `check:python` ahora compila recursivo todo `backend/app` + `backend/scripts` (excluye `_vendor`) — antes omitía `modules/` y `core/`.
 
 ## Avances previos (monitoreo de cargas + mejoras de Inicio)
@@ -69,6 +75,7 @@ Sirve como trazabilidad y no define pendientes vigentes:
 | Stack | `GestionProyectosDevStack` |
 | Frontend URL | `https://d269paz1z7q1g0.cloudfront.net/` |
 | API URL | `https://63ibnl13da.execute-api.us-east-1.amazonaws.com/` |
+| WebSocket URL (Pizarra en vivo) | `wss://6nb9mm3y1d.execute-api.us-east-1.amazonaws.com/dev` (API `gestion-proyectos-dev-draw-ws`) |
 | S3 frontend bucket | `gestion-proyectos-dev-frontend-186281981036` |
 | S3 storage bucket (adjuntos + pizarras) | `gad-storage-dev-186281981036` — privado total, RETAIN, compartible entre apps por prefijo (`gestion-proyectos/`); IAM de la Lambda acotado al prefijo; CORS PUT/GET/HEAD solo desde el origen CloudFront |
 | CloudFront distribution | `E2K3CA110228B1` |
@@ -78,7 +85,7 @@ Sirve como trazabilidad y no define pendientes vigentes:
 | DynamoDB table | `gestion-proyectos-dev-main` |
 | Lambda API | `gestion-proyectos-dev-api` |
 | Rol de ejecución Lambda | `gestion-proyectos-dev-api-role` (ARN `arn:aws:iam::186281981036:role/gestion-proyectos-dev-api-role`), nombre estable definido en CDK y verificado en AWS el 2026-06-26; usar este ARN para grants externos (S3 cross-account, Lake Formation) |
-| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) · S3 RW sobre `gad-storage-dev-…/gestion-proyectos/*` (adjuntos y pizarras, acotado al prefijo) |
+| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) · S3 RW sobre `gad-storage-dev-…/gestion-proyectos/*` (adjuntos y pizarras, acotado al prefijo) · `execute-api:ManageConnections` sobre la API WebSocket (empujar mensajes a la sala) |
 | Usuario inicial | `usr041100@banrural.com.gt` |
 
 ## Recursos definidos por CDK

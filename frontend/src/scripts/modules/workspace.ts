@@ -9,7 +9,7 @@ export function createWorkspaceModule(ctx) {
     { key: "name", label: "Solicitud", always: true, width: 240 },
     { key: "type", label: "Tipo", width: 90 },
     { key: "area", label: "Área solicitante", width: 140 },
-    { key: "targetArea", label: "Área destino", width: 140, defaultHidden: true },
+    { key: "targetArea", label: "Grupo de trabajo", width: 160, defaultHidden: true },
     { key: "status", label: "Estado", width: 120 },
     { key: "owner", label: "Responsable", width: 150 },
     { key: "tasks", label: "Tareas", num: true, width: 80 },
@@ -365,16 +365,16 @@ export function createWorkspaceModule(ctx) {
             ${projects.some((p) => !p.requestingAreaId) ? `<option value="__none__" ${areaV === "__none__" ? "selected" : ""}>Sin área</option>` : ""}
           </select></label>`;
 
-        // Área destino (targetAreaId): independiente de la solicitante, ambos son AND
-        // → se puede pedir "solicita X y entrega a Y" a la vez.
+        // Grupo de trabajo (targetAreaId, antes "Área destino"): independiente de la
+        // solicitante, ambos son AND → se puede pedir "solicita X y grupo Y" a la vez.
         const targetV = state.projectTargetAreaFilter || "all";
         const targetIds = [...new Set(projects.map((p) => p.targetAreaId).filter(Boolean))]
           .sort((a, b) => (areaName(a) || "").localeCompare(areaName(b) || "", "es"));
-        const targetSel = `<label class="filterSelect">Área destino
+        const targetSel = `<label class="filterSelect">Grupo de trabajo
           <select data-filter="targetArea">
-            <option value="all">Todas</option>
+            <option value="all">Todos</option>
             ${targetIds.map((id) => `<option value="${id}" ${targetV === id ? "selected" : ""}>${escapeHtml(areaName(id) || id)}</option>`).join("")}
-            ${projects.some((p) => !p.targetAreaId) ? `<option value="__none__" ${targetV === "__none__" ? "selected" : ""}>Sin área</option>` : ""}
+            ${projects.some((p) => !p.targetAreaId) ? `<option value="__none__" ${targetV === "__none__" ? "selected" : ""}>Sin grupo</option>` : ""}
           </select></label>`;
 
         const ownerV = state.projectOwnerFilter || "all";
@@ -444,7 +444,7 @@ export function createWorkspaceModule(ctx) {
         const areaF = state.projectAreaFilter || "all";
         if (areaF !== "all") chips.push(chip("area", "Solicita", areaF === "__none__" ? "Sin área" : (areaName(areaF) || areaF)));
         const targetF = state.projectTargetAreaFilter || "all";
-        if (targetF !== "all") chips.push(chip("targetArea", "Entrega", targetF === "__none__" ? "Sin área" : (areaName(targetF) || targetF)));
+        if (targetF !== "all") chips.push(chip("targetArea", "Grupo", targetF === "__none__" ? "Sin grupo" : (areaName(targetF) || targetF)));
         const ownerF = state.projectOwnerFilter || "all";
         if (ownerF !== "all") chips.push(chip("owner", "Responsable", ownerF === "__none__" ? "Sin responsable" : (peopleById[ownerF]?.fullName || ownerF)));
         const involvesF = state.projectInvolvesFilter || "all";
@@ -524,8 +524,8 @@ export function createWorkspaceModule(ctx) {
         return options.join("");
       }
 
-      // Campo de área reutilizable (Área solicitante y Área destino comparten el
-      // MISMO catálogo): selector + lápiz (corregir) + papelera (eliminar, el
+      // Campo de área reutilizable (Área solicitante y Grupo de trabajo comparten
+      // el MISMO catálogo AREA): selector + lápiz (corregir) + papelera (eliminar, el
       // backend la protege si está en uso) + mini-formulario inline.
       function renderAreaField(name, label, selectedId) {
         return `
@@ -860,7 +860,7 @@ export function createWorkspaceModule(ctx) {
                   <p class="eyebrow">Detalle de la solicitud</p>
                   <h2>${escapeHtml(project.name)}</h2>
                   ${owner ? `<p>Responsable: <strong>${escapeHtml(owner.fullName)}</strong></p>` : ""}
-                  ${areaName(project.requestingAreaId) ? `<p>Área solicitante: <strong>${escapeHtml(areaName(project.requestingAreaId))}</strong>${areaName(project.targetAreaId) ? ` · destino: <strong>${escapeHtml(areaName(project.targetAreaId))}</strong>` : ""}</p>` : (areaName(project.targetAreaId) ? `<p>Área destino: <strong>${escapeHtml(areaName(project.targetAreaId))}</strong></p>` : "")}
+                  ${areaName(project.requestingAreaId) ? `<p>Área solicitante: <strong>${escapeHtml(areaName(project.requestingAreaId))}</strong>${areaName(project.targetAreaId) ? ` · grupo de trabajo: <strong>${escapeHtml(areaName(project.targetAreaId))}</strong>` : ""}</p>` : (areaName(project.targetAreaId) ? `<p>Grupo de trabajo: <strong>${escapeHtml(areaName(project.targetAreaId))}</strong></p>` : "")}
                   ${(project.requestDate || project.dueDate) ? `<p class="projectDates">${project.requestDate ? `Solicitud: <strong>${escapeHtml(updateDateLabel(project.requestDate))}</strong>` : ""}${project.requestDate && project.dueDate ? " · " : ""}${project.dueDate ? `Entrega: <strong>${escapeHtml(updateDateLabel(project.dueDate))}</strong>` : ""}</p>` : ""}
                   ${project.description ? `<p class="projectOverviewDescription">${escapeHtml(project.description)}</p>` : ""}
                 </div>
@@ -1244,7 +1244,7 @@ export function createWorkspaceModule(ctx) {
                 <p class="eyebrow">Persona</p>
                 <h2>${escapeHtml(person.fullName)}</h2>
               </div>
-              <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
+              <button class="tinyButton ghost" type="button" data-close-detail>Cancelar</button>
             </div>
             <form id="personDetailForm" class="detailForm" data-person-detail="${person.id}">
               <label>Nombre<input name="firstName" type="text" value="${escapeAttribute(person.fullName)}" required /></label>
@@ -1277,7 +1277,7 @@ export function createWorkspaceModule(ctx) {
                 <p class="eyebrow">Solicitud</p>
                 <h2>${escapeHtml(project.name)}</h2>
               </div>
-              <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
+              <button class="tinyButton ghost" type="button" data-close-detail>Cancelar</button>
             </div>
             <form id="projectDetailForm" class="detailForm" data-project-detail="${project.id}">
               <label>Nombre<input name="name" type="text" value="${escapeAttribute(project.name)}" required /></label>
@@ -1289,7 +1289,7 @@ export function createWorkspaceModule(ctx) {
                 </select>
               </label>
               ${renderAreaField("requestingAreaId", "Área solicitante", project.requestingAreaId)}
-              ${renderAreaField("targetAreaId", "Área destino", project.targetAreaId)}
+              ${renderAreaField("targetAreaId", "Grupo de trabajo", project.targetAreaId)}
               <label>Estado
                 <div class="fieldWithActions">
                   <select name="status" data-status-select>
@@ -1343,7 +1343,7 @@ export function createWorkspaceModule(ctx) {
                 <p class="eyebrow">Tarea</p>
                 <h2>${escapeHtml(task.title)}</h2>
               </div>
-              <button class="tinyButton ghost" type="button" data-close-detail>Cerrar</button>
+              <button class="tinyButton ghost" type="button" data-close-detail>Cancelar</button>
             </div>
             <form id="taskDetailForm" class="detailForm" data-task-detail="${task.id}">
               <label>Título<input name="title" type="text" value="${escapeAttribute(task.title)}" required /></label>

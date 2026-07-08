@@ -32,10 +32,17 @@ El perfil operativo validado para iniciar construcción está documentado en `do
 
 ## S3
 
-- Uso: frontend estático privado, Data Lake y resultados Athena.
-- Permisos IAM: según bucket y función.
-- Variables: `DATA_LAKE_BUCKET`, `ATHENA_OUTPUT_BUCKET`.
-- Consideraciones: CloudFront sirve el frontend desde un bucket privado mediante OAC.
+- Uso: frontend estático privado (incl. `/vendor/` con librerías auto-hospedadas), Data Lake, resultados Athena y **storage compartido `gad-storage-<env>`** (adjuntos de solicitudes + escenas de Pizarra).
+- Permisos IAM: según bucket y función; el storage compartido va **acotado al prefijo de la app** (`gestion-proyectos/*`) y se accede con URLs prefirmadas (el binario nunca pasa por la API).
+- Variables: `DATA_LAKE_BUCKET`, `ATHENA_OUTPUT_BUCKET`, `ATTACHMENTS_BUCKET`, `ATTACHMENTS_PREFIX`.
+- Consideraciones: CloudFront sirve el frontend desde un bucket privado mediante OAC; el storage es RETAIN (los archivos sobreviven a un destroy) con CORS solo al origen CloudFront.
+
+## API Gateway WebSocket (colaboración en vivo, 2026-07-08)
+
+- Uso: salas de tiempo real de Pizarra (`$connect`/`$disconnect`/`$default` sobre la misma Lambda).
+- Permisos IAM: `execute-api:ManageConnections` en el rol de la Lambda (empujar mensajes con `post_to_connection`).
+- Autenticación: sin authorizer JWT nativo — el access token de Cognito viaja como query param y `$connect` lo valida con `cognito-idp:GetUser` (autenticado por el propio token, no requiere permiso IAM).
+- Variables: la URL sale del output `WebSocketUrl` → `config.json.wsUrl`.
 
 ## CloudWatch
 

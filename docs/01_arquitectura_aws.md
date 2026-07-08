@@ -11,11 +11,15 @@ La plataforma utiliza un patrón serverless por capas, con **módulos enchufable
 tanto en backend como en frontend:
 
 - Capa de presentación: Astro en `frontend/`. El shell vive en `scripts/app.ts`; los
-  módulos de UI `home`, `workspace`, `catalog`, `admin` y el submódulo `datalake`
-  viven en `scripts/modules/` y reciben dependencias mediante `createXModule(ctx)`.
+  módulos de UI `home`, `workspace`, `catalog`, `admin`, `chat`, `draw` (Pizarra),
+  `staff` (Personal) y el submódulo `datalake` viven en `scripts/modules/` y reciben dependencias mediante `createXModule(ctx)`.
 - Capa de entrada HTTP: API Gateway y `backend/app/handler.py` (delgado) + `core/router.py`
   (router por registro). Cada módulo declara sus rutas en `modules/<x>_routes.py` y se
   autodescubre; los módulos se incorporan mediante puntos de extensión estables.
+- Capa de entrada **WebSocket** (2026-07-08): segunda API Gateway (`wss://`, output
+  `WebSocketUrl` → `config.json.wsUrl`) para la **colaboración en vivo de Pizarra** —
+  la MISMA Lambda ramifica por `routeKey` (`$connect`/`$disconnect`/`$default` →
+  `services/draw_ws.py`); salas y conexiones en DynamoDB con TTL.
 - Capa de identidad: Cognito, JWT Authorizer y `backend/app/auth.py`. Autorización
   declarativa en `core/guards.py` (`ensure_module_access`, `ensure_admin`).
 - Capa funcional: servicios en `backend/app/services/`.
@@ -32,8 +36,8 @@ Lenguajes, frameworks y herramientas concretas por capa:
 
 | Capa | Lenguaje | Framework / herramientas | Librerías clave | Dónde |
 | --- | --- | --- | --- | --- |
-| Frontend (UI) | **TypeScript** | **Astro** genera HTML y JavaScript estático. La UI imperativa se organiza como shell y módulos por inyección de dependencias (`createXModule(ctx)`). | AWS SDK v3 (`@aws-sdk/client-cognito-identity-provider`), Chart.js (dashboard), D3 (grafo del catálogo) | `frontend/` |
-| Estilos | **CSS** plano | Hoja global organizada por áreas funcionales y responsive | — | `frontend/src/styles/app.css` |
+| Frontend (UI) | **TypeScript** | **Astro** genera HTML y JavaScript estático. La UI imperativa se organiza como shell y módulos por inyección de dependencias (`createXModule(ctx)`). | AWS SDK v3 (`@aws-sdk/client-cognito-identity-provider`); bajo demanda desde `/vendor/` auto-hospedado (sin CDNs externos): Chart.js (dashboard), D3 (grafo del catálogo), React 18 + Excalidraw (Pizarra) | `frontend/` |
+| Estilos | **CSS** plano | Partidos por módulo con prefijo numérico (tokens en `01-base.css`; importados en orden en `index.astro`) | — | `frontend/src/styles/` |
 | Backend (API) | **Python 3.12** | Router propio por registro (`core/router.py`) y módulos de rutas autodescubiertos | `boto3` (AWS SDK) | `backend/app/` |
 | Persistencia | — | **DynamoDB single-table** con repositorios por dominio | Acceso directo mediante `boto3` resource | `backend/app/repositories/` |
 | Infraestructura | **TypeScript** | **AWS CDK v2** (`aws-cdk-lib`) | — | `infra/` |
@@ -48,10 +52,12 @@ Lenguajes, frameworks y herramientas concretas por capa:
 ## Servicios utilizados
 
 - Astro: frontend web.
-- S3 privado: almacenamiento del build estático.
+- S3 privado: build estático del frontend (+ `/vendor/` con librerías auto-hospedadas).
+- S3 storage compartido (`gad-storage-<env>`): adjuntos de solicitudes y escenas de Pizarra vía URLs prefirmadas (prefijo por aplicación, IAM acotado).
 - CloudFront: distribución del frontend.
 - Cognito: autenticación.
-- API Gateway: entrada HTTP segura para backend.
+- API Gateway (HTTP): entrada segura para el backend.
+- API Gateway (WebSocket): colaboración en vivo de Pizarra (salas por tablero).
 - Lambda Python: lógica de negocio.
 - DynamoDB: datos operativos, autorización funcional y contexto.
 - Glue Catalog: metadata técnica de bases, tablas y columnas.

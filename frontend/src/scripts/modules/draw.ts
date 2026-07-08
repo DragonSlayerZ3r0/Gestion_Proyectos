@@ -25,6 +25,20 @@ export function createDrawModule(ctx) {
   let excaliRoot = null;        // React root montado (para desmontar limpio)
   let excaliAPI = null;         // API imperativa de Excalidraw (getSceneElements…)
 
+  // ── Estado de colaboración en vivo (WebSocket) ────────────────────────────
+  let collabSocket = null;      // WebSocket de la sala del tablero abierto
+  let collabDrawingId = null;   // id del tablero de la sala actual
+  let collabReady = false;      // socket abierto y con "hello" enviado
+  const collaborators = new Map();  // senderConn → {username, pointer, button, color} (cursores)
+  const presenceIds = new Set();    // conexiones de OTROS en la sala (para el conteo)
+  const syncedVersions = new Map(); // elementId → última versión difundida o recibida (anti-eco)
+  let collabDirty = false;      // hubo cambios locales sin autoguardar
+  let pointerTs = 0;            // throttle de cursor
+  let sceneSendTs = 0;          // throttle de escena
+  let sceneSendTimer = null;
+  let collabPushTimer = null;   // throttle de updateScene({collaborators})
+  let autosaveTimer = null;
+
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
@@ -51,11 +65,238 @@ export function createDrawModule(ctx) {
   }
 
   function unmountEditor() {
+    leaveCollab();
     if (excaliRoot) {
       try { excaliRoot.unmount(); } catch {}
       excaliRoot = null;
     }
     excaliAPI = null;
+  }
+
+  // ── Colaboración en vivo ───────────────────────────────────────────────────
+  // Cada tablero abierto es una "sala" en la API WebSocket (serverless, dentro
+  // de la cuenta — decisión 2026-07-08, ver bitácora). El servidor solo releva:
+  // los navegadores difunden sus elementos cambiados y su cursor, y reconcilian
+  // los remotos por (version, versionNonce) — el de mayor versión gana.
+  const CURSOR_COLORS = ["#e64980", "#0ca678", "#4c6ef5", "#f76707", "#7048e8", "#0c8599"];
+  function cursorColor(key) {
+    let h = 0;
+    for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return CURSOR_COLORS[h % CURSOR_COLORS.length];
+  }
+
+  function wsSend(payload) {
+    if (collabReady && collabSocket?.readyState === WebSocket.OPEN) {
+      try { collabSocket.send(JSON.stringify(payload)); } catch {}
+    }
+  }
+
+  function setCollabStatus(text, isError) {
+    const el = document.querySelector("#drawPresence");
+    if (!el) return;
+    const others = presenceIds.size;
+    if (text) {
+      el.hidden = false;
+      el.textContent = text;
+      el.className = `drawPresence ${isError ? "off" : ""}`;
+      return;
+    }
+    el.hidden = false;
+    el.className = "drawPresence live";
+    el.textContent = others ? `● ${others + 1} en vivo` : "● Solo tú";
+    el.title = [...collaborators.values()].map((c) => c.username).filter(Boolean).join(", ");
+  }
+
+  function joinCollab(drawing) {
+    const wsUrl = state.config?.wsUrl;
+    if (!wsUrl || !state.user?.accessToken) return; // sin WS configurado: editor funciona igual, sin vivo
+    leaveCollab();
+    collabDrawingId = drawing.id;
+    setCollabStatus("Conectando…");
+    const url = `${wsUrl}?token=${encodeURIComponent(state.user.accessToken)}&drawingId=${encodeURIComponent(drawing.id)}`;
+    let socket;
+    try { socket = new WebSocket(url); } catch { setCollabStatus("Sin conexión en vivo", true); return; }
+    collabSocket = socket;
+    socket.onopen = () => {
+      if (socket !== collabSocket) return;
+      collabReady = true;
+      wsSend({ type: "hello" });
+      setCollabStatus();
+    };
+    socket.onmessage = (event) => {
+      if (socket !== collabSocket) return;
+      try { handleCollabMessage(JSON.parse(event.data)); } catch {}
+    };
+    socket.onclose = () => {
+      if (socket !== collabSocket) return;
+      collabReady = false;
+      // Reintento suave mientras el editor de ESTE tablero siga abierto (el
+      // token pudo renovarse; joinCollab arma la URL de nuevo).
+      if (state.drawView === "editor" && state.drawActive?.id === collabDrawingId) {
+        setCollabStatus("Reconectando…", true);
+        window.setTimeout(() => {
+          if (state.drawView === "editor" && state.drawActive?.id === collabDrawingId && !collabReady) {
+            joinCollab(state.drawActive);
+          }
+        }, 3000);
+      }
+    };
+  }
+
+  function leaveCollab() {
+    if (collabPushTimer) { clearTimeout(collabPushTimer); collabPushTimer = null; }
+    if (sceneSendTimer) { clearTimeout(sceneSendTimer); sceneSendTimer = null; }
+    if (autosaveTimer) { clearInterval(autosaveTimer); autosaveTimer = null; }
+    collabReady = false;
+    collabDrawingId = null;
+    collaborators.clear();
+    presenceIds.clear();
+    syncedVersions.clear();
+    collabDirty = false;
+    if (collabSocket) {
+      const socket = collabSocket;
+      collabSocket = null;
+      try { socket.close(); } catch {}
+    }
+  }
+
+  function handleCollabMessage(msg) {
+    if (!msg || typeof msg !== "object") return;
+    switch (msg.type) {
+      case "members":
+        presenceIds.clear();
+        for (const member of msg.members || []) {
+          presenceIds.add(member.connectionId);
+          collaborators.set(member.connectionId, {
+            username: member.userName || member.userId,
+            color: { background: cursorColor(member.connectionId), stroke: cursorColor(member.connectionId) },
+          });
+        }
+        pushCollaborators();
+        setCollabStatus();
+        break;
+      case "join":
+        presenceIds.add(msg.senderConn);
+        collaborators.set(msg.senderConn, {
+          username: msg.senderName || msg.senderId,
+          color: { background: cursorColor(msg.senderConn), stroke: cursorColor(msg.senderConn) },
+        });
+        pushCollaborators();
+        setCollabStatus();
+        break;
+      case "leave":
+        presenceIds.delete(msg.senderConn);
+        collaborators.delete(msg.senderConn);
+        pushCollaborators();
+        setCollabStatus();
+        break;
+      case "init-request":
+        // Un recién llegado necesita la escena: se la mando directo (vía servidor).
+        if (excaliAPI) {
+          wsSend({
+            type: "init-response",
+            to: msg.from,
+            elements: excaliAPI.getSceneElements(),
+            files: excaliAPI.getFiles(),
+          });
+        }
+        break;
+      case "init-response":
+      case "scene":
+        applyRemoteScene(msg);
+        break;
+      case "pointer": {
+        const entry = collaborators.get(msg.senderConn) || {
+          username: msg.senderName || msg.senderId,
+          color: { background: cursorColor(msg.senderConn), stroke: cursorColor(msg.senderConn) },
+        };
+        entry.pointer = msg.pointer;
+        entry.button = msg.button || "up";
+        collaborators.set(msg.senderConn, entry);
+        pushCollaborators();
+        break;
+      }
+    }
+  }
+
+  // Cursores/presencia → Excalidraw espera un Map en appState.collaborators.
+  // Throttle corto: los pointers llegan a alta frecuencia.
+  function pushCollaborators() {
+    if (collabPushTimer || !excaliAPI) return;
+    collabPushTimer = setTimeout(() => {
+      collabPushTimer = null;
+      if (!excaliAPI) return;
+      try { excaliAPI.updateScene({ collaborators: new Map(collaborators) }); } catch {}
+    }, 60);
+  }
+
+  // Reconciliación: por elemento gana la versión mayor (a igual versión, el
+  // versionNonce menor — mismo criterio que Excalidraw). Nada se interpreta:
+  // los borrados viajan como isDeleted=true.
+  function applyRemoteScene(msg) {
+    if (!excaliAPI) return;
+    const remote = msg.elements || [];
+    if (!remote.length && !msg.files) return;
+    const local = excaliAPI.getSceneElementsIncludingDeleted
+      ? excaliAPI.getSceneElementsIncludingDeleted()
+      : excaliAPI.getSceneElements();
+    const byId = new Map(local.map((el) => [el.id, el]));
+    let changed = false;
+    for (const el of remote) {
+      if (!el?.id) continue;
+      const mine = byId.get(el.id);
+      const wins = !mine
+        || el.version > mine.version
+        || (el.version === mine.version && (el.versionNonce || 0) < (mine.versionNonce || 0));
+      if (wins) {
+        byId.set(el.id, el);
+        changed = true;
+      }
+      // Anti-eco: lo recibido cuenta como sincronizado (no re-difundirlo).
+      const known = syncedVersions.get(el.id) || 0;
+      syncedVersions.set(el.id, Math.max(known, el.version || 0));
+    }
+    if (msg.files && Object.keys(msg.files).length) {
+      try { excaliAPI.addFiles(Object.values(msg.files)); } catch {}
+    }
+    if (changed) {
+      try { excaliAPI.updateScene({ elements: [...byId.values()], commitToHistory: false }); } catch {}
+      collabDirty = true; // para que el autoguardado persista lo convergido
+    }
+  }
+
+  // Cambios locales → difundir SOLO los elementos con versión nueva (throttle
+  // con cola: nunca se pierde el último estado).
+  function onLocalChange(elements, _appState, files) {
+    if (!collabReady) return;
+    let dirty = false;
+    for (const el of elements) {
+      if ((syncedVersions.get(el.id) || 0) < (el.version || 0)) { dirty = true; break; }
+    }
+    if (!dirty) return;
+    collabDirty = true;
+    if (sceneSendTimer) return;
+    const elapsed = Date.now() - sceneSendTs;
+    sceneSendTimer = setTimeout(() => {
+      sceneSendTimer = null;
+      sceneSendTs = Date.now();
+      if (!excaliAPI || !collabReady) return;
+      const all = excaliAPI.getSceneElementsIncludingDeleted
+        ? excaliAPI.getSceneElementsIncludingDeleted()
+        : excaliAPI.getSceneElements();
+      const changedEls = all.filter((el) => (syncedVersions.get(el.id) || 0) < (el.version || 0));
+      if (!changedEls.length) return;
+      for (const el of changedEls) syncedVersions.set(el.id, el.version || 0);
+      wsSend({ type: "scene", elements: changedEls, files: excaliAPI.getFiles ? excaliAPI.getFiles() : undefined });
+    }, Math.max(0, 120 - elapsed));
+  }
+
+  function onPointerUpdate(payload) {
+    if (!collabReady) return;
+    const now = Date.now();
+    if (now - pointerTs < 50) return; // ~20 msgs/s máx
+    pointerTs = now;
+    wsSend({ type: "pointer", pointer: payload.pointer, button: payload.button });
   }
 
   // ── Render principal ──────────────────────────────────────────────────────
@@ -237,6 +478,7 @@ export function createDrawModule(ctx) {
         <div class="drawEditorBar">
           <button class="tinyButton ghost" type="button" id="drawBackBtn">← Volver</button>
           <strong class="drawEditorName">${escapeHtml(drawing.name)}</strong>
+          <span id="drawPresence" class="drawPresence" hidden></span>
           <div class="drawEditorActions">
             ${isOwner ? `<button class="tinyButton ghost" type="button" id="drawShareBtn">Compartir</button>` : ""}
             <button class="primaryButton compact" type="button" id="drawSaveBtn">Guardar</button>
@@ -343,12 +585,27 @@ export function createDrawModule(ctx) {
         appState: { ...(scene.appState || {}), collaborators: undefined },
         files: scene.files || {},
       } : null;
+      // Semilla anti-eco: lo cargado de S3 ya está "sincronizado" — sin esto, el
+      // primer onChange difundiría la escena completa a la sala.
+      syncedVersions.clear();
+      for (const el of initialData?.elements || []) syncedVersions.set(el.id, el.version || 0);
       excaliRoot = window.ReactDOM.createRoot(host);
       excaliRoot.render(window.React.createElement(window.ExcalidrawLib.Excalidraw, {
         langCode: "es-ES",
         initialData,
         excalidrawAPI: (api) => { excaliAPI = api; },
+        onChange: onLocalChange,
+        onPointerUpdate,
       }));
+      // Sala en vivo + autoguardado (cada 20s, solo si hubo cambios): la escena
+      // convergida queda persistida en S3 sin depender del botón Guardar.
+      joinCollab(drawing);
+      autosaveTimer = setInterval(() => {
+        if (collabDirty && excaliAPI && state.drawView === "editor" && state.drawActive?.id === drawing.id) {
+          collabDirty = false;
+          saveScene(drawing, true);
+        }
+      }, 20000);
     } catch (error) {
       host.innerHTML = `<p class="attachStatus error">No se pudo cargar el editor: ${escapeHtml(error.message)}. Revisa la conexión e intenta de nuevo.</p>`;
     }
@@ -365,12 +622,12 @@ export function createDrawModule(ctx) {
     }
   }
 
-  async function saveScene(drawing) {
+  async function saveScene(drawing, silent = false) {
     if (!excaliAPI || !window.ExcalidrawLib) return;
     const statusEl = document.querySelector("#drawEditorStatus");
-    const saveBtn = document.querySelector("#drawSaveBtn");
+    const saveBtn = silent ? null : document.querySelector("#drawSaveBtn");
     const show = (text, isError) => {
-      if (!statusEl) return;
+      if (silent || !statusEl) return;
       statusEl.hidden = false;
       statusEl.textContent = text;
       statusEl.className = `attachStatus${isError ? " error" : ""}`;
@@ -388,8 +645,9 @@ export function createDrawModule(ctx) {
       if (!put.ok) throw new Error("No se pudo subir la escena al almacenamiento.");
       drawing.updatedAt = new Date().toISOString();
       show("✓ Guardado", false);
-      setTimeout(() => { if (statusEl) statusEl.hidden = true; }, 2500);
+      setTimeout(() => { if (statusEl && !silent) statusEl.hidden = true; }, 2500);
     } catch (error) {
+      if (silent) { collabDirty = true; return; } // reintentará el próximo autosave
       show(error.message, true);
     } finally {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Guardar"; }

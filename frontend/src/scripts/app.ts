@@ -10,6 +10,7 @@
       import { createCatalogModule } from "./modules/catalog";
       import { createChatModule } from "./modules/chat";
       import { createDrawModule } from "./modules/draw";
+      import { createStaffModule } from "./modules/staff";
 
       const defaultModules = [
         { key: "projects", label: "Solicitudes" },
@@ -58,6 +59,14 @@
         drawActive: null,       // pizarra abierta en el editor
         drawPeople: null,       // usuarios para el selector "Compartir con" (carga perezosa)
         drawShareOpen: false,   // panel Compartir visible en el editor
+        staffData: null,        // Personal: {people, absenceTypes} (null = sin cargar)
+        staffError: "",
+        staffMonth: "",         // mes del calendario "AAAA-MM" ("" = mes actual)
+        staffSelectedId: null,  // persona con la ficha abierta
+        staffSearch: "",        // filtro de la lista/calendario de Personal
+        staffFormOpen: false,   // formulario "Registrar ausencia" visible (admin)
+        staffQuotaOpen: false,  // formulario de cuota anual visible (admin, secundario)
+        staffNotesOpen: false,  // formulario de nota de Personal visible (admin)
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
@@ -177,6 +186,7 @@
         loginLandingEnvironment: document.querySelector("#loginLandingEnvironment"),
         loginButton: document.querySelector("#loginButton"),
         logoutButton: document.querySelector("#logoutButton"),
+        staffMenuButton: document.querySelector("#staffMenuButton"),
         userMenu: document.querySelector("#userMenu"),
         userMenuButton: document.querySelector("#userMenuButton"),
         userMenuDropdown: document.querySelector("#userMenuDropdown"),
@@ -218,6 +228,15 @@
         elements.loginButton.addEventListener("click", openLoginDialog);
         elements.landingLoginButton.addEventListener("click", openLoginDialog);
         elements.logoutButton.addEventListener("click", logout);
+        // "Personal" (gestión del equipo): vista ocasional, se abre desde el menú
+        // del usuario — NO es un módulo del menú lateral (decisión 2026-07-07).
+        elements.staffMenuButton.addEventListener("click", () => {
+          setUserMenuOpen(false);
+          const changed = state.activeModule !== "staff";
+          state.activeModule = "staff";
+          renderApp();
+          if (changed) animateViewEnter();
+        });
         elements.userMenuButton.addEventListener("click", (event) => {
           event.stopPropagation();
           setUserMenuOpen(elements.userMenuDropdown.hidden);
@@ -258,11 +277,16 @@
 
       // ── Aviso de despliegue en curso ─────────────────────────────────────
       // Los scripts de deploy suben /deploy.json (status deploying|ok, ver
-      // scripts/deploy-flag.sh). Aquí se consulta cada minuto: mientras haya un
+      // scripts/deploy-flag.sh). Aquí se consulta cada 20s: mientras haya un
       // despliegue activo se muestra un aviso discreto e intermitente para que
       // los usuarios no guarden cambios justo en ese momento; cuando termina y
       // el buildId cambió, se sugiere recargar. Archivo estático vía CloudFront
       // → costo cero en Lambda. Banderas huérfanas (>30 min) se ignoran.
+      // El sondeo de 20s va emparejado con el dwell mínimo del aviso en
+      // deploy-flag.sh (~25s): así incluso un deploy de frontend rápido (~15s)
+      // deja la ventana "desplegando" abierta lo suficiente para que un sondeo la
+      // atrape (antes, con 60s, los deploys rápidos se la saltaban).
+      const DEPLOY_POLL_MS = 20 * 1000;
       let deployBaselineBuildId = null;
       function deployNoticeEl() {
         let el = document.querySelector("#deployNotice");
@@ -306,7 +330,7 @@
           el.hidden = true;
         };
         check();
-        window.setInterval(check, 60 * 1000);
+        window.setInterval(check, DEPLOY_POLL_MS);
       }
 
       function hasAuthConfig(config) {
@@ -753,7 +777,9 @@
         elements.moduleNav.innerHTML = "";
         const visibleModules = getVisibleModules(state.profile.modules);
         state.activeModule = normalizeModuleKey(state.activeModule);
-        if (!visibleModules.some((module) => module.key === state.activeModule)) {
+        // "staff" (Personal) no es entrada del menú lateral: vive en el menú del
+        // usuario. Es una vista válida aunque no esté en visibleModules.
+        if (state.activeModule !== "staff" && !visibleModules.some((module) => module.key === state.activeModule)) {
           state.activeModule = getDefaultModule(visibleModules);
         }
 
@@ -807,6 +833,9 @@
       const drawModule = createDrawModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton,
       });
+      const staffModule = createStaffModule({
+        state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton,
+      });
 
       function renderModule(moduleKey) {
         moduleKey = normalizeModuleKey(moduleKey);
@@ -824,6 +853,10 @@
         }
         if (moduleKey === "draw") {
           drawModule.render();
+          return;
+        }
+        if (moduleKey === "staff") {
+          staffModule.render();
           return;
         }
         if (moduleKey === "admin") {

@@ -450,6 +450,33 @@ export class GestionProyectosStack extends Stack {
       authorizer: jwtAuthorizer
     });
 
+    // ── WebSocket API: colaboración en vivo de Pizarra ─────────────────────────
+    // Tiempo real dentro de la propia cuenta (sin terceros ni servidor siempre
+    // encendido): cada tablero es una "sala"; los cambios/cursores se relevan
+    // entre los participantes. Reusa la misma Lambda (el handler ramifica por
+    // routeKey). La autenticación se valida en $connect contra Cognito (GetUser)
+    // — API Gateway WS no tiene authorizer JWT nativo y el navegador no puede
+    // mandar headers en el handshake, así que el token viaja como query param.
+    const wsIntegration = (id: string) => new integrations.WebSocketLambdaIntegration(id, apiFunction);
+    const wsApi = new apigwv2.WebSocketApi(this, "DrawWsApi", {
+      apiName: `${resourcePrefix}-draw-ws`,
+      connectRouteOptions: { integration: wsIntegration("WsConnect") },
+      disconnectRouteOptions: { integration: wsIntegration("WsDisconnect") },
+      defaultRouteOptions: { integration: wsIntegration("WsDefault") }
+    });
+    const wsStage = new apigwv2.WebSocketStage(this, "DrawWsStage", {
+      webSocketApi: wsApi,
+      stageName: props.envName,
+      autoDeploy: true
+    });
+    // La Lambda debe poder EMPUJAR mensajes a las conexiones (postToConnection).
+    if (ownedRole) {
+      wsApi.grantManageConnections(apiFunction);
+    }
+
+    new CfnOutput(this, "WebSocketUrl", {
+      value: wsStage.url
+    });
     new CfnOutput(this, "FrontendUrl", {
       value: `https://${distribution.distributionDomainName}/`
     });

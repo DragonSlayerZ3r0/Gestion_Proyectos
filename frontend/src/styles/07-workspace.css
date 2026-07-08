@@ -127,7 +127,9 @@
   .attachDropHint { font-size: 0.78rem; color: var(--muted); }
   .attachAddActions { display: flex; gap: 8px; }
   .attachFileBtn { cursor: pointer; }
-  .attachQueryForm, .attachNoteForm { margin-top: 10px; flex-direction: column; align-items: stretch; gap: 8px; }
+  /* display:flex explícito: .inlineForm es display:grid de 2 columnas, y sin esto
+     el flex-direction:column se ignora → título y textarea quedaban lado a lado. */
+  .attachQueryForm, .attachNoteForm { display: flex; margin-top: 10px; flex-direction: column; align-items: stretch; gap: 8px; }
   .attachQueryForm textarea { font: inherit; font-size: 0.86rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; resize: vertical; }
   .attachNoteForm input { font: inherit; font-size: 0.86rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; }
   .attachStatus { margin-top: 8px; font-size: 0.8rem; color: var(--muted); }

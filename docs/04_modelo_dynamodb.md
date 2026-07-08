@@ -30,6 +30,7 @@ gestion-proyectos-main-{env}
 - `PROJECT_TABLE`
 - `PROJECT_MEMBER`
 - `PROJECT_UPDATE`
+- `PERSON_ABSENCE`
 - `ATTACHMENT`
 - `TASK`
 - `AREA`
@@ -59,7 +60,7 @@ PERSON
 PK = PERSON#<personId>
 SK = PROFILE
 
-AREA (catálogo vivo de áreas, COMPARTIDO por "Área solicitante" y "Área destino";
+AREA (catálogo vivo de áreas, COMPARTIDO por "Área solicitante" y "Grupo de trabajo" (antes "Área destino");
   las solicitudes guardan requestingAreaId y targetAreaId. Borrado protegido si
   alguna solicitud la usa en cualquiera de los dos campos)
 PK = AREA#<areaId>
@@ -91,6 +92,13 @@ PROJECT_UPDATE (seguimiento/bitácora de la solicitud: date + text + autor)
 PK = PROJECT#<projectId>
 SK = UPDATE#<updateId>
 
+PERSON_ABSENCE (Personal 2026-07-08: ausencia tipada de una persona — type
+  vacation|leave|sick + startDate/endDate + notes; sin traslapes por persona.
+  El saldo de vacaciones vive en el perfil PERSON como vacationDays={"2026":20};
+  consumido = días hábiles L-V de las ausencias vacation. Escritura solo admin)
+PK = PERSON#<personId>
+SK = ABSENCE#<absenceId>
+
 ATTACHMENT (adjuntos de la solicitud, 2026-07-07. kind=file → binario en S3
   (storageKey en el bucket compartido gad-storage-<env>, prefijo de la app) con
   metadata aquí; kind=query → texto inline (title + text), SIN S3. updateId
@@ -108,6 +116,14 @@ DRAWING_SHARE (invitación por usuario: status pending → el invitado acepta
   (accepted, ve/edita) o rechaza (se borra el item). Solo el dueño invita/revoca)
 PK = DRAWING#<drawingId>
 SK = SHARE#<email>
+
+DRAW_CONNECTION (colaboración en vivo 2026-07-08: conexiones WebSocket de la
+  sala de un tablero. DOS items por conexión — miembro de sala para el fan-out
+  y reverso para resolver la sala desde un connectionId ($disconnect/mensajes
+  solo traen el connectionId). Expiran solas con ttl (12 h) si escapan del
+  $disconnect)
+PK = DRAWROOM#<drawingId>   SK = CONN#<connectionId>
+PK = DRAWCONN#<connectionId> SK = META
 
 TABLE_CONTEXT
 PK = TABLE#<database>#<table>

@@ -36,6 +36,7 @@ CLIENT_ID="$(get_out UserPoolClientId)"
 DOMAIN_PREFIX="$(get_out CognitoDomain)"
 BUCKET="$(get_out FrontendBucketName)"
 DIST_ID="$(get_out DistributionId)"
+WS_URL="$(get_out WebSocketUrl)"
 
 if [[ -z "$BUCKET" || -z "$DIST_ID" || -z "$CLIENT_ID" ]]; then
   echo "✗ No se pudieron leer los outputs (¿sesión SSO vencida? prueba: aws sso login --sso-session bdr-fed)" >&2
@@ -69,7 +70,8 @@ cat > "$TMP_CFG" <<JSON
   "apiBaseUrl": "$API_URL",
   "cognitoUserPoolId": "$POOL_ID",
   "cognitoClientId": "$CLIENT_ID",
-  "cognitoDomain": "$COGNITO_DOMAIN"
+  "cognitoDomain": "$COGNITO_DOMAIN",
+  "wsUrl": "$WS_URL"
 }
 JSON
 aws s3 cp "$TMP_CFG" "s3://$BUCKET/config.json" --content-type application/json --profile "$PROFILE"

@@ -103,17 +103,23 @@ export function createAdminModule(ctx) {
         return [...result];
       }
 
-      // Resumen legible de los módulos habilitados (por grupo) para la vista colapsada.
-      function moduleSummary(modules) {
-        const set = new Set(modules || []);
-        const labels = adminModuleGroups()
-          .filter((g) => g.keys.some((k) => set.has(k)))
-          .map((g) => g.label);
-        return labels.length ? labels.join(" · ") : "Sin módulos";
+      // Resumen de acceso como CHIPS (vista colapsada). Disciplina de color
+      // (estándar #4 de docs/06): neutro para lo normal; color SOLO en lo que
+      // implica privilegio — rol Administrador (acento) y módulo Administración
+      // (ámbar) — así se escanea de un vistazo quién puede administrar.
+      function accessChips(u) {
+        const set = new Set(u.modules || []);
+        const groups = adminModuleGroups().filter((g) => g.keys.some((k) => set.has(k)));
+        const role = u.role === "admin"
+          ? `<span class="accessChip roleAdmin">Administrador</span>`
+          : `<span class="accessChip">Usuario</span>`;
+        const mods = groups.length
+          ? groups.map((g) => `<span class="accessChip ${g.key === "admin" ? "priv" : ""}">${escapeHtml(g.label)}</span>`).join("")
+          : `<span class="accessChip empty">Sin módulos</span>`;
+        return `<div class="accessChipRow">${role}${mods}</div>`;
       }
 
       function adminUserCard(u) {
-        const roleLabel = u.role === "admin" ? "Administrador" : "Usuario";
         const isEditing = editingEmail === u.email;
         const editBody = isEditing ? `
               <div class="adminUserControls">
@@ -141,7 +147,7 @@ export function createAdminModule(ctx) {
                   <button class="primaryButton adminSaveUser" type="button">Guardar cambios</button>
                 </div>
               </div>` : `
-              <p class="adminUserSummary">${escapeHtml(roleLabel)} · ${escapeHtml(moduleSummary(u.modules))}</p>`;
+              ${accessChips(u)}`;
         return `
             <div class="adminUserCard${isEditing ? " editing" : ""}" data-email="${escapeAttribute(u.email)}">
               <div class="adminUserHead">

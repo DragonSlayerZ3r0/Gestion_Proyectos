@@ -1,60 +1,581 @@
 {
-	"nodes":[
-		{"id":"title","type":"text","x":-40,"y":-190,"width":720,"height":130,"color":"1","text":"# ¿Cómo fluye una solicitud y dónde se aplican los controles?\nFlujo principal de izquierda a derecha. Rojo: control obligatorio. Azul: ejecución. Verde: datos. Ámbar: configuración o límite operativo."},
-		{"id":"gclient","type":"group","x":-80,"y":0,"width":420,"height":760,"label":"Cliente"},
-		{"id":"gedge","type":"group","x":400,"y":0,"width":420,"height":760,"label":"Entrega e identidad"},
-		{"id":"gapi","type":"group","x":880,"y":0,"width":520,"height":760,"label":"API y lógica"},
-		{"id":"gdata","type":"group","x":1460,"y":0,"width":520,"height":760,"label":"Datos e integraciones · cuenta app 186281981036"},
-		{"id":"gops","type":"group","x":880,"y":780,"width":520,"height":300,"label":"Ejecución asíncrona y observabilidad"},
-		{"id":"ghub","type":"group","x":1460,"y":780,"width":520,"height":300,"label":"Cuenta hub 396913696127 · acceso cross-account"},
-		{"id":"user","type":"text","x":0,"y":70,"width":260,"height":100,"color":"4","text":"## Usuario interno\nOpera módulos permitidos desde el navegador."},
-		{"id":"ui","type":"text","x":0,"y":240,"width":260,"height":120,"color":"5","text":"## Astro + TypeScript\nSPA estática modular; estado y render imperativo."},
-		{"id":"config","type":"text","x":0,"y":440,"width":260,"height":120,"color":"3","text":"## config.json\nConfiguración runtime por ambiente; queda fuera del bundle."},
-		{"id":"cloud","type":"text","x":480,"y":70,"width":260,"height":110,"color":"5","text":"## CloudFront + S3 privado\nEntrega el frontend por HTTPS."},
-		{"id":"cognito","type":"text","x":480,"y":250,"width":260,"height":120,"color":"1","text":"## Amazon Cognito\nUSER_PASSWORD_AUTH autentica y emite tokens; DynamoDB y Lambda autorizan."},
-		{"id":"apigw","type":"text","x":480,"y":460,"width":260,"height":120,"color":"1","text":"## API Gateway\nJWT Authorizer valida el token antes de Lambda."},
-		{"id":"router","type":"text","x":980,"y":70,"width":320,"height":110,"color":"5","text":"## Router por registro\nDescubre rutas de módulos y aplica guards declarativos."},
-		{"id":"guards","type":"text","x":980,"y":240,"width":320,"height":110,"color":"1","text":"## Autorización backend\nLambda consulta permisos funcionales y rol en DynamoDB."},
-		{"id":"services","type":"text","x":980,"y":410,"width":320,"height":110,"color":"5","text":"## Servicios de dominio\nEjecutan reglas de proyectos, catálogo, inicio y administración."},
-		{"id":"repos","type":"text","x":980,"y":580,"width":320,"height":110,"color":"5","text":"## Repositorios por dominio\nPersistencia aislada sobre una tabla single-table."},
-		{"id":"ddb","type":"text","x":1560,"y":70,"width":320,"height":110,"color":"2","text":"## DynamoDB\nDatos operativos, autorización, contexto y cachés."},
-		{"id":"glue","type":"text","x":1560,"y":240,"width":320,"height":110,"color":"2","text":"## Glue Catalog\nMetadata técnica; el sync la cachea en DynamoDB."},
-		{"id":"athena","type":"text","x":1560,"y":410,"width":320,"height":110,"color":"2","text":"## Athena\nConsultas controladas de lectura, registros y monitoreo."},
-		{"id":"lake","type":"text","x":1560,"y":580,"width":320,"height":110,"color":"2","text":"## S3 Data Lake\nDatos fuente privados; acceso de lectura gobernado."},
-		{"id":"async","type":"text","x":940,"y":840,"width":190,"height":150,"color":"5","text":"## Auto-invocación Lambda\nSync de catálogo y escaneos largos se ejecutan fuera del límite HTTP."},
-		{"id":"logs","type":"text","x":1160,"y":840,"width":190,"height":150,"color":"5","text":"## CloudWatch\nLogs y métricas de API y Lambda."},
-		{"id":"assume","type":"text","x":1500,"y":840,"width":200,"height":150,"color":"1","text":"## AssumeRole\nEl rol de la app asume el rol lector del hub."},
-		{"id":"hubservices","type":"text","x":1730,"y":840,"width":200,"height":150,"color":"2","text":"## Servicios del hub\nGlue, Athena, S3, Lake Formation y Cost Explorer."},
-		{"id":"routes","type":"text","x":400,"y":620,"width":420,"height":100,"color":"5","text":"## Contratos HTTP\n/api/me · /api/home · /api/workspace · /api/catalog · /api/admin"},
-		{"id":"farch","type":"file","file":"docs/01_arquitectura_aws.md","x":-20,"y":1140,"width":260,"height":130,"color":"5"},
-		{"id":"fruntime","type":"file","file":"docs/18_servicios_y_runtime.md","x":280,"y":1140,"width":260,"height":130,"color":"5"},
-		{"id":"fsecurity","type":"file","file":"docs/03_seguridad_accesos.md","x":580,"y":1140,"width":260,"height":130,"color":"1"},
-		{"id":"fapi","type":"file","file":"docs/05_api_backend.md","x":880,"y":1140,"width":260,"height":130,"color":"5"},
-		{"id":"fddb","type":"file","file":"docs/04_modelo_dynamodb.md","x":1180,"y":1140,"width":260,"height":130,"color":"2"},
-		{"id":"fcatalog","type":"file","file":"docs/07_catalogo_datalake.md","x":1480,"y":1140,"width":260,"height":130,"color":"2"},
-		{"id":"fhub","type":"file","file":"docs/permisos_hub.md","x":1780,"y":1140,"width":260,"height":130,"color":"1"}
-	],
-	"edges":[
-		{"id":"a1","fromNode":"user","fromSide":"right","toNode":"cloud","toSide":"left","label":"abre HTTPS"},
-		{"id":"a2","fromNode":"cloud","fromSide":"left","toNode":"ui","toSide":"right","label":"entrega estáticos"},
-		{"id":"a3","fromNode":"config","fromSide":"top","toNode":"ui","toSide":"bottom","label":"configura ambiente","color":"3"},
-		{"id":"a4","fromNode":"ui","fromSide":"right","toNode":"cognito","toSide":"left","label":"inicia sesión","color":"1"},
-		{"id":"a5","fromNode":"cognito","fromSide":"bottom","toNode":"apigw","toSide":"top","label":"JWT en cada llamada","color":"1"},
-		{"id":"a6","fromNode":"apigw","fromSide":"right","toNode":"router","toSide":"left","label":"identidad validada","color":"1"},
-		{"id":"a7","fromNode":"router","fromSide":"bottom","toNode":"guards","toSide":"top","label":"guard de ruta","color":"1"},
-		{"id":"a8","fromNode":"guards","fromSide":"right","toNode":"ddb","toSide":"left","label":"lee permisos","color":"1"},
-		{"id":"a9","fromNode":"guards","fromSide":"bottom","toNode":"services","toSide":"top","label":"autoriza acción","color":"1"},
-		{"id":"a10","fromNode":"services","fromSide":"bottom","toNode":"repos","toSide":"top"},
-		{"id":"a11","fromNode":"repos","fromSide":"right","toNode":"ddb","toSide":"left","label":"lee y escribe","color":"2"},
-		{"id":"a12","fromNode":"services","fromSide":"right","toNode":"glue","toSide":"left","label":"metadata técnica","color":"2"},
-		{"id":"a13","fromNode":"services","fromSide":"right","toNode":"athena","toSide":"left","label":"consulta controlada","color":"2"},
-		{"id":"a14","fromNode":"athena","fromSide":"bottom","toNode":"lake","toSide":"top","label":"lee datos","color":"2"},
-		{"id":"a15","fromNode":"glue","fromSide":"top","toNode":"ddb","toSide":"bottom","label":"cachea metadata","color":"2"},
-		{"id":"a16","fromNode":"apigw","fromSide":"bottom","toNode":"routes","toSide":"top","label":"expone rutas"},
-		{"id":"a17","fromNode":"services","fromSide":"bottom","toNode":"async","toSide":"top","label":"trabajo largo"},
-		{"id":"a18","fromNode":"async","fromSide":"right","toNode":"logs","toSide":"left","label":"registra ejecución"},
-		{"id":"a19","fromNode":"services","fromSide":"right","toNode":"assume","toSide":"left","label":"acceso hub","color":"1"},
-		{"id":"a20","fromNode":"assume","fromSide":"right","toNode":"hubservices","toSide":"left","label":"credenciales temporales","color":"1"},
-		{"id":"a21","fromNode":"hubservices","fromSide":"top","toNode":"lake","toSide":"bottom","label":"bucket policy y Lake Formation","color":"1"}
-	]
+ "nodes": [
+  {
+   "id": "title",
+   "type": "text",
+   "x": -40,
+   "y": -190,
+   "width": 720,
+   "height": 130,
+   "color": "1",
+   "text": "# ¿Cómo fluye una solicitud y dónde se aplican los controles?\nFlujo principal de izquierda a derecha. Rojo: control obligatorio. Azul: ejecución. Verde: datos. Ámbar: configuración o límite operativo."
+  },
+  {
+   "id": "gclient",
+   "type": "group",
+   "x": -80,
+   "y": 0,
+   "width": 420,
+   "height": 760,
+   "label": "Cliente"
+  },
+  {
+   "id": "gedge",
+   "type": "group",
+   "x": 400,
+   "y": 0,
+   "width": 420,
+   "height": 760,
+   "label": "Entrega e identidad"
+  },
+  {
+   "id": "gapi",
+   "type": "group",
+   "x": 880,
+   "y": 0,
+   "width": 520,
+   "height": 760,
+   "label": "API y lógica"
+  },
+  {
+   "id": "gdata",
+   "type": "group",
+   "x": 1460,
+   "y": 0,
+   "width": 520,
+   "height": 760,
+   "label": "Datos e integraciones · cuenta app 186281981036"
+  },
+  {
+   "id": "gops",
+   "type": "group",
+   "x": 880,
+   "y": 780,
+   "width": 520,
+   "height": 300,
+   "label": "Ejecución asíncrona y observabilidad"
+  },
+  {
+   "id": "ghub",
+   "type": "group",
+   "x": 1460,
+   "y": 780,
+   "width": 520,
+   "height": 300,
+   "label": "Cuenta hub 396913696127 · acceso cross-account"
+  },
+  {
+   "id": "user",
+   "type": "text",
+   "x": 0,
+   "y": 70,
+   "width": 260,
+   "height": 100,
+   "color": "4",
+   "text": "## Usuario interno\nOpera módulos permitidos desde el navegador."
+  },
+  {
+   "id": "ui",
+   "type": "text",
+   "x": 0,
+   "y": 240,
+   "width": 260,
+   "height": 120,
+   "color": "5",
+   "text": "## Astro + TypeScript\nSPA estática modular; estado y render imperativo."
+  },
+  {
+   "id": "config",
+   "type": "text",
+   "x": 0,
+   "y": 440,
+   "width": 260,
+   "height": 120,
+   "color": "3",
+   "text": "## config.json\nConfiguración runtime por ambiente; queda fuera del bundle."
+  },
+  {
+   "id": "cloud",
+   "type": "text",
+   "x": 480,
+   "y": 70,
+   "width": 260,
+   "height": 110,
+   "color": "5",
+   "text": "## CloudFront + S3 privado\nEntrega el frontend por HTTPS."
+  },
+  {
+   "id": "cognito",
+   "type": "text",
+   "x": 480,
+   "y": 250,
+   "width": 260,
+   "height": 120,
+   "color": "1",
+   "text": "## Amazon Cognito\nUSER_PASSWORD_AUTH autentica y emite tokens; DynamoDB y Lambda autorizan."
+  },
+  {
+   "id": "apigw",
+   "type": "text",
+   "x": 480,
+   "y": 460,
+   "width": 260,
+   "height": 120,
+   "color": "1",
+   "text": "## API Gateway\nJWT Authorizer valida el token antes de Lambda."
+  },
+  {
+   "id": "router",
+   "type": "text",
+   "x": 980,
+   "y": 70,
+   "width": 320,
+   "height": 110,
+   "color": "5",
+   "text": "## Router por registro\nDescubre rutas de módulos y aplica guards declarativos."
+  },
+  {
+   "id": "guards",
+   "type": "text",
+   "x": 980,
+   "y": 240,
+   "width": 320,
+   "height": 110,
+   "color": "1",
+   "text": "## Autorización backend\nLambda consulta permisos funcionales y rol en DynamoDB."
+  },
+  {
+   "id": "services",
+   "type": "text",
+   "x": 980,
+   "y": 410,
+   "width": 320,
+   "height": 110,
+   "color": "5",
+   "text": "## Servicios de dominio\nEjecutan reglas de proyectos, catálogo, inicio y administración."
+  },
+  {
+   "id": "repos",
+   "type": "text",
+   "x": 980,
+   "y": 580,
+   "width": 320,
+   "height": 110,
+   "color": "5",
+   "text": "## Repositorios por dominio\nPersistencia aislada sobre una tabla single-table."
+  },
+  {
+   "id": "ddb",
+   "type": "text",
+   "x": 1560,
+   "y": 70,
+   "width": 320,
+   "height": 110,
+   "color": "2",
+   "text": "## DynamoDB\nDatos operativos, autorización, contexto y cachés."
+  },
+  {
+   "id": "glue",
+   "type": "text",
+   "x": 1560,
+   "y": 240,
+   "width": 320,
+   "height": 110,
+   "color": "2",
+   "text": "## Glue Catalog\nMetadata técnica; el sync la cachea en DynamoDB."
+  },
+  {
+   "id": "athena",
+   "type": "text",
+   "x": 1560,
+   "y": 410,
+   "width": 320,
+   "height": 110,
+   "color": "2",
+   "text": "## Athena\nConsultas controladas de lectura, registros y monitoreo."
+  },
+  {
+   "id": "lake",
+   "type": "text",
+   "x": 1560,
+   "y": 580,
+   "width": 320,
+   "height": 110,
+   "color": "2",
+   "text": "## S3 Data Lake\nDatos fuente privados; acceso de lectura gobernado."
+  },
+  {
+   "id": "async",
+   "type": "text",
+   "x": 940,
+   "y": 840,
+   "width": 190,
+   "height": 150,
+   "color": "5",
+   "text": "## Auto-invocación Lambda\nSync de catálogo y escaneos largos se ejecutan fuera del límite HTTP."
+  },
+  {
+   "id": "logs",
+   "type": "text",
+   "x": 1160,
+   "y": 840,
+   "width": 190,
+   "height": 150,
+   "color": "5",
+   "text": "## CloudWatch\nLogs y métricas de API y Lambda."
+  },
+  {
+   "id": "assume",
+   "type": "text",
+   "x": 1500,
+   "y": 840,
+   "width": 200,
+   "height": 150,
+   "color": "1",
+   "text": "## AssumeRole\nEl rol de la app asume el rol lector del hub."
+  },
+  {
+   "id": "hubservices",
+   "type": "text",
+   "x": 1730,
+   "y": 840,
+   "width": 200,
+   "height": 150,
+   "color": "2",
+   "text": "## Servicios del hub\nGlue, Athena, S3, Lake Formation y Cost Explorer."
+  },
+  {
+   "id": "routes",
+   "type": "text",
+   "x": 400,
+   "y": 620,
+   "width": 420,
+   "height": 100,
+   "color": "5",
+   "text": "## Contratos HTTP\n/api/me · /api/home · /api/workspace · /api/catalog · /api/admin · /api/staff · /api/draw"
+  },
+  {
+   "id": "farch",
+   "type": "file",
+   "file": "docs/01_arquitectura_aws.md",
+   "x": -20,
+   "y": 1140,
+   "width": 260,
+   "height": 130,
+   "color": "5"
+  },
+  {
+   "id": "fruntime",
+   "type": "file",
+   "file": "docs/18_servicios_y_runtime.md",
+   "x": 280,
+   "y": 1140,
+   "width": 260,
+   "height": 130,
+   "color": "5"
+  },
+  {
+   "id": "fsecurity",
+   "type": "file",
+   "file": "docs/03_seguridad_accesos.md",
+   "x": 580,
+   "y": 1140,
+   "width": 260,
+   "height": 130,
+   "color": "1"
+  },
+  {
+   "id": "fapi",
+   "type": "file",
+   "file": "docs/05_api_backend.md",
+   "x": 880,
+   "y": 1140,
+   "width": 260,
+   "height": 130,
+   "color": "5"
+  },
+  {
+   "id": "fddb",
+   "type": "file",
+   "file": "docs/04_modelo_dynamodb.md",
+   "x": 1180,
+   "y": 1140,
+   "width": 260,
+   "height": 130,
+   "color": "2"
+  },
+  {
+   "id": "fcatalog",
+   "type": "file",
+   "file": "docs/07_catalogo_datalake.md",
+   "x": 1480,
+   "y": 1140,
+   "width": 260,
+   "height": 130,
+   "color": "2"
+  },
+  {
+   "id": "fhub",
+   "type": "file",
+   "file": "docs/permisos_hub.md",
+   "x": 1780,
+   "y": 1140,
+   "width": 260,
+   "height": 130,
+   "color": "1"
+  },
+  {
+   "id": "gnew",
+   "type": "group",
+   "x": -80,
+   "y": 780,
+   "width": 900,
+   "height": 300,
+   "label": "Tiempo real y almacenamiento (2026-07-08)"
+  },
+  {
+   "id": "wsapi",
+   "type": "text",
+   "x": -40,
+   "y": 840,
+   "width": 280,
+   "height": 190,
+   "text": "## API Gateway WebSocket\nColaboración en vivo de Pizarra: cada tablero es una sala; la MISMA Lambda ramifica por routeKey. Token Cognito por query param, validado en $connect."
+  },
+  {
+   "id": "storage",
+   "type": "text",
+   "x": 290,
+   "y": 840,
+   "width": 280,
+   "height": 190,
+   "text": "## S3 storage compartido\n`gad-storage-<env>`: adjuntos de solicitudes y escenas de Pizarra. URLs prefirmadas — el binario nunca pasa por la API. Prefijo por app + IAM acotado."
+  },
+  {
+   "id": "vendor",
+   "type": "text",
+   "x": 620,
+   "y": 840,
+   "width": 180,
+   "height": 190,
+   "text": "## /vendor/\nD3, Chart.js, React y Excalidraw auto-hospedados en el bucket del frontend (sin CDNs externos)."
+  }
+ ],
+ "edges": [
+  {
+   "id": "a1",
+   "fromNode": "user",
+   "fromSide": "right",
+   "toNode": "cloud",
+   "toSide": "left",
+   "label": "abre HTTPS"
+  },
+  {
+   "id": "a2",
+   "fromNode": "cloud",
+   "fromSide": "left",
+   "toNode": "ui",
+   "toSide": "right",
+   "label": "entrega estáticos"
+  },
+  {
+   "id": "a3",
+   "fromNode": "config",
+   "fromSide": "top",
+   "toNode": "ui",
+   "toSide": "bottom",
+   "label": "configura ambiente",
+   "color": "3"
+  },
+  {
+   "id": "a4",
+   "fromNode": "ui",
+   "fromSide": "right",
+   "toNode": "cognito",
+   "toSide": "left",
+   "label": "inicia sesión",
+   "color": "1"
+  },
+  {
+   "id": "a5",
+   "fromNode": "cognito",
+   "fromSide": "bottom",
+   "toNode": "apigw",
+   "toSide": "top",
+   "label": "JWT en cada llamada",
+   "color": "1"
+  },
+  {
+   "id": "a6",
+   "fromNode": "apigw",
+   "fromSide": "right",
+   "toNode": "router",
+   "toSide": "left",
+   "label": "identidad validada",
+   "color": "1"
+  },
+  {
+   "id": "a7",
+   "fromNode": "router",
+   "fromSide": "bottom",
+   "toNode": "guards",
+   "toSide": "top",
+   "label": "guard de ruta",
+   "color": "1"
+  },
+  {
+   "id": "a8",
+   "fromNode": "guards",
+   "fromSide": "right",
+   "toNode": "ddb",
+   "toSide": "left",
+   "label": "lee permisos",
+   "color": "1"
+  },
+  {
+   "id": "a9",
+   "fromNode": "guards",
+   "fromSide": "bottom",
+   "toNode": "services",
+   "toSide": "top",
+   "label": "autoriza acción",
+   "color": "1"
+  },
+  {
+   "id": "a10",
+   "fromNode": "services",
+   "fromSide": "bottom",
+   "toNode": "repos",
+   "toSide": "top"
+  },
+  {
+   "id": "a11",
+   "fromNode": "repos",
+   "fromSide": "right",
+   "toNode": "ddb",
+   "toSide": "left",
+   "label": "lee y escribe",
+   "color": "2"
+  },
+  {
+   "id": "a12",
+   "fromNode": "services",
+   "fromSide": "right",
+   "toNode": "glue",
+   "toSide": "left",
+   "label": "metadata técnica",
+   "color": "2"
+  },
+  {
+   "id": "a13",
+   "fromNode": "services",
+   "fromSide": "right",
+   "toNode": "athena",
+   "toSide": "left",
+   "label": "consulta controlada",
+   "color": "2"
+  },
+  {
+   "id": "a14",
+   "fromNode": "athena",
+   "fromSide": "bottom",
+   "toNode": "lake",
+   "toSide": "top",
+   "label": "lee datos",
+   "color": "2"
+  },
+  {
+   "id": "a15",
+   "fromNode": "glue",
+   "fromSide": "top",
+   "toNode": "ddb",
+   "toSide": "bottom",
+   "label": "cachea metadata",
+   "color": "2"
+  },
+  {
+   "id": "a16",
+   "fromNode": "apigw",
+   "fromSide": "bottom",
+   "toNode": "routes",
+   "toSide": "top",
+   "label": "expone rutas"
+  },
+  {
+   "id": "a17",
+   "fromNode": "services",
+   "fromSide": "bottom",
+   "toNode": "async",
+   "toSide": "top",
+   "label": "trabajo largo"
+  },
+  {
+   "id": "a18",
+   "fromNode": "async",
+   "fromSide": "right",
+   "toNode": "logs",
+   "toSide": "left",
+   "label": "registra ejecución"
+  },
+  {
+   "id": "a19",
+   "fromNode": "services",
+   "fromSide": "right",
+   "toNode": "assume",
+   "toSide": "left",
+   "label": "acceso hub",
+   "color": "1"
+  },
+  {
+   "id": "a20",
+   "fromNode": "assume",
+   "fromSide": "right",
+   "toNode": "hubservices",
+   "toSide": "left",
+   "label": "credenciales temporales",
+   "color": "1"
+  },
+  {
+   "id": "a21",
+   "fromNode": "hubservices",
+   "fromSide": "top",
+   "toNode": "lake",
+   "toSide": "bottom",
+   "label": "bucket policy y Lake Formation",
+   "color": "1"
+  },
+  {
+   "id": "ews1",
+   "fromNode": "ui",
+   "fromSide": "bottom",
+   "toNode": "wsapi",
+   "toSide": "top",
+   "label": "wss (escena + cursores)"
+  },
+  {
+   "id": "ews2",
+   "fromNode": "wsapi",
+   "fromSide": "right",
+   "toNode": "services",
+   "toSide": "bottom",
+   "label": "misma Lambda · releva a la sala"
+  },
+  {
+   "id": "est1",
+   "fromNode": "ui",
+   "fromSide": "bottom",
+   "toNode": "storage",
+   "toSide": "top",
+   "label": "PUT/GET con URL prefirmada"
+  },
+  {
+   "id": "est2",
+   "fromNode": "cloud",
+   "fromSide": "bottom",
+   "toNode": "vendor",
+   "toSide": "top",
+   "label": "sirve librerías",
+   "color": "3"
+  }
+ ]
 }

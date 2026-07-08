@@ -25,6 +25,14 @@
   .adminUserActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
   .adminUserHeadRight { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .adminUserSummary { font-size: 0.8rem; color: var(--muted); margin: 8px 0 0; }
+  /* Chips de acceso (vista colapsada): neutro para lo normal; color SOLO en lo
+     que implica privilegio (rol Administrador = acento; módulo Administración =
+     ámbar). Siempre con texto — el color refuerza, no sustituye (daltonismo). */
+  .accessChipRow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+  .accessChip { display: inline-flex; align-items: center; font-size: 0.72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-muted); color: var(--text-soft); }
+  .accessChip.roleAdmin { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+  .accessChip.priv { border-color: var(--warn-border); background: var(--warn-soft); color: #7a5d00; }
+  .accessChip.empty { color: var(--muted); font-weight: 500; border-style: dashed; background: transparent; }
   .adminUserCard.editing { border-color: var(--accent-strong, var(--accent)); box-shadow: 0 0 0 1px var(--accent-strong, var(--accent)) inset; }
   .adminEditActions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
   .adminEditActionsRight { display: flex; gap: 8px; }

@@ -9,6 +9,18 @@ _router = build_router()
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    # WebSocket (colaboración en vivo de Pizarra): los eventos traen routeKey
+    # ($connect/$disconnect/$default) y connectionId; no es HTTP ni acción async.
+    route_key = event.get("requestContext", {}).get("routeKey")
+    if route_key in ("$connect", "$disconnect", "$default"):
+        from services.draw_ws import DrawWsService
+        service = DrawWsService()
+        if route_key == "$connect":
+            return service.handle_connect(event)
+        if route_key == "$disconnect":
+            return service.handle_disconnect(event)
+        return service.handle_message(event)
+
     # EventBridge scheduled trigger o auto-invocación asíncrona (no es HTTP).
     if event.get("action") == "catalog_sync_all" or event.get("source") == "aws.events":
         CatalogService().run_sync_all()

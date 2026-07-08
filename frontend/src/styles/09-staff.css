@@ -1,0 +1,96 @@
+  /* ── Personal (staff): ausencias del equipo + saldo de vacaciones ────────
+     Vista ocasional abierta desde el menú del usuario (no es módulo del menú
+     lateral). Ancho completo del contentGrid, como chat/pizarra. */
+  .staffModule { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 14px; }
+  .staffPanel { grid-column: 1 / -1; }
+  .staffCalHint { margin: 0 0 8px; font-size: 0.8rem; color: var(--muted); }
+  /* Búsqueda de personas (aparece con >6 personas): filtra calendario + lista.
+     flex:none porque .searchInput trae `flex:1 1 320px` (pensado para una barra en
+     FILA); en este contenedor flex-columna ese 320px sería ALTURA → input gigante. */
+  .staffSearch { flex: none; max-width: 360px; }
+
+  /* Tipos de ausencia (colores de la paleta; siempre acompañados de texto). */
+  .absVacation { background: var(--accent-soft); border-color: var(--accent); }
+  .absLeave { background: var(--warn-soft); border-color: var(--warn-border); }
+  .absSick { background: var(--danger-soft); border-color: var(--danger-border); }
+
+  /* Franja "Fuera hoy / Próximos 7 días". */
+  .staffNowRow { display: flex; flex-wrap: wrap; gap: 8px; }
+  .staffNowChip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.82rem; }
+  .staffUpcomingHead { margin-top: 12px; }
+
+  /* Calendario del mes: fila por persona; celdas por día (CSS grid, sin libs). */
+  .staffCalHead { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 8px; }
+  .staffCalHead .blockHeader { margin-bottom: 0; }
+  .staffCalNav { display: flex; gap: 4px; }
+  .staffLegend { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
+  .staffLegendItem { display: inline-flex; align-items: center; gap: 5px; font-size: 0.74rem; color: var(--muted); }
+  .staffCalScroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .staffCalRow { display: flex; align-items: center; gap: 8px; padding: 2px 0; min-width: 560px; }
+  .staffCalName { flex: none; width: 150px; text-align: left; font: inherit; font-size: 0.8rem; font-weight: 600; color: var(--text); background: transparent; border: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 4px; border-radius: 6px; }
+  .staffCalName:hover { color: var(--accent-strong); background: var(--surface-muted); }
+  .staffCalCells { flex: 1; display: grid; grid-template-columns: repeat(var(--staff-days, 31), 1fr); gap: 2px; }
+  .staffCalDay { font-size: 0.62rem; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .staffCalDay.weekend { opacity: 0.45; }
+  .staffCalDay.today { color: var(--accent-strong); font-weight: 700; }
+  .staffCalCell { display: inline-block; height: 16px; border-radius: 3px; background: var(--surface-muted); border: 1px solid transparent; }
+  .staffCalCell.weekend { background: transparent; border: 1px dashed var(--line); }
+  /* Color por tipo en la celda del calendario: especificidad (0,2,0) para ganarle
+     al fondo base de .staffCalCell (0,1,0), que aparece después en el archivo. */
+  .staffCalCell.absVacation { background: var(--accent-soft); border: 1px solid var(--accent); }
+  .staffCalCell.absLeave { background: var(--warn-soft); border: 1px solid var(--warn-border); }
+  .staffCalCell.absSick { background: var(--danger-soft); border: 1px solid var(--danger-border); }
+  .staffLegend .staffCalCell { width: 14px; height: 12px; }
+
+  /* Lista de personas + ficha. */
+  .staffPeopleList { display: flex; flex-direction: column; gap: 4px; }
+  .staffPersonRow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
+  .staffPersonRow:hover { border-color: var(--accent); }
+  .staffPersonRow.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .staffPersonArea { font-size: 0.74rem; color: var(--muted); }
+  .staffPersonBalance { margin-left: auto; font-size: 0.78rem; color: var(--text-soft); }
+  .staffPersonRow .projChevron { flex: none; width: auto; }
+
+  /* Ficha en ACORDEÓN: vive dentro de la lista, justo bajo la fila seleccionada
+     (con listados grandes, al final del panel quedaba lejísimos del clic). */
+  .staffPersonDetail { margin: 0 0 6px; border: 1px solid var(--accent); border-top: none; border-radius: 0 0 8px 8px; background: var(--panel-soft); padding: 12px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+  .staffPersonRow.selected { border-radius: 8px 8px 0 0; }
+  .staffDetailHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; width: 100%; }
+  .staffBalance { font-size: 0.82rem; color: var(--text-soft); }
+  /* Acción primaria (Registrar ausencia) + cuota secundaria y discreta. */
+  .staffDetailActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .staffQuotaBtn { font: inherit; font-size: 0.78rem; color: var(--muted); background: transparent; border: none; border-radius: 6px; padding: 4px 6px; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+  .staffQuotaBtn:hover { color: var(--accent-strong); background: var(--surface-muted); }
+  .staffDaysForm { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+  .staffDaysForm label { display: flex; flex-direction: column; gap: 3px; font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+  .staffDaysForm label em { font-style: normal; font-weight: 500; color: var(--text-soft); }
+  .staffDaysForm input { width: 70px; font: inherit; font-size: 0.84rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 5px 8px; }
+
+  /* Nota por persona (solo visible en Personal). */
+  .staffPersonNote { margin: 0; font-size: 0.82rem; color: var(--text-soft); background: var(--warn-soft); border: 1px solid var(--warn-border); border-radius: 8px; padding: 6px 10px; max-width: 100%; overflow-wrap: anywhere; }
+  .staffNotesForm { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; width: 100%; }
+  .staffNotesForm label { flex: 1 1 280px; display: flex; flex-direction: column; gap: 3px; font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+  .staffNotesForm textarea { font: inherit; font-size: 0.84rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; resize: vertical; width: 100%; box-sizing: border-box; }
+
+  .staffAbsForm { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; width: 100%; }
+  .staffAbsForm label { display: flex; flex-direction: column; gap: 3px; font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+  .staffAbsForm select, .staffAbsForm input { font: inherit; font-size: 0.84rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; }
+  .staffNotesField { flex: 1 1 180px; }
+  .staffNotesField input { width: 100%; box-sizing: border-box; }
+
+  .staffAbsList { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+  .staffAbsListTitle { margin: 4px 0 0; font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .staffAbsRow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .staffAbsRow .staffCalCell { flex: none; width: 14px; height: 14px; }
+  .staffAbsText { flex: 1; min-width: 0; font-size: 0.84rem; color: var(--text-soft); }
+
+  /* Responsive (después de las reglas base, docs/06). */
+  @media (max-width: 780px) {
+    .staffCalName { width: 96px; }
+    .staffLegend { margin-left: 0; }
+    .staffDaysForm { margin-left: 0; }
+    .staffAbsForm label { flex: 1 1 45%; }
+    .staffAbsForm select, .staffAbsForm input { width: 100%; box-sizing: border-box; }
+    .staffPersonBalance { flex-basis: 100%; order: 9; margin-left: 0; }
+    .staffPersonRow { flex-wrap: wrap; gap: 6px 10px; }
+  }

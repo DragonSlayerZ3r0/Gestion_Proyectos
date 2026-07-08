@@ -61,7 +61,7 @@ El módulo `admin` ya permite gestionar la **autorización** de usuarios desde l
 
 ### Frontend
 
-`renderAdmin()` en `frontend/src/scripts/modules/admin.ts`: lista de usuarios donde cada tarjeta está **colapsada** (resumen de rol/módulos) y se edita con el **ícono de lápiz**; dentro de la edición se despliegan nombre, rol, estado, casillas de módulos (con sub-casillas para las pestañas de Inicio: Resumen y Data Lake) y el **ícono de eliminar**. Incluye formulario de alta. El módulo solo es funcional para usuarios con rol `admin`.
+`renderAdmin()` en `frontend/src/scripts/modules/admin.ts`: lista de usuarios donde cada tarjeta está **colapsada** — el resumen de acceso son **chips** (2026-07-08): neutros para módulos normales y con color SOLO en lo que implica privilegio (rol **Administrador** = acento verde; módulo **Administración** = ámbar `--warn-soft`), para escanear de un vistazo quién puede administrar sin caer en un arcoíris sin significado (disciplina de color, estándar #4 de docs/06) y se edita con el **ícono de lápiz**; dentro de la edición se despliegan nombre, rol, estado, casillas de módulos (con sub-casillas para las pestañas de Inicio: Resumen y Data Lake) y el **ícono de eliminar**. Incluye formulario de alta. El módulo solo es funcional para usuarios con rol `admin`.
 
 ### Pendiente
 

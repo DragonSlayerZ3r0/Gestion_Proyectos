@@ -26,11 +26,24 @@
 
   /* Editor: barra (Volver · nombre · Compartir · Guardar) + lienzo. La altura del
      host es fija respecto al viewport para que Excalidraw tenga lienzo real. */
-  .drawEditorPanel { display: flex; flex-direction: column; gap: 10px; }
+  /* Panel del editor con ALTURA FIJA respecto al viewport (mismo patrón que
+     .chatPanel): la página nunca crece ni encoge al abrir/cerrar cosas dentro →
+     la barra de scroll no aparece/desaparece en bucle. Sin esto, el alto del
+     panel basculaba alrededor del límite del viewport y el ancho oscilaba,
+     haciendo "vibrar" a izquierda/derecha lo centrado del lienzo (el botón
+     "Volver al contenido" de Excalidraw, bug real 2026-07-08). */
+  .drawEditorPanel { display: flex; flex-direction: column; gap: 10px; height: calc(100vh - 170px); height: calc(100dvh - 170px); min-height: 480px; overflow: hidden; }
   .drawEditorBar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .drawEditorName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .drawEditorActions { display: flex; gap: 8px; }
-  .drawEditorHost { height: calc(100vh - 240px); min-height: 460px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  /* Presencia de la sala en vivo: "● N en vivo" / Conectando… / Reconectando… */
+  .drawPresence { flex: none; font-size: 0.74rem; font-weight: 600; color: var(--muted); padding: 3px 10px; border-radius: 999px; background: var(--surface-muted); }
+  .drawPresence.live { color: var(--accent-strong); background: var(--accent-soft); }
+  .drawPresence.off { color: var(--danger); background: var(--danger-soft); }
+  /* El lienzo llena lo que sobra del panel (flex), no calcula su propia altura:
+     una sola fuente de verdad del alto → sin bucles de reflow. min-height:0
+     permite encogerse dentro del flex sin desbordar. */
+  .drawEditorHost { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
   .drawLoadingHint { padding: 14px; }
 
   /* Panel Compartir: selector de usuario + chips con estado de la invitación. */
@@ -50,7 +63,7 @@
     .drawModule .inlineForm { flex-wrap: wrap; }
     .drawModule .inlineForm input { min-width: 0; flex: 1 1 160px; }
     .drawGrid { grid-template-columns: 1fr; }
-    .drawEditorHost { height: calc(100vh - 200px); min-height: 380px; }
+    .drawEditorPanel { height: calc(100vh - 150px); height: calc(100dvh - 150px); min-height: 400px; }
     .drawShareForm { flex-wrap: wrap; }
     .drawShareForm select { max-width: none; flex: 1 1 100%; }
   }

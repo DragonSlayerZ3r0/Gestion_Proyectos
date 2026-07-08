@@ -19,6 +19,10 @@
     --danger: #b91c1c;
     --danger-soft: #fef2f2;
     --danger-border: #fecaca;
+    /* Familia "advertencia/atención" (ámbar, 2026-07-08): ya se repetía en tareas
+       en revisión, permisos de Personal y ahora el chip de privilegio de Admin. */
+    --warn-soft: #fff8e1;
+    --warn-border: #f2cc75;
     /* Blanco con dos roles: superficie de panel (--panel) y texto/íconos SOBRE un
        fondo de color, p. ej. botón de acento (--on-accent). Hoy iguales; separados
        para que un futuro modo oscuro pueda tratarlos distinto. */
@@ -1128,8 +1132,8 @@
   }
 
   .filterChip[data-project-status-filter="paused"].active {
-    border-color: #f2cc75;
-    background: #fff8e1;
+    border-color: var(--warn-border);
+    background: var(--warn-soft);
     color: #7a5d00;
   }
 
@@ -1482,8 +1486,8 @@
 
   .taskGroup.taskStatus-review,
   .kanbanColumn.taskStatus-review {
-    border-color: #f2cc75;
-    background: #fff8e1;
+    border-color: var(--warn-border);
+    background: var(--warn-soft);
   }
 
   .taskGroup.taskStatus-done,
@@ -1595,7 +1599,7 @@
   .statusBadge.statusTone-green { border-color: #9bcac4; background: var(--accent-soft); color: var(--accent-strong); }
   .statusBadge.statusTone-blue { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
   .statusBadge.statusTone-rose { border-color: #f3afa8; background: #fff1f0; color: #b42318; }
-  .statusBadge.statusTone-amber { border-color: #d9c58b; background: #fff8e1; color: #7a5d00; }
+  .statusBadge.statusTone-amber { border-color: #d9c58b; background: var(--warn-soft); color: #7a5d00; }
   .statusBadge.statusTone-slate { border-color: #cbd5e1; background: #f1f5f9; color: #475569; }
   .statusBadge.statusTone-teal { border-color: #99f6e4; background: #f0fdfa; color: var(--accent); }
   .statusBadge.statusTone-purple { border-color: #d8b4fe; background: #faf5ff; color: #7e22ce; }

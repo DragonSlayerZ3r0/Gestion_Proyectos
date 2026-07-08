@@ -162,13 +162,13 @@ class WorkspaceService:
     def delete_area(self, area_id: str, identity: dict[str, str]) -> dict[str, Any]:
         area_id = self._required_text({"areaId": area_id}, "areaId", "Área solicitante")
         # Impedir y avisar (igual que estados): el catálogo es compartido por los
-        # campos "Área solicitante" y "Área destino" — se cuentan ambos usos.
+        # campos "Área solicitante" y "Grupo de trabajo" — se cuentan ambos usos.
         in_use = sum(1 for p in self._repository.list_projects()
                      if p.get("requestingAreaId") == area_id or p.get("targetAreaId") == area_id)
         if in_use:
             raise ValidationError(
                 f"No se puede eliminar: {in_use} solicitud(es) usan esta área "
-                "(como solicitante o destino). Reasígnalas antes de eliminarla.")
+                "(como área solicitante o grupo de trabajo). Reasígnalas antes de eliminarla.")
         self._repository.delete_area(area_id)
         return {"areaId": area_id, "removed": True}
 
