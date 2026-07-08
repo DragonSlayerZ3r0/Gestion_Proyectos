@@ -1,6 +1,13 @@
 # Estado de implementación
 
-## Últimos avances (monitoreo de cargas + mejoras de Inicio)
+## Últimos avances (2026-07-07: adjuntos, Pizarra, filtros)
+
+- **Adjuntos de solicitudes**: archivos (pantallazos, pdf, csv…) y queries de texto por solicitud. Bucket S3 compartido `gad-storage-dev-186281981036` (privado, RETAIN, prefijo `gestion-proyectos/`, IAM acotado) + presigned PUT/GET; items `ATTACHMENT` en Dynamo; franja "Adjuntos" con selector "Relacionar con" (General / seguimiento / + Nueva nota). Desplegado en dev. Ver `docs/08`.
+- **Módulo Pizarra** (`draw`): lienzo Excalidraw (unpkg bajo demanda), compartir selectivo con aceptación, escenas en S3 bajo `drawings/`. Desplegado en dev; se asigna por usuario en Administración. Ver `docs/02`.
+- **Filtros de Solicitudes**: popover `Filtros ▾` con badge + chips removibles; nuevo filtro y columna "Área destino" (columna oculta por defecto). Ver `docs/06`.
+- **Guardrail**: `check:python` ahora compila recursivo todo `backend/app` + `backend/scripts` (excluye `_vendor`) — antes omitía `modules/` y `core/`.
+
+## Avances previos (monitoreo de cargas + mejoras de Inicio)
 
 - **Monitoreo de cargas del data lake** (pestaña Data Lake): histograma diario de **archivos y peso** por zona y área (Fase 1: listado S3 con colector intercambiable hacia S3 Inventory en Fase 2), escaneo asíncrono (`datalake_ingest_scan`), caché en DynamoDB (`DATALAKE#INGEST`) con TTL 12 h + botón "Escanear ahora". Sub-módulo frontend `modules/datalake.ts` compuesto por Inicio. Alcance inicial: `arc-enterprise-data` (landing/staging). Ver `docs/02_modulos_funcionales.md`.
 - **Inicio en pestañas** Resumen / Data Lake / Facturación, con visibilidad de pestañas por usuario (permisos `home_resumen`, `home_datalake`; Facturación es admin-only). Títulos de sección colapsables.
@@ -63,6 +70,7 @@ Sirve como trazabilidad y no define pendientes vigentes:
 | Frontend URL | `https://d269paz1z7q1g0.cloudfront.net/` |
 | API URL | `https://63ibnl13da.execute-api.us-east-1.amazonaws.com/` |
 | S3 frontend bucket | `gestion-proyectos-dev-frontend-186281981036` |
+| S3 storage bucket (adjuntos + pizarras) | `gad-storage-dev-186281981036` — privado total, RETAIN, compartible entre apps por prefijo (`gestion-proyectos/`); IAM de la Lambda acotado al prefijo; CORS PUT/GET/HEAD solo desde el origen CloudFront |
 | CloudFront distribution | `E2K3CA110228B1` |
 | Cognito User Pool | `us-east-1_lN4JYAVlQ` |
 | Cognito App Client | `uhquk1hakj8nifgi3j6hv8dbh` |
@@ -70,7 +78,7 @@ Sirve como trazabilidad y no define pendientes vigentes:
 | DynamoDB table | `gestion-proyectos-dev-main` |
 | Lambda API | `gestion-proyectos-dev-api` |
 | Rol de ejecución Lambda | `gestion-proyectos-dev-api-role` (ARN `arn:aws:iam::186281981036:role/gestion-proyectos-dev-api-role`), nombre estable definido en CDK y verificado en AWS el 2026-06-26; usar este ARN para grants externos (S3 cross-account, Lake Formation) |
-| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) |
+| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) · S3 RW sobre `gad-storage-dev-…/gestion-proyectos/*` (adjuntos y pizarras, acotado al prefijo) |
 | Usuario inicial | `usr041100@banrural.com.gt` |
 
 ## Recursos definidos por CDK

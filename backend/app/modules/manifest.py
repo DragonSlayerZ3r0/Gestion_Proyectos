@@ -16,6 +16,10 @@ MODULES = [
     {"key": "projects", "label": "Solicitudes"},
     {"key": "tasks", "label": "Tareas"},
     {"key": "catalog", "label": "Catálogo"},
+    # Pizarra (2026-07-07): lienzo Excalidraw con compartir selectivo (el dueño
+    # invita, el invitado acepta/rechaza). Escenas en S3 (bucket de adjuntos,
+    # prefijo drawings/); metadata DRAWING/DRAWING_SHARE en DynamoDB.
+    {"key": "draw", "label": "Pizarra"},
     {"key": "chat", "label": "Apoyo técnico"},
     {"key": "admin", "label": "Administración"},
 ]

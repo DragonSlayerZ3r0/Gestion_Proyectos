@@ -1,0 +1,56 @@
+  /* ── Pizarra (draw): lista de pizarras + editor Excalidraw ──────────────── */
+  /* El contentGrid es de 2 columnas: Pizarra ocupa SIEMPRE el ancho completo
+     (grid-column 1/-1, mismo patrón que .chatPanel) — sin esto el editor queda
+     angosto y la barra de herramientas de Excalidraw se corta. */
+  .drawModule, .drawEditorPanel { grid-column: 1 / -1; }
+  .drawModule { display: flex; flex-direction: column; gap: 14px; }
+  .drawListHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .drawListHead h3 { margin: 0; }
+  .drawModule .inlineForm { display: flex; gap: 8px; }
+  .drawModule .inlineForm input { font: inherit; font-size: 0.86rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 10px; min-width: 220px; }
+
+  /* Tarjetas de pizarra: nombre + última edición + estado de compartido. */
+  .drawGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .drawCard { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); cursor: pointer; transition: border-color 120ms ease, box-shadow 120ms ease; }
+  .drawCard:hover { border-color: var(--accent); box-shadow: 0 2px 10px rgba(15, 31, 38, 0.08); }
+  .drawCardBody { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .drawCardBody strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drawCardMeta { font-size: 0.74rem; color: var(--muted); }
+  .drawCardShares { font-size: 0.72rem; color: var(--accent-strong); }
+  .drawCardActions { display: flex; gap: 4px; flex: none; }
+
+  /* Invitaciones pendientes: banner con Aceptar / Rechazar. */
+  .drawInvites h3 { margin: 0 0 4px; }
+  .drawInviteRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-muted); margin-top: 8px; }
+  .drawInviteActions { display: flex; gap: 6px; }
+
+  /* Editor: barra (Volver · nombre · Compartir · Guardar) + lienzo. La altura del
+     host es fija respecto al viewport para que Excalidraw tenga lienzo real. */
+  .drawEditorPanel { display: flex; flex-direction: column; gap: 10px; }
+  .drawEditorBar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .drawEditorName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drawEditorActions { display: flex; gap: 8px; }
+  .drawEditorHost { height: calc(100vh - 240px); min-height: 460px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .drawLoadingHint { padding: 14px; }
+
+  /* Panel Compartir: selector de usuario + chips con estado de la invitación. */
+  .drawSharePanel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+  .drawShareForm { display: flex; gap: 8px; }
+  .drawShareForm select { font: inherit; font-size: 0.84rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; max-width: 280px; }
+  .drawShareList { display: flex; flex-wrap: wrap; gap: 6px; }
+  .drawShareChip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 0.78rem; }
+  .drawShareChip em { font-style: normal; font-size: 0.68rem; color: var(--muted); }
+  .drawShareChip.accepted em { color: var(--accent-strong); }
+  .drawShareRevoke { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: none; border-radius: 50%; background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; cursor: pointer; }
+  .drawShareRevoke:hover { background: var(--danger-soft); color: var(--danger); }
+
+  /* Responsive (después de las reglas base, como manda docs/06). */
+  @media (max-width: 780px) {
+    .drawListHead { align-items: stretch; flex-direction: column; }
+    .drawModule .inlineForm { flex-wrap: wrap; }
+    .drawModule .inlineForm input { min-width: 0; flex: 1 1 160px; }
+    .drawGrid { grid-template-columns: 1fr; }
+    .drawEditorHost { height: calc(100vh - 200px); min-height: 380px; }
+    .drawShareForm { flex-wrap: wrap; }
+    .drawShareForm select { max-width: none; flex: 1 1 100%; }
+  }

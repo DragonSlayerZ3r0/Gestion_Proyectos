@@ -108,6 +108,14 @@ Módulo futuro para vistas resumidas, indicadores y paneles internos.
 
 Módulo futuro para solicitudes de acceso, cambios, revisiones o trabajo asociado a proyectos y datos.
 
+## Pizarra
+
+Módulo `draw` (2026-07-07): lienzo **Excalidraw** (el mismo editor open source que usa Obsidian en "New Drawing") para diagramar flujos, arquitecturas e ideas.
+
+**Compartir selectivo con aceptación (modelo decidido por el usuario):** cada pizarra tiene **dueño** (quien la crea); sin compartir, solo él la ve. El dueño la comparte con usuarios concretos (panel **Compartir** en el editor → selector de usuarios de la app → Invitar); el invitado ve un banner de **Invitaciones pendientes** en su lista y **acepta** (pasa a "Compartidas conmigo", puede ver y editar) o **rechaza** (se descarta). Solo el dueño renombra, elimina, comparte o revoca. La edición compartida es asincrónica (último en guardar gana), no colaboración en tiempo real.
+
+**Técnica:** el editor se carga **bajo demanda** desde unpkg (React 18 UMD + Excalidraw UMD, mismo patrón que D3 en el grafo del catálogo — el bundle de la app no crece para quien no usa Pizarra; `EXCALIDRAW_ASSET_PATH` apunta las fuentes al CDN). La escena se guarda como JSON formato `.excalidraw` en S3 (bucket compartido de adjuntos, prefijo `drawings/`) vía URLs prefirmadas — nunca pasa por la API. Metadata `DRAWING` + invitaciones `DRAWING_SHARE` en DynamoDB (ver `docs/04`), rutas `/api/draw/*` (ver `docs/05`), frontend `frontend/src/scripts/modules/draw.ts` + `styles/08-draw.css`. Como todo módulo nuevo: clave `draw` en el manifiesto único; usuarios existentes no lo ven hasta asignarlo en Administración (y recargar la página — el menú se arma con el perfil cargado al login).
+
 ## Apoyo técnico
 
 Módulo de nivel superior (`chat`, clave asignable por usuario en Administración, no una pestaña de Inicio) con un **chat multi-turno contra un LLM** para dudas técnicas generales (SQL, AWS, buenas prácticas de la plataforma) — mismo backend y modelo que la sugerencia de Athena (`services/llm.py` → `zai.glm-5` vía Bedrock `Converse`, sin Bedrock Agent; ver `docs/permisos_hub.md` sección 1d para el porqué de ese modelo).

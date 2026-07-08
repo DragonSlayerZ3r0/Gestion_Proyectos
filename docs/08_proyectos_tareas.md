@@ -105,6 +105,16 @@ Las personas relacionadas con una solicitud se gestionan en **un solo lugar**: l
 
 > Histórico: existió un catálogo de "roles" por miembro (Responsable/Miembro/Lector) mostrado en un bloque "Miembros" aparte. Se **retiró** (2026-07-06) porque duplicaba la lista de "Personas relacionadas", usaba otro nombre para el mismo dato (rompía la consistencia de vocabulario) y el rol **no gobernaba ningún permiso** (la autorización es por los `roles` del perfil, no por rol de miembro). El atributo `role` sigue en los items `PROJECT_MEMBER` pero inerte; el endpoint `PATCH /members/{personId}` queda sin uso desde el frontend.
 
+## Adjuntos de la solicitud (2026-07-07)
+
+Cada solicitud puede almacenar **archivos** (pantallazos, pdf, csv, txt, sql, json, log — máx. 15 MB) y **queries de texto**. Decisiones de diseño (con el porqué):
+
+- **Un SOLO lugar para subir:** la franja **"Adjuntos"** del detalle (bajo la descripción). Se descartó tener también un botón de subida en cada entrada de seguimiento: dos puntos de subida generaban la duda "¿dónde lo pongo?" (aunque nunca se duplicara el archivo). La franja es a la vez el índice: muestra TODOS los adjuntos de la solicitud.
+- **Relación opcional por adjunto ("Relacionar con"):** cada adjunto tiene un selector con `General` (default — subir nunca exige decidir), cada **entrada de seguimiento** (mostrada como `fecha · "inicio del texto…"` para elegir con contexto, no a ciegas) y **`+ Nueva nota…`** (escribe un texto → se crea una entrada de seguimiento real con la fecha de hoy y el adjunto queda ligado a ella — recupera el gesto "adjunto + contexto en un solo movimiento" sin un segundo punto de subida). La relación es editable siempre.
+- En las entradas de seguimiento, los adjuntos relacionados aparecen como **chips solo-vista** (clic para abrir).
+- Formas de subir: botón `+ Archivo`, **arrastrar** o **pegar** (Ctrl/Cmd+V — el caso pantallazo). `+ Query` guarda texto SQL inline (clic = copiar al portapapeles) — las queries NO van a S3: son texto que se lee y se copia.
+- **Binarios nunca por la API**: presigned PUT directo del navegador a S3 (bucket compartido `gad-storage-<env>`, prefijo por app, privado total) y presigned GET corta para ver/descargar. Metadata como item `ATTACHMENT` (ver `docs/04`). Borrar la solicitud o el adjunto borra también el objeto S3.
+
 ## Modo de acceso por proyecto
 
 El proyecto puede definir si la incorporacion de usuarios es:

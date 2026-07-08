@@ -28,7 +28,14 @@ gestion-proyectos-main-{env}
 - `PROJECT`
 - `PROJECT_USER`
 - `PROJECT_TABLE`
+- `PROJECT_MEMBER`
+- `PROJECT_UPDATE`
+- `ATTACHMENT`
 - `TASK`
+- `AREA`
+- `PROJECT_STATUS`
+- `DRAWING`
+- `DRAWING_SHARE`
 - `TABLE_CONTEXT`
 - `COLUMN_CONTEXT`
 - `DASHBOARD`
@@ -79,6 +86,28 @@ SK = PERSON#<personId>
 TASK
 PK = PROJECT#<projectId>
 SK = TASK#<taskId>
+
+PROJECT_UPDATE (seguimiento/bitácora de la solicitud: date + text + autor)
+PK = PROJECT#<projectId>
+SK = UPDATE#<updateId>
+
+ATTACHMENT (adjuntos de la solicitud, 2026-07-07. kind=file → binario en S3
+  (storageKey en el bucket compartido gad-storage-<env>, prefijo de la app) con
+  metadata aquí; kind=query → texto inline (title + text), SIN S3. updateId
+  opcional = relación con una entrada de seguimiento ("" = General). Al borrar
+  la solicitud o el adjunto se borra también el objeto S3)
+PK = PROJECT#<projectId>
+SK = ATTACH#<attachmentId>
+
+DRAWING (pizarra Excalidraw, 2026-07-07: name + ownerUserId + storageKey de la
+  escena .excalidraw en S3 bajo drawings/. Sin compartir, solo el dueño la ve)
+PK = DRAWING#<drawingId>
+SK = META
+
+DRAWING_SHARE (invitación por usuario: status pending → el invitado acepta
+  (accepted, ve/edita) o rechaza (se borra el item). Solo el dueño invita/revoca)
+PK = DRAWING#<drawingId>
+SK = SHARE#<email>
 
 TABLE_CONTEXT
 PK = TABLE#<database>#<table>

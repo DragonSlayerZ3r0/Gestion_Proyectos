@@ -9,6 +9,7 @@
       import { createWorkspaceModule } from "./modules/workspace";
       import { createCatalogModule } from "./modules/catalog";
       import { createChatModule } from "./modules/chat";
+      import { createDrawModule } from "./modules/draw";
 
       const defaultModules = [
         { key: "projects", label: "Solicitudes" },
@@ -51,6 +52,12 @@
         attachUploading: {},    // por projectId: true mientras sube un archivo
         attachError: {},        // por projectId: mensaje de error de la última subida
         attachNoteFor: null,    // "projectId:attachmentId" con el form "+ Nueva nota" abierto
+        drawData: null,         // pizarras del usuario {mine, shared, invitations} (null = sin cargar)
+        drawError: "",
+        drawView: "list",       // "list" | "editor"
+        drawActive: null,       // pizarra abierta en el editor
+        drawPeople: null,       // usuarios para el selector "Compartir con" (carga perezosa)
+        drawShareOpen: false,   // panel Compartir visible en el editor
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
@@ -797,6 +804,9 @@
       const chatModule = createChatModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, mdLite,
       });
+      const drawModule = createDrawModule({
+        state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton,
+      });
 
       function renderModule(moduleKey) {
         moduleKey = normalizeModuleKey(moduleKey);
@@ -810,6 +820,10 @@
         }
         if (moduleKey === "chat") {
           chatModule.render();
+          return;
+        }
+        if (moduleKey === "draw") {
+          drawModule.render();
           return;
         }
         if (moduleKey === "admin") {

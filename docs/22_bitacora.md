@@ -10,6 +10,18 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-07 · decisión — Módulo Pizarra (Excalidraw) con compartir selectivo y aceptación
+
+Nuevo módulo `draw` ("Pizarra"): lienzo Excalidraw como el "New Drawing" de Obsidian. Modelo definido por el usuario: cada pizarra tiene DUEÑO; se comparte con usuarios concretos y el invitado debe ACEPTAR (banner de invitaciones; rechazar la descarta); sin compartir, solo el dueño la ve; solo el dueño renombra/elimina/comparte/revoca. Editor cargado bajo demanda desde unpkg (React 18 UMD + Excalidraw UMD, patrón D3 — alternativa descartada: empaquetar React en el build Astro vanilla). Escena `.excalidraw` en S3 (bucket de adjuntos, prefijo `drawings/`, presigned) — descartado DynamoDB por el tope de 400 KB. Edición compartida asincrónica (último guardado gana), no tiempo real. Nota operativa: los módulos nuevos no aparecen hasta asignarlos en Administración Y recargar la página (el menú sale del perfil cargado al login). Ver `docs/02`, `docs/04`, `docs/05`.
+
+## 2026-07-07 · decisión — Adjuntos de solicitudes: S3 + presigned, UN punto de subida y relación opcional
+
+Las solicitudes almacenan archivos (pantallazos, pdf, csv…; máx 15 MB) y queries de texto. Estrategia: bucket S3 COMPARTIDO `gad-storage-<env>` con prefijo por app (descartado: bucket del frontend — es público vía CloudFront y su deploy hace `sync --delete`; descartado: binarios en Dynamo/API por topes de 400 KB/10 MB) + presigned PUT/GET; queries inline en Dynamo (se leen/copian, no son binarios). UX iterada con el usuario: primero híbrido (subir en franja Y en cada seguimiento) → se descartó porque dos puntos de subida confunden; quedó **un solo punto** (franja "Adjuntos") + selector **"Relacionar con"** por adjunto (General default, entradas de seguimiento con vista previa del texto, y "+ Nueva nota…" que crea el seguimiento y liga el adjunto en un gesto). Estándar #13 en `docs/06`; detalle en `docs/08`; modelo `ATTACHMENT` en `docs/04`.
+
+## 2026-07-07 · decisión — Filtros de Solicitudes: popover "Filtros" + chips removibles + Área destino
+
+El usuario pidió filtrar por área de entrega y poder combinar solicitante+destino a la vez. Se agregó el filtro y la columna "Área destino" (`targetAreaId`; columna nace oculta, `defaultHidden`) y se rediseñó la barra: en vez de 5 dropdowns siempre visibles (no escala, se satura en ~768px), botón `Filtros ▾` con badge de activos + popover con las dimensiones apiladas + chips removibles por filtro activo (todo visible y reversible; los filtros son AND). Alternativa descartada: un solo filtro "Área" con toggle solicitante/destino (impedía combinarlos). Incidente evitado en revisión: los chips nuevos usaban la clase `.filterChip` que ya usan las píldoras de Estado (01-base.css) — renombrados a `.activeFilterChip*` antes de desplegar. Ver `docs/06` estándar 2.
+
 ## 2026-07-07 · estándar — Guardrail check:python ahora cubre TODO el árbol propio
 
 `check:python` compilaba con globs explícitos (`app/*.py`, `repositories/`, `services/`, `scripts/`) y **omitía `app/modules/` y `app/core/`**: un error de sintaxis en un archivo de rutas (p. ej. `workspace_routes.py`) pasaba `npm run check` sin avisar. Cambio: `python3 -m compileall -q -x '(_vendor|__pycache__)' backend/app backend/scripts` — recursivo (cualquier subpaquete futuro queda cubierto solo, no se vuelve a pudrir) excluyendo `_vendor/sqlglot` (terceros, no lo mantenemos). Validado: compila los 44 archivos propios, excluye los 177 de vendor, y una prueba negativa (archivo roto en `modules/`) sale con exit 1. Sigue siendo solo chequeo de sintaxis/compilación, no de runtime.

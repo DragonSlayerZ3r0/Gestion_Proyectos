@@ -122,6 +122,24 @@ DELETE /api/projects/{projectId}/members/{personId}
 POST /api/projects/{projectId}/tasks
 PATCH /api/projects/{projectId}/tasks/{taskId}
 DELETE /api/projects/{projectId}/tasks/{taskId}
+POST /api/projects/{projectId}/updates
+PATCH /api/projects/{projectId}/updates/{updateId}
+DELETE /api/projects/{projectId}/updates/{updateId}
+POST /api/projects/{projectId}/attachments/presign
+POST /api/projects/{projectId}/attachments
+GET /api/projects/{projectId}/attachments/{attachmentId}/url
+PATCH /api/projects/{projectId}/attachments/{attachmentId}
+DELETE /api/projects/{projectId}/attachments/{attachmentId}
+GET /api/draw
+GET /api/draw/users
+POST /api/draw
+PATCH /api/draw/{drawingId}
+DELETE /api/draw/{drawingId}
+GET /api/draw/{drawingId}/url
+POST /api/draw/{drawingId}/save-url
+POST /api/draw/{drawingId}/shares
+DELETE /api/draw/{drawingId}/shares/{email}
+POST /api/draw/{drawingId}/respond
 GET /api/catalog/databases
 GET /api/catalog/tables
 GET /api/catalog/{database}/{table}
@@ -133,6 +151,10 @@ PATCH /api/admin/users/{email}
 DELETE /api/admin/users/{email}
 GET /api/admin/audit
 ```
+
+**Adjuntos de solicitudes (2026-07-07):** el binario NUNCA pasa por la API (tope de 10 MB de API Gateway) — `presign` devuelve una URL prefirmada de subida (PUT directo del navegador a S3), `POST /attachments` confirma el archivo subido (`kind=file`) o crea una query de texto inline (`kind=query`), `GET …/url` devuelve una presigned GET corta para ver/descargar, `PATCH` cambia la relación (`updateId`: entrada de seguimiento o `""` = General) y `DELETE` borra item + binario. Validación en backend: whitelist de extensiones y máx. 15 MB. Servicio: `services/attachments.py` (puerto BlobStore, adaptador S3 — bucket compartido `gad-storage-<env>` con prefijo por app).
+
+**Pizarra (`/api/draw`, 2026-07-07):** lienzo Excalidraw con compartir selectivo. Cada pizarra tiene dueño; `shares` invita usuarios concretos (estado `pending`) y el invitado responde con `respond` (`accept: true|false` — aceptar habilita ver/editar; rechazar borra el share). Solo el dueño renombra/elimina/comparte/revoca (`PermissionError` → 403). La escena (JSON `.excalidraw`, puede pesar MB) va a S3 vía `…/url` (cargar) y `save-url` (guardar con presigned PUT); metadata en DynamoDB. `GET /api/draw/users` lista usuarios de la app (correo + nombre) para el selector "Compartir con".
 
 ## Permisos
 
