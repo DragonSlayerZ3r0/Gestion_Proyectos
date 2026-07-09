@@ -61,6 +61,13 @@
   .columnsMenuItem:hover { background: var(--surface-muted); }
   .columnsMenuItem.disabled { color: var(--muted); cursor: default; }
   .columnsMenu .tinyButton { margin-top: 4px; }
+  /* Fila del menú: casilla + flechas ↑/↓ para reordenar la columna. */
+  .columnsMenuRow { display: flex; align-items: center; gap: 4px; }
+  .columnsMenuRow .columnsMenuItem { flex: 1; min-width: 0; }
+  .colMoveBtns { display: inline-flex; gap: 2px; flex: none; }
+  .colMoveBtn { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 0.72rem; line-height: 1; cursor: pointer; color: var(--text-soft); }
+  .colMoveBtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); }
+  .colMoveBtn:disabled { opacity: 0.35; cursor: default; }
   /* Popover "Filtros": mismo cascarón que Columnas, con las dimensiones apiladas
      a ancho completo. El badge muestra cuántas dimensiones están activas. */
   .projectFilterControl { position: relative; flex: none; }
@@ -103,7 +110,9 @@
   .projectRow:hover .projChevron { color: var(--accent-strong); }
   .projectRow.selected .projChevron { color: var(--accent-strong); }
   .projActivity { color: #50656d; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .projActivityDate { font-weight: 700; color: var(--accent-strong); }
+  /* La fecha es METADATO: tenue y sin acento, que domine el texto del seguimiento
+     (jerarquía visual; antes iba en negrita+acento y desplazaba lo importante). */
+  .projActivityDate { font-weight: 600; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .projectTableEmpty { padding: 14px 4px; }
 
   /* ── Adjuntos ─────────────────────────────────────────────────────────────

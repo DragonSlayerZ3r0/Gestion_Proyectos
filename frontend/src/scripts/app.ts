@@ -47,6 +47,7 @@
         expandedBoardProjectId: null,
         peopleSectionOpen: false,  // sección "Personas registradas" colapsada por defecto
         projectSort: null,         // orden de la tabla de solicitudes {key, dir}; null = orden del backend
+        projectColOrder: null,     // orden de COLUMNAS preferido por el usuario (localStorage); null = el del código
         updateEditing: null,    // {projectId, updateId} entrada de seguimiento en edición
         updatesExpanded: {},    // por projectId: true = mostrar todo el seguimiento (no solo lo último)
         attachQueryFor: null,   // projectId con el formulario "+ Query" abierto (o null)

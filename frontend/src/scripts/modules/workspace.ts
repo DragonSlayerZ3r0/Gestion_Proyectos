@@ -26,15 +26,18 @@ export function createWorkspaceModule(ctx) {
       const saved = JSON.parse(localStorage.getItem(PROJECT_TABLE_LS) || "{}");
       state.projectColumns = saved.columns || {};
       state.projectColWidths = saved.widths || {};
+      state.projectColOrder = Array.isArray(saved.order) ? saved.order : null;
     } catch {
       state.projectColumns = {};
       state.projectColWidths = {};
+      state.projectColOrder = null;
     }
   }
   function saveTablePrefs() {
     try {
       localStorage.setItem(PROJECT_TABLE_LS, JSON.stringify({
         columns: state.projectColumns || {}, widths: state.projectColWidths || {},
+        order: state.projectColOrder || null,
       }));
     } catch { /* localStorage no disponible: se pierde solo la persistencia */ }
   }
@@ -48,8 +51,34 @@ export function createWorkspaceModule(ctx) {
     const col = PROJECT_COLUMNS.find((c) => c.key === key);
     return state.projectColWidths?.[key] || col?.width || 120;
   }
+  // Columnas en el ORDEN preferido del usuario (persistido por navegador, como
+  // visibilidad y anchos). "Solicitud" (name) es el identificador del maestro-
+  // detalle: SIEMPRE va primera, no se reordena. Claves desconocidas en la
+  // preferencia guardada se ignoran; columnas nuevas del código caen al final.
+  function orderedColumns() {
+    const order = state.projectColOrder;
+    if (!order || !order.length) return PROJECT_COLUMNS;
+    const rank = new Map(order.map((key, i) => [key, i]));
+    return [...PROJECT_COLUMNS].sort((a, b) => {
+      if (a.key === "name") return -1;
+      if (b.key === "name") return 1;
+      const ra = rank.has(a.key) ? rank.get(a.key) : 900 + PROJECT_COLUMNS.indexOf(a);
+      const rb = rank.has(b.key) ? rank.get(b.key) : 900 + PROJECT_COLUMNS.indexOf(b);
+      return ra - rb;
+    });
+  }
   function visibleColumns() {
-    return PROJECT_COLUMNS.filter((c) => isColVisible(c.key));
+    return orderedColumns().filter((c) => isColVisible(c.key));
+  }
+  // Mueve una columna un paso arriba/abajo dentro del orden actual y persiste.
+  function moveColumn(key, dir) {
+    const keys = orderedColumns().map((c) => c.key).filter((k) => k !== "name");
+    const idx = keys.indexOf(key);
+    const to = idx + dir;
+    if (idx < 0 || to < 0 || to >= keys.length) return;
+    [keys[idx], keys[to]] = [keys[to], keys[idx]];
+    state.projectColOrder = keys;
+    saveTablePrefs();
   }
 
       async function renderWorkspace() {
@@ -464,14 +493,30 @@ export function createWorkspaceModule(ctx) {
 
       // Menú "Columnas": mostrar/ocultar cada columna (Solicitud siempre fija).
       function renderColumnsMenu() {
+        // Además de mostrar/ocultar, cada fila lleva ↑/↓ para ORDENAR las columnas
+        // al gusto de cada usuario (persistido por navegador). "Solicitud" es el
+        // identificador: siempre visible y siempre primera (sin flechas).
+        const cols = orderedColumns();
+        const movable = cols.filter((c) => c.key !== "name");
         return `
           <div class="columnsMenu" role="menu">
-            <p class="columnsMenuTitle">Mostrar columnas</p>
-            ${PROJECT_COLUMNS.map((c) => `
-              <label class="columnsMenuItem ${c.always ? "disabled" : ""}">
-                <input type="checkbox" data-col-toggle="${c.key}" ${isColVisible(c.key) ? "checked" : ""} ${c.always ? "disabled" : ""} />
-                ${escapeHtml(c.label)}
-              </label>`).join("")}
+            <p class="columnsMenuTitle">Mostrar y ordenar columnas</p>
+            ${cols.map((c) => {
+              const mi = movable.findIndex((m) => m.key === c.key);
+              const arrows = c.key === "name" ? "" : `
+                <span class="colMoveBtns">
+                  <button type="button" class="colMoveBtn" data-col-move="${c.key}:-1" ${mi <= 0 ? "disabled" : ""} title="Subir columna" aria-label="Subir ${escapeAttribute(c.label)}">↑</button>
+                  <button type="button" class="colMoveBtn" data-col-move="${c.key}:1" ${mi >= movable.length - 1 ? "disabled" : ""} title="Bajar columna" aria-label="Bajar ${escapeAttribute(c.label)}">↓</button>
+                </span>`;
+              return `
+              <div class="columnsMenuRow">
+                <label class="columnsMenuItem ${c.always ? "disabled" : ""}">
+                  <input type="checkbox" data-col-toggle="${c.key}" ${isColVisible(c.key) ? "checked" : ""} ${c.always ? "disabled" : ""} />
+                  ${escapeHtml(c.label)}
+                </label>
+                ${arrows}
+              </div>`;
+            }).join("")}
             <button class="tinyButton ghost" type="button" data-col-reset>Restablecer columnas</button>
           </div>`;
       }
@@ -642,7 +687,7 @@ export function createWorkspaceModule(ctx) {
             // Texto completo (sin recortar en JS): la columna recorta con elipsis y,
             // al ensancharla, se ve más; el tooltip muestra todo.
             const full = `${updateDateLabel(upd.date)} · ${upd.text}`;
-            return `<td class="projActivity" title="${escapeAttribute(full)}"><span class="projActivityDate">${escapeHtml(updateDateLabel(upd.date))}</span> · ${escapeHtml(upd.text)}</td>`;
+            return `<td class="projActivity" title="${escapeAttribute(full)}"><span class="projActivityDate">${escapeHtml(shortDateLabel(upd.date))}</span> · ${escapeHtml(upd.text)}</td>`;
           }
         }
         return `<td></td>`;
@@ -926,6 +971,19 @@ export function createWorkspaceModule(ctx) {
         if (!m) return iso || "";
         const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
         return d.toLocaleDateString("es-GT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+      }
+
+      // Fecha CORTA para celdas de tabla ("6 jul"; agrega el año solo si es otro):
+      // en la columna de Última actividad la fecha es metadato — no debe comerse
+      // el espacio del texto del seguimiento (jerarquía visual, docs/06).
+      function shortDateLabel(iso) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+        if (!m) return iso || "";
+        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        const sameYear = d.getFullYear() === new Date().getFullYear();
+        return d.toLocaleDateString("es-GT", sameYear
+          ? { day: "numeric", month: "short" }
+          : { day: "numeric", month: "short", year: "numeric" });
       }
 
       // Hora en que se registró la entrada (createdAt es UTC; se muestra en hora de
@@ -1673,9 +1731,20 @@ export function createWorkspaceModule(ctx) {
             renderWorkspace();
           });
         }
+        // Reordenar columnas (↑/↓ del menú): mueve, persiste y repinta con el
+        // menú abierto para seguir acomodando de corrido.
+        for (const btn of document.querySelectorAll("[data-col-move]")) {
+          btn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const [key, dir] = btn.dataset.colMove.split(":");
+            moveColumn(key, Number(dir));
+            renderWorkspace();
+          });
+        }
         document.querySelector("[data-col-reset]")?.addEventListener("click", () => {
           state.projectColumns = {};
           state.projectColWidths = {};
+          state.projectColOrder = null;
           saveTablePrefs();
           renderWorkspace();
         });
