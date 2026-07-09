@@ -22,6 +22,10 @@
   /* Calendario del mes: fila por persona; celdas por día (CSS grid, sin libs). */
   .staffCalHead { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 8px; }
   .staffCalHead .blockHeader { margin-bottom: 0; }
+  /* La etiqueta del mes reserva el ancho del mes MÁS LARGO ("septiembre de
+     2026"): sin esto, los botones ‹ Hoy › se corrían con cada cambio de mes
+     (el objetivo del clic se movía bajo el cursor al navegar repetido). */
+  .staffCalHead .blockHeader span { display: inline-block; min-width: 152px; }
   .staffCalNav { display: flex; gap: 4px; }
   .staffLegend { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
   .staffLegendItem { display: inline-flex; align-items: center; gap: 5px; font-size: 0.74rem; color: var(--muted); }
@@ -40,7 +44,24 @@
   .staffCalCell.absVacation { background: var(--accent-soft); border: 1px solid var(--accent); }
   .staffCalCell.absLeave { background: var(--warn-soft); border: 1px solid var(--warn-border); }
   .staffCalCell.absSick { background: var(--danger-soft); border: 1px solid var(--danger-border); }
+  /* Asueto: celda azul-gris punteada — distinguible de ausencias y fin de semana. */
+  .staffCalCell.holiday { background: #e8eef7; border: 1px dotted #8aa4c8; }
   .staffLegend .staffCalCell { width: 14px; height: 12px; }
+
+  /* Panel de asuetos (admin): catálogo + borrador de confirmación del extractor. */
+  .staffHolidaysPanel { margin: 0 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .staffHolidaysHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+  .staffHolidayForm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .staffHolidayForm input[type="date"], .staffHolidayForm input[type="text"] { font: inherit; font-size: 0.84rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; }
+  .staffHolidayForm input[type="text"] { flex: 1 1 180px; min-width: 0; }
+  .staffDraftBox { border: 1px solid var(--warn-border); background: var(--warn-soft); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .staffDraftTitle { margin: 0; font-size: 0.84rem; font-weight: 600; }
+  .staffDraftRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .staffDraftRow input[type="date"], .staffDraftRow input[type="text"] { font: inherit; font-size: 0.82rem; border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 6px; background: var(--panel); }
+  .staffDraftRow input[type="text"] { flex: 1 1 160px; min-width: 0; }
+  .staffDraftHalf { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; color: var(--text-soft); }
+  .staffDraftNote { flex-basis: 100%; font-size: 0.74rem; color: #7a5d00; }
+  .staffDraftActions { display: flex; gap: 8px; margin-top: 4px; }
 
   /* Lista de personas + ficha. */
   .staffPeopleList { display: flex; flex-direction: column; gap: 4px; }
@@ -83,6 +104,8 @@
   .staffAbsRow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
   .staffAbsRow .staffCalCell { flex: none; width: 14px; height: 14px; }
   .staffAbsText { flex: 1; min-width: 0; font-size: 0.84rem; color: var(--text-soft); }
+  /* Conteo de días por registro: metadato tenue, no compite con tipo/fechas. */
+  .staffAbsDays { color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
 
   /* Responsive (después de las reglas base, docs/06). */
   @media (max-width: 780px) {

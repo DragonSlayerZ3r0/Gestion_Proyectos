@@ -635,7 +635,7 @@ export function createCatalogModule(ctx) {
               }
               const fmtDT = (iso) => {
                 const dd = new Date(iso);
-                return isNaN(dd.getTime()) ? "—" : dd.toLocaleString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+                return isNaN(dd.getTime()) ? "—" : dd.toLocaleString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Guatemala" });
               };
               body.innerHTML = `
                 <table class="catalogUsageTable">

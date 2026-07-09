@@ -31,6 +31,7 @@ gestion-proyectos-main-{env}
 - `PROJECT_MEMBER`
 - `PROJECT_UPDATE`
 - `PERSON_ABSENCE`
+- `HOLIDAY`
 - `ATTACHMENT`
 - `TASK`
 - `AREA`
@@ -92,6 +93,11 @@ SK = TASK#<taskId>
 PROJECT_UPDATE (seguimiento/bitácora de la solicitud: date + text + autor)
 PK = PROJECT#<projectId>
 SK = UPDATE#<updateId>
+
+HOLIDAY (asuetos autorizados 2026-07-09: date + name + half + notes; upsert por
+  fecha. Los completos no descuentan del saldo de vacaciones)
+PK = HOLIDAY#<AAAA-MM-DD>
+SK = PROFILE
 
 PERSON_ABSENCE (Personal 2026-07-08: ausencia tipada de una persona — type
   vacation|leave|sick + startDate/endDate + notes; sin traslapes por persona.

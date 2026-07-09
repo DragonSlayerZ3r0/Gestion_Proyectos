@@ -23,6 +23,17 @@ Contenido esperado del bucket frontend: `index.html` (la página única de Astro
 
 Regla transversal: **el frontend accede a DynamoDB, Glue, Athena y S3 Data Lake exclusivamente mediante API Gateway y Lambda**. Lambda valida el permiso funcional en DynamoDB; los controles visibles reflejan el resultado.
 
+## Fechas y horas — criterio único (2026-07-09)
+
+Cuatro reglas, verificadas contra el código y contra items reales de DynamoDB:
+
+1. **Almacenamiento: siempre UTC con zona explícita.** Todo timestamp se genera con `datetime.now(timezone.utc).isoformat()` (→ `…+00:00`). Nunca `utcnow()` naive: un ISO sin zona lo interpreta cada navegador a su manera.
+2. **Visualización de INSTANTES: siempre hora de Guatemala, FIJA.** Los formateadores del frontend (`homeDateTimeLabel`, `catalogDateLabel`, `updateTimeLabel`, el de última consulta del catálogo y `drawDateLabel`) llevan `timeZone: "America/Guatemala"` explícito — la hora mostrada es la del NEGOCIO, no la del sistema operativo del usuario (una laptop mal configurada o en viaje vería lo mismo que el resto del equipo). Los "hace X min/h" (`catalogSyncedLabel`) se calculan por diferencia de época — independientes de zona.
+3. **FECHAS PURAS (sin hora): strings `AAAA-MM-DD` sin zona, y se formatean SIN convertir.** Fecha de solicitud/entrega, fecha del seguimiento, ausencias de Personal: son "fechas de negocio" — se parsean y formatean en la misma zona (`new Date("<iso>T00:00:00")` + `toLocaleDateString` sin `timeZone`). NO fijarles Guatemala: convertir una fecha-pura cambia el día si el navegador está en otra zona. El "hoy" que decide el backend (fecha automática del seguimiento) y el del frontend (`todayIso()` de Personal: "Fuera hoy", resaltado del calendario) se calculan explícitamente en hora de Guatemala (`_TZ_GT` / `toLocaleDateString("en-CA", {timeZone})`).
+4. **CORTES de rango de Athena: UTC** (presets 7/14/30 días y "Ayer"). CloudTrail y las ventanas de caché operan en UTC; "ayer" difiere del ayer de Guatemala por 6 h en el borde. Decisión consciente (consistencia con la fuente); si algún día se pasa a cortes Guatemala, se cambian TODOS los presets y las claves de caché a la vez.
+
+Caso real que motivó la regla 2 (2026-07-09): "Calculado: 10:19 a. m. (Hace 4 h)" parecía un bug de zonas; el dato en Dynamo (`scannedAt=16:19+00:00` = 10:19 GT) probó que era correcto — pero el análisis reveló que la hora mostrada dependía de la zona del SO de cada usuario, y se fijó a Guatemala.
+
 ## Cadena de identidad y autorización (de punta a punta)
 
 ```text

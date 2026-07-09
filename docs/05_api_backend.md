@@ -136,6 +136,9 @@ PATCH /api/staff/people/{personId}/absences/{absenceId}
 DELETE /api/staff/people/{personId}/absences/{absenceId}
 PATCH /api/staff/people/{personId}/vacation-days
 PATCH /api/staff/people/{personId}/notes
+POST /api/staff/holidays
+DELETE /api/staff/holidays/{date}
+POST /api/staff/holidays/extract
 GET /api/draw
 GET /api/draw/users
 POST /api/draw
@@ -160,7 +163,7 @@ GET /api/admin/audit
 
 **Adjuntos de solicitudes (2026-07-07):** el binario NUNCA pasa por la API (tope de 10 MB de API Gateway) — `presign` devuelve una URL prefirmada de subida (PUT directo del navegador a S3), `POST /attachments` confirma el archivo subido (`kind=file`) o crea una query de texto inline (`kind=query`), `GET …/url` devuelve una presigned GET corta para ver/descargar, `PATCH` cambia la relación (`updateId`: entrada de seguimiento o `""` = General) y `DELETE` borra item + binario. Validación en backend: **blocklist** de extensiones (2026-07-08: se acepta casi cualquier binario de trabajo — Excel, Word, parquet, zip…; se bloquean solo ejecutables/scripts y páginas activas html/svg, que ejecutan código al abrirse desde la presigned GET) y máx. 15 MB. Servicio: `services/attachments.py` (puerto BlobStore, adaptador S3 — bucket compartido `gad-storage-<env>` con prefijo por app).
 
-**Personal (`/api/staff`, 2026-07-08):** ausencias del equipo + saldo de vacaciones sobre las personas del workspace. `GET /api/staff` lo puede llamar cualquier usuario autenticado **y configurado** (el servicio valida el perfil; no exige módulo — la vista se abre desde el menú del usuario); las rutas de escritura (ausencias y `vacation-days`) llevan **guard `admin=True`**. Validaciones: tipo en `vacation|leave|sick`, rango de fechas válido, sin traslapes por persona, días asignados 0-60.
+**Personal (`/api/staff`, 2026-07-08):** ausencias del equipo + saldo de vacaciones sobre las personas del workspace. `GET /api/staff` lo puede llamar cualquier usuario autenticado **y configurado** (el servicio valida el perfil; no exige módulo — la vista se abre desde el menú del usuario); las rutas de escritura (ausencias y `vacation-days`) llevan **guard `admin=True`**. Validaciones: tipo en `vacation|leave|sick`, rango de fechas válido, sin traslapes por persona, días asignados 0-60. **Asuetos (2026-07-09, admin):** `POST /holidays` upsert masivo (misma ruta para el alta manual y la confirmación del extractor), `DELETE /{date}`, y `POST /holidays/extract` — recibe la imagen en base64 (≤5 MB PNG/JPG), la lee con Textract, GLM 5 la estructura y devuelve un BORRADOR (no guarda nada: la pantalla de confirmación editable decide).
 
 **WebSocket de colaboración en vivo (Pizarra, 2026-07-08):** API aparte de la HTTP — `wss://…execute-api…/dev` (output `WebSocketUrl` del stack, publicado como `wsUrl` en `config.json`). Rutas `$connect` (valida el access token de Cognito por query param con `GetUser` + acceso al tablero por el modelo de compartir; 400 sin token, 401 inválido, 403 sin acceso), `$disconnect` y `$default` (mensajes `hello`/`init-response`/`scene`/`pointer` — el servidor solo releva a la sala). Atendida por la MISMA Lambda (ramifica por `routeKey` en `handler.py` → `services/draw_ws.py`); conexiones en DynamoDB con TTL; requiere `execute-api:ManageConnections` (grant en CDK).
 

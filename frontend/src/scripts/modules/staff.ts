@@ -21,13 +21,30 @@ export function createStaffModule(ctx) {
     return keys.map((k) => [k, TYPE_META[k] || { label: k, cls: "" }]);
   }
 
+  // Días HÁBILES de un rango (L-V, excluyendo asuetos completos) — la misma
+  // medida que descuenta del saldo: el conteo por registro usa esta cifra.
+  function businessDays(startIso, endIso) {
+    const fullHols = new Set((state.staffData?.holidays || []).filter((h) => !h.half).map((h) => h.date));
+    let count = 0;
+    const end = new Date(`${endIso}T00:00:00`);
+    for (let d = new Date(`${startIso}T00:00:00`); d <= end; d.setDate(d.getDate() + 1)) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (d.getDay() >= 1 && d.getDay() <= 5 && !fullHols.has(iso)) count++;
+    }
+    return count;
+  }
+
+  function holidayMap() {
+    return new Map((state.staffData?.holidays || []).map((h) => [h.date, h]));
+  }
+
   function isAdmin() {
     return (state.profile?.user?.roles || []).includes("admin");
   }
   function todayIso() {
-    // Fecha local del usuario (no UTC): "hoy" debe ser el día de Guatemala.
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    // "Hoy" = el día de GUATEMALA fijo (hora del negocio), no el del SO del
+    // usuario — en-CA da AAAA-MM-DD directo (criterio único, ver docs/18).
+    return new Date().toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
   }
   function addDaysIso(iso, days) {
     const d = new Date(`${iso}T00:00:00`);
@@ -130,6 +147,7 @@ export function createStaffModule(ctx) {
     const today = todayIso();
     const monthLabel = new Date(`${month}-01T00:00:00`).toLocaleDateString("es-GT", { month: "long", year: "numeric" });
     const anyAbsence = people.some((p) => p.absences.length);
+    const hols = holidayMap();
 
     const dayHead = Array.from({ length: daysInMonth }, (_, i) => {
       const iso = `${month}-${String(i + 1).padStart(2, "0")}`;
@@ -142,10 +160,14 @@ export function createStaffModule(ctx) {
       const cells = Array.from({ length: daysInMonth }, (_, i) => {
         const iso = `${month}-${String(i + 1).padStart(2, "0")}`;
         const absence = person.absences.find((a) => a.startDate <= iso && a.endDate >= iso);
+        const holiday = hols.get(iso);
         const weekday = new Date(`${iso}T00:00:00`).getDay();
         const weekend = weekday === 0 || weekday === 6;
-        const title = absence ? `${escapeAttribute(person.fullName)} · ${typeLabel(absence.type)} ${absence.startDate} → ${absence.endDate}` : "";
-        return `<span class="staffCalCell ${weekend ? "weekend" : ""} ${absence ? typeClass(absence.type) : ""}" ${title ? `title="${title}"` : ""}></span>`;
+        const title = absence
+          ? `${escapeAttribute(person.fullName)} · ${typeLabel(absence.type)} ${absence.startDate} → ${absence.endDate}`
+          : (holiday ? `${escapeAttribute(holiday.name)}${holiday.half ? " (medio día)" : ""}` : "");
+        const cls = absence ? typeClass(absence.type) : (holiday ? "holiday" : "");
+        return `<span class="staffCalCell ${weekend ? "weekend" : ""} ${cls}" ${title ? `title="${title}"` : ""}></span>`;
       }).join("");
       return `
         <div class="staffCalRow" data-staff-name="${escapeAttribute(normalizeStaff(`${person.fullName} ${person.area || ""}`))}">
@@ -165,8 +187,11 @@ export function createStaffModule(ctx) {
           </div>
           <div class="staffLegend">
             ${absenceTypes().map(([k, m]) => `<span class="staffLegendItem"><span class="staffCalCell ${m.cls}"></span>${m.label}</span>`).join("")}
+            ${hols.size ? `<span class="staffLegendItem"><span class="staffCalCell holiday"></span>Asueto</span>` : ""}
           </div>
+          ${isAdmin() ? `<button class="tinyButton ghost" type="button" data-staff-holidays-toggle>${state.staffHolidaysOpen ? "Cerrar asuetos" : "Asuetos ✎"}</button>` : ""}
         </div>
+        ${state.staffHolidaysOpen && isAdmin() ? renderHolidaysPanel() : ""}
         ${people.length && !anyAbsence ? `<p class="staffCalHint">El calendario está vacío porque aún no se ha registrado ninguna ausencia. ${isAdmin() ? "Abre una persona abajo y usa “+ Registrar ausencia”." : "Solo los administradores registran ausencias."}</p>` : ""}
         <div class="staffCalScroll">
           <div class="staffCalRow head">
@@ -176,6 +201,53 @@ export function createStaffModule(ctx) {
           ${rows || `<p class="emptyText">Sin personas registradas. Regístralas en Solicitudes → Personas registradas.</p>`}
         </div>
       </section>`;
+  }
+
+  // ── Asuetos (admin): catálogo + extracción desde imagen con confirmación ──
+  function renderHolidaysPanel() {
+    const holidays = state.staffData?.holidays || [];
+    const draft = state.staffHolidayDraft;
+    const rows = holidays.map((h) => `
+      <div class="staffAbsRow">
+        <span class="staffCalCell holiday"></span>
+        <span class="staffAbsText"><strong>${escapeHtml(dateLabel(h.date))}</strong> · ${escapeHtml(h.name)}${h.half ? " · medio día" : ""}${h.notes ? ` · <em>${escapeHtml(h.notes)}</em>` : ""}</span>
+        ${renderDeleteIconButton("Eliminar asueto", `data-staff-holiday-delete="${h.date}"`)}
+      </div>`).join("");
+    const draftRows = (draft || []).map((d, i) => `
+      <div class="staffDraftRow">
+        <input type="checkbox" data-draft-include="${i}" ${d.include ? "checked" : ""} title="Incluir" />
+        <input type="date" value="${escapeAttribute(d.date)}" data-draft-date="${i}" />
+        <input type="text" value="${escapeAttribute(d.name)}" data-draft-name="${i}" maxlength="120" />
+        <label class="staffDraftHalf"><input type="checkbox" data-draft-half="${i}" ${d.half ? "checked" : ""} />medio día</label>
+        ${d.notes ? `<span class="staffDraftNote" title="${escapeAttribute(d.notes)}">⚠ ${escapeHtml(d.notes)}</span>` : ""}
+      </div>`).join("");
+    return `
+      <div class="staffHolidaysPanel">
+        <div class="staffHolidaysHead">
+          <strong>Asuetos autorizados</strong>
+          <label class="tinyButton attachFileBtn">Subir asuetos (imagen)
+            <input type="file" id="staffHolidayFile" accept="image/*" hidden />
+          </label>
+        </div>
+        ${state.staffExtracting ? `<p class="attachStatus" role="status">Leyendo la imagen y extrayendo fechas…</p>` : ""}
+        ${draft ? `
+        <div class="staffDraftBox">
+          <p class="staffDraftTitle">Extraje ${draft.length} fecha(s) — ¿son correctas? Revisa, edita o desmarca antes de guardar:</p>
+          ${draftRows}
+          <div class="staffDraftActions">
+            <button class="primaryButton compact" type="button" data-draft-save>Guardar asuetos</button>
+            <button class="tinyButton ghost" type="button" data-draft-cancel>Descartar</button>
+          </div>
+        </div>` : ""}
+        <form class="staffHolidayForm" id="staffHolidayAdd">
+          <input name="date" type="date" required aria-label="Fecha del asueto" />
+          <input name="name" type="text" placeholder="Nombre del asueto" required maxlength="120" />
+          <label class="staffDraftHalf"><input name="half" type="checkbox" />medio día</label>
+          <button class="tinyButton" type="submit">Agregar</button>
+        </form>
+        <div class="staffAbsList">${rows || `<p class="emptyText">Sin asuetos registrados. Súbelos desde la publicación oficial o agrégalos a mano.</p>`}</div>
+        <p class="helperText">Los asuetos completos no descuentan del saldo de vacaciones; los medios días cuentan como día normal.</p>
+      </div>`;
   }
 
   // ── Lista + ficha por persona ──────────────────────────────────────────────
@@ -216,7 +288,7 @@ export function createStaffModule(ctx) {
     const history = person.absences.map((a) => `
       <div class="staffAbsRow">
         <span class="staffCalCell ${typeClass(a.type)}"></span>
-        <span class="staffAbsText"><strong>${typeLabel(a.type)}</strong> · ${dateLabel(a.startDate)} → ${dateLabel(a.endDate)}${a.notes ? ` · ${escapeHtml(a.notes)}` : ""}</span>
+        <span class="staffAbsText"><strong>${typeLabel(a.type)}</strong> · ${dateLabel(a.startDate)} → ${dateLabel(a.endDate)} <span class="staffAbsDays">· ${(n => `${n} día${n === 1 ? "" : "s"} hábil${n === 1 ? "" : "es"}`)(businessDays(a.startDate, a.endDate))}</span>${a.notes ? ` · ${escapeHtml(a.notes)}` : ""}</span>
         ${admin ? renderDeleteIconButton("Eliminar ausencia", `data-staff-abs-delete="${person.id}:${a.id}"`) : ""}
       </div>`).join("");
     return `
@@ -312,7 +384,13 @@ export function createStaffModule(ctx) {
       state.staffNotesOpen = false;
       paint();
       if (state.staffFormOpen) {
-        requestAnimationFrame(() => document.querySelector("[data-staff-abs-form] select")?.focus());
+        requestAnimationFrame(() => {
+          const form = document.querySelector("[data-staff-abs-form]");
+          // Centrar el formulario: deja espacio DEBAJO para que el calendario
+          // nativo (posición no controlable por CSS) no abra cortado al borde.
+          form?.scrollIntoView({ block: "center", behavior: "smooth" });
+          form?.querySelector("select")?.focus();
+        });
       }
     });
     document.querySelector("[data-staff-quota-toggle]")?.addEventListener("click", () => {
@@ -333,12 +411,135 @@ export function createStaffModule(ctx) {
         requestAnimationFrame(() => document.querySelector("[data-staff-notes-form] textarea")?.focus());
       }
     });
-    document.querySelector("[data-staff-abs-form]")?.addEventListener("submit", submitAbsence);
+    // Asuetos (admin): panel, alta manual, borrar, extraer de imagen y confirmar.
+    document.querySelector("[data-staff-holidays-toggle]")?.addEventListener("click", () => {
+      state.staffHolidaysOpen = !state.staffHolidaysOpen;
+      paint();
+    });
+    document.querySelector("#staffHolidayAdd")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      try {
+        await saveHolidays([{ date: form.get("date"), name: form.get("name"), half: form.get("half") === "on" }]);
+      } catch (error) { alert(error.message); }
+    });
+    for (const btn of document.querySelectorAll("[data-staff-holiday-delete]")) {
+      btn.addEventListener("click", async () => {
+        const date = btn.dataset.staffHolidayDelete;
+        if (!window.confirm(`¿Eliminar el asueto del ${date}?`)) return;
+        try {
+          await apiRequest(`api/staff/holidays/${date}`, { method: "DELETE" });
+          state.staffData.holidays = (state.staffData.holidays || []).filter((h) => h.date !== date);
+          paint();
+        } catch (error) { alert(error.message); }
+      });
+    }
+    document.querySelector("#staffHolidayFile")?.addEventListener("change", (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (file) extractHolidays(file);
+    });
+    document.querySelector("[data-draft-cancel]")?.addEventListener("click", () => {
+      state.staffHolidayDraft = null;
+      paint();
+    });
+    document.querySelector("[data-draft-save]")?.addEventListener("click", async () => {
+      syncDraftFromDom();
+      const included = (state.staffHolidayDraft || []).filter((d) => d.include);
+      if (!included.length) { alert("No hay asuetos marcados para guardar."); return; }
+      try {
+        await saveHolidays(included);
+        state.staffHolidayDraft = null;
+        paint();
+      } catch (error) { alert(error.message); }
+    });
+    const absForm = document.querySelector("[data-staff-abs-form]");
+    absForm?.addEventListener("submit", submitAbsence);
+    // "Desde" manda sobre "Hasta": al elegir inicio, el fin se precarga con esa
+    // fecha (su calendario abre AHÍ, no en hoy) y no permite fechas anteriores.
+    if (absForm) {
+      const start = absForm.querySelector("input[name='startDate']");
+      const end = absForm.querySelector("input[name='endDate']");
+      start?.addEventListener("change", () => {
+        if (!start.value || !end) return;
+        end.min = start.value;
+        if (!end.value || end.value < start.value) end.value = start.value;
+      });
+    }
     document.querySelector("[data-staff-days-form]")?.addEventListener("submit", submitDays);
     document.querySelector("[data-staff-notes-form]")?.addEventListener("submit", submitNotes);
     for (const btn of document.querySelectorAll("[data-staff-abs-delete]")) {
       btn.addEventListener("click", () => deleteAbsence(btn.dataset.staffAbsDelete));
     }
+  }
+
+  // Imagen → REDUCIR en el navegador → base64 → backend (Textract + GLM 5) →
+  // borrador editable. La reducción es obligatoria: una foto original en base64
+  // supera el límite de invocación de Lambda (6 MB) y API Gateway la rechaza
+  // ANTES de llegar al backend (bug real 2026-07-09: "No fue posible completar
+  // la acción" sin rastro en logs). A ~1600px el OCR lee perfecto y pesa <1 MB.
+  function downscaleImage(file, maxSide = 1600) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.88));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("No se pudo leer la imagen.")); };
+      img.src = url;
+    });
+  }
+
+  async function extractHolidays(file) {
+    state.staffExtracting = true;
+    state.staffHolidayDraft = null;
+    paint();
+    try {
+      const image = await downscaleImage(file);
+      if (image.length > 4.5 * 1024 * 1024) throw new Error("La imagen sigue siendo demasiado grande tras reducirla.");
+      const payload = await apiRequest("api/staff/holidays/extract", {
+        method: "POST", body: JSON.stringify({ image })
+      });
+      state.staffHolidayDraft = payload.data.draft;
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      state.staffExtracting = false;
+      paint();
+    }
+  }
+
+  // El borrador se edita directo en el DOM (sin re-render por tecla): antes de
+  // guardar se vuelca al estado.
+  function syncDraftFromDom() {
+    for (let i = 0; i < (state.staffHolidayDraft || []).length; i++) {
+      const d = state.staffHolidayDraft[i];
+      const inc = document.querySelector(`[data-draft-include="${i}"]`);
+      const date = document.querySelector(`[data-draft-date="${i}"]`);
+      const name = document.querySelector(`[data-draft-name="${i}"]`);
+      const half = document.querySelector(`[data-draft-half="${i}"]`);
+      if (inc) d.include = inc.checked;
+      if (date?.value) d.date = date.value;
+      if (name?.value.trim()) d.name = name.value.trim();
+      if (half) d.half = half.checked;
+    }
+  }
+
+  async function saveHolidays(list) {
+    const payload = await apiRequest("api/staff/holidays", {
+      method: "POST", body: JSON.stringify({ holidays: list })
+    });
+    // Merge por fecha: lo guardado reemplaza/añade sobre el catálogo local.
+    const byDate = new Map((state.staffData.holidays || []).map((h) => [h.date, h]));
+    for (const h of payload.data.holidays) byDate.set(h.date, h);
+    state.staffData.holidays = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+    paint();
   }
 
   async function submitAbsence(event) {
@@ -451,8 +652,10 @@ export function createStaffModule(ctx) {
       if (a.type !== "vacation") continue;
       const start = new Date(`${a.startDate}T00:00:00`);
       const end = new Date(`${a.endDate}T00:00:00`);
+      const fullHols = new Set((state.staffData?.holidays || []).filter((h) => !h.half).map((h) => h.date));
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        if (String(d.getFullYear()) === year && d.getDay() >= 1 && d.getDay() <= 5) used++;
+        const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        if (String(d.getFullYear()) === year && d.getDay() >= 1 && d.getDay() <= 5 && !fullHols.has(iso)) used++;
       }
     }
     person.vacationDays.used = used;

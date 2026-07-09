@@ -723,7 +723,7 @@ export function createHomeModule(ctx) {
         if (!iso) return "—";
         const d = new Date(iso);
         if (isNaN(d.getTime())) return "—";
-        return d.toLocaleString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+        return d.toLocaleString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Guatemala" });
       }
 
       function homeStatCard(label, value) {

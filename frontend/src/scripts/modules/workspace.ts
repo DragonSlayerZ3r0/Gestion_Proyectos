@@ -1503,6 +1503,22 @@ export function createWorkspaceModule(ctx) {
         const taskDetailForm = document.querySelector("#taskDetailForm");
         const togglePersonFormButton = document.querySelector("#togglePersonFormButton");
 
+        // "Fecha de solicitud" manda sobre "Fecha de entrega": al elegirla, la
+        // entrega se precarga con esa fecha (su calendario abre ahí, no en hoy)
+        // y no permite anteriores — mismo patrón que Desde/Hasta en Personal.
+        if (projectDetailForm) {
+          const reqDate = projectDetailForm.querySelector("input[name='requestDate']");
+          const dueDate = projectDetailForm.querySelector("input[name='dueDate']");
+          if (reqDate && dueDate) {
+            if (reqDate.value) dueDate.min = reqDate.value;
+            reqDate.addEventListener("change", () => {
+              if (!reqDate.value) { dueDate.removeAttribute("min"); return; }
+              dueDate.min = reqDate.value;
+              if (!dueDate.value || dueDate.value < reqDate.value) dueDate.value = reqDate.value;
+            });
+          }
+        }
+
         personForm?.addEventListener("submit", submitPersonForm);
         projectForm?.addEventListener("submit", submitProjectForm);
         projectSearch?.addEventListener("input", (event) => {

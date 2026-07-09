@@ -41,6 +41,11 @@ class StaffService:
         for item in self._repository.list_all_absences():
             absences_by.setdefault(item.get("personId", ""), []).append(self._normalize_absence(item))
 
+        # Asuetos: catálogo HOLIDAY (los completos NO descuentan del saldo).
+        holidays = sorted((self._normalize_holiday(h) for h in self._repository.list_holidays()),
+                          key=lambda h: h["date"])
+        full_holidays = {h["date"] for h in holidays if not h["half"]}
+
         people = []
         current_year = str(datetime.now(UTC).year)
         for item in self._repository.list_people():
@@ -48,7 +53,7 @@ class StaffService:
             absences = sorted(absences_by.get(person_id, []),
                               key=lambda a: a["startDate"], reverse=True)
             allocated = self._allocated_days(item)
-            used = self._used_vacation_days(absences)
+            used = self._used_vacation_days(absences, full_holidays)
             people.append({
                 "id": person_id,
                 "fullName": item.get("fullName", ""),
@@ -67,7 +72,7 @@ class StaffService:
                 },
             })
         people.sort(key=lambda p: p["fullName"].lower())
-        return {"people": people, "absenceTypes": ABSENCE_TYPES}
+        return {"people": people, "absenceTypes": ABSENCE_TYPES, "holidays": holidays}
 
     # ── Escritura (solo admin — guard en la ruta) ─────────────────────────────
     def create_absence(self, person_id: str, payload: dict[str, Any],
@@ -162,19 +167,142 @@ class StaffService:
         })
         return {"personId": person_id, "staffNotes": notes}
 
+    # ── Asuetos (catálogo HOLIDAY; escritura solo admin) ──────────────────────
+    def save_holidays(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        """Upsert masivo (la pantalla de confirmación del extractor y el alta
+        manual usan el mismo endpoint). Cada asueto: date + name + half."""
+        holidays = payload.get("holidays")
+        if not isinstance(holidays, list) or not holidays:
+            raise ValidationError("No hay asuetos que guardar.")
+        if len(holidays) > 60:
+            raise ValidationError("Demasiados asuetos en una sola carga.")
+        now = self._now()
+        saved = []
+        for holiday in holidays:
+            date_str = str(holiday.get("date") or "").strip()
+            if not _DATE_RE.match(date_str):
+                raise ValidationError(f"Fecha de asueto inválida: {date_str or '(vacía)'} (formato AAAA-MM-DD).")
+            name = str(holiday.get("name") or "").strip()
+            if not name:
+                raise ValidationError(f"El asueto del {date_str} no tiene nombre.")
+            item = {
+                "PK": f"HOLIDAY#{date_str}",
+                "SK": "PROFILE",
+                "entityType": "HOLIDAY",
+                "date": date_str,
+                "name": name[:120],
+                "half": bool(holiday.get("half")),
+                "notes": str(holiday.get("notes") or "").strip()[:200],
+                "createdAt": now,
+                "updatedAt": now,
+                "createdBy": identity["userId"],
+                "updatedBy": identity["userId"],
+            }
+            self._repository.put_item(item)
+            saved.append(self._normalize_holiday(item))
+        return {"holidays": sorted(saved, key=lambda h: h["date"])}
+
+    def delete_holiday(self, date_str: str, identity: dict[str, str]) -> dict[str, Any]:
+        date_str = self._require(date_str, "Fecha del asueto")
+        self._repository.delete_holiday(date_str)
+        return {"date": date_str, "removed": True}
+
+    def extract_holidays(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        """Extrae un BORRADOR de asuetos desde la imagen de la publicación oficial:
+        Textract (OCR, servicio AWS — sin modelos de visión, que el SCP no
+        garantiza) + GLM 5 (texto → lista estructurada). El resultado NO se
+        guarda: va a la pantalla de confirmación editable — el humano decide los
+        casos de juicio ("corresponde al 30", "solo Capital", "a disposición")."""
+        import base64
+        raw = payload.get("image") or ""
+        if "," in raw[:64]:  # data URL: quitar el prefijo data:image/...;base64,
+            raw = raw.split(",", 1)[1]
+        try:
+            image_bytes = base64.b64decode(raw, validate=True)
+        except Exception:
+            raise ValidationError("La imagen no es válida (se espera base64).")
+        if not image_bytes or len(image_bytes) > 5 * 1024 * 1024:
+            raise ValidationError("La imagen debe pesar entre 1 byte y 5 MB (PNG o JPG).")
+
+        import boto3
+        try:
+            ocr = boto3.client("textract", region_name="us-east-1").detect_document_text(
+                Document={"Bytes": image_bytes})
+        except Exception:
+            raise ValidationError("No se pudo leer la imagen (Textract). Verifica que sea PNG/JPG legible.")
+        lines = [b.get("Text", "") for b in ocr.get("Blocks", []) if b.get("BlockType") == "LINE"]
+        text = "\n".join(lines).strip()
+        if not text:
+            raise ValidationError("La imagen no contiene texto legible.")
+
+        from services.llm import LlmService
+        current_year = datetime.now(UTC).year
+        system = (
+            "Eres un extractor de datos. Del texto OCR de una publicación oficial de asuetos de Guatemala, "
+            "extrae CADA asueto como JSON. Responde SOLO un arreglo JSON válido, sin explicación, con objetos "
+            '{"date":"AAAA-MM-DD","name":"...","half":true|false,"notes":"..."}. Reglas: '
+            f"si el año no aparece, usa {current_year}. Usa la fecha OBSERVADA (la del día listado), y si el texto "
+            'dice "corresponde al X", anótalo en notes. half=true solo para medios días. Incluye también los días '
+            '"a disposición de cada entidad" con esa aclaración en notes. No inventes fechas.')
+        result = LlmService().complete(text, system=system, max_tokens=1500, thinking=False)
+        draft = self._parse_holiday_json(result.get("text", ""))
+        if not draft:
+            raise ValidationError("No se pudieron extraer asuetos del texto. Intenta con una imagen más nítida.")
+        return {"draft": draft, "ocrLines": len(lines)}
+
+    @staticmethod
+    def _parse_holiday_json(text: str) -> list[dict[str, Any]]:
+        """Toma el PRIMER arreglo JSON del texto del modelo y lo sanea (solo
+        fechas válidas; el resto de campos se normalizan con defaults)."""
+        import json
+        start, end = text.find("["), text.rfind("]")
+        if start < 0 or end <= start:
+            return []
+        try:
+            data = json.loads(text[start:end + 1])
+        except json.JSONDecodeError:
+            return []
+        draft = []
+        for row in data if isinstance(data, list) else []:
+            if not isinstance(row, dict):
+                continue
+            date_str = str(row.get("date") or "").strip()
+            if not _DATE_RE.match(date_str):
+                continue
+            draft.append({
+                "date": date_str,
+                "name": str(row.get("name") or "").strip()[:120] or "Asueto",
+                "half": bool(row.get("half")),
+                "notes": str(row.get("notes") or "").strip()[:200],
+                "include": True,
+            })
+        return sorted(draft, key=lambda h: h["date"])
+
+    def _normalize_holiday(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "date": item.get("date", ""),
+            "name": item.get("name", ""),
+            "half": bool(item.get("half")),
+            "notes": item.get("notes", ""),
+        }
+
     # ── Saldo: días hábiles (L-V) de vacaciones, partidos por año ─────────────
     @staticmethod
     def _allocated_days(person_item: dict[str, Any]) -> dict[str, int]:
         raw = person_item.get("vacationDays") or {}
         return {str(y): int(d) for y, d in raw.items()}
 
-    def _used_vacation_days(self, absences: list[dict[str, Any]]) -> dict[str, int]:
+    def _used_vacation_days(self, absences: list[dict[str, Any]],
+                            full_holidays: set[str] | None = None) -> dict[str, int]:
+        """Días hábiles L-V, EXCLUYENDO asuetos completos (catálogo HOLIDAY):
+        si las vacaciones cruzan un asueto, ese día no descuenta del saldo."""
+        full_holidays = full_holidays or set()
         used: dict[str, int] = {}
         for absence in absences:
             if absence["type"] != "vacation":
                 continue
             for day in self._iter_days(absence["startDate"], absence["endDate"]):
-                if day.weekday() < 5:  # L-V (sin feriados en v1)
+                if day.weekday() < 5 and day.isoformat() not in full_holidays:
                     year = str(day.year)
                     used[year] = used.get(year, 0) + 1
         return used

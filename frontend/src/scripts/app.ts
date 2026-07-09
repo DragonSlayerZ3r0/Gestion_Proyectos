@@ -68,6 +68,9 @@
         staffFormOpen: false,   // formulario "Registrar ausencia" visible (admin)
         staffQuotaOpen: false,  // formulario de cuota anual visible (admin, secundario)
         staffNotesOpen: false,  // formulario de nota de Personal visible (admin)
+        staffHolidaysOpen: false, // panel de asuetos visible (admin)
+        staffHolidayDraft: null,  // borrador extraído de la imagen, pendiente de confirmar
+        staffExtracting: false,   // OCR+LLM en curso
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
@@ -934,7 +937,7 @@
         if (!iso) return "—";
         const d = new Date(iso);
         if (isNaN(d.getTime())) return "—";
-        return d.toLocaleDateString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit" });
+        return d.toLocaleDateString("es-GT", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "America/Guatemala" });
       }
 
       function formatBytes(n) {

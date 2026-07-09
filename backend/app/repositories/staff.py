@@ -37,5 +37,12 @@ class StaffRepository(BaseRepository):
     def delete_absence(self, person_id: str, absence_id: str) -> None:
         self._table.delete_item(Key={"PK": f"PERSON#{person_id}", "SK": f"ABSENCE#{absence_id}"})
 
+    # ── Asuetos (catálogo HOLIDAY: días festivos autorizados) ─────────────────
+    def list_holidays(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("HOLIDAY")
+
+    def delete_holiday(self, date: str) -> None:
+        self._table.delete_item(Key={"PK": f"HOLIDAY#{date}", "SK": "PROFILE"})
+
     def put_item(self, item: dict[str, Any]) -> None:
         self._table.put_item(Item=item)

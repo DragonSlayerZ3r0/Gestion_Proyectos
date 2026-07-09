@@ -424,7 +424,7 @@ export function createDrawModule(ctx) {
   function drawDateLabel(iso) {
     if (!iso) return "";
     const d = new Date(iso);
-    return d.toLocaleDateString("es-GT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString("es-GT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Guatemala" });
   }
 
   function bindListEvents() {

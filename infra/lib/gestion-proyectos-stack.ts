@@ -345,6 +345,13 @@ export class GestionProyectosStack extends Stack {
         actions: ["cloudtrail:LookupEvents"],
         resources: ["*"],
       }));
+      // Textract (OCR): extraer el borrador de asuetos desde la imagen de la
+      // publicación oficial (Personal → "Subir asuetos"; el humano confirma).
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "TextractDetectText",
+        actions: ["textract:DetectDocumentText"],
+        resources: ["*"],
+      }));
       // Identity Center (solo lectura): resolver el nombre real de los usuarios que
       // consultan Athena (monitoreo). El Identity Store vive en la cuenta de la app.
       ownedRole.addToPolicy(new iam.PolicyStatement({
