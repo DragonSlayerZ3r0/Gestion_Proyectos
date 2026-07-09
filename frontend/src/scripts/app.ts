@@ -93,6 +93,7 @@
         homeCostDetailLoading: false,
         homeCostDetailError: "",
         homeDetailCollapsed: false,
+        homeCostServiceSearch: "",  // filtro de "Detalle por servicio" (busca en la lista completa)
         homeDailyCollapsed: false,
         homeCreditsCollapsed: false,
         homeDaily: null,

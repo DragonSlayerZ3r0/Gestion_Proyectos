@@ -329,10 +329,15 @@ export function createHomeModule(ctx) {
         if (!services.length) return "";
         const chevron = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>`;
         const collapsed = state.homeDetailCollapsed;
-        const rows = collapsed ? "" : services.map((s) => {
+        const query = state.homeCostServiceSearch || "";
+        const searching = !!query.trim();
+        // Las filas SIEMPRE se renderizan (aunque la sección esté colapsada) para
+        // que el buscador filtre por DOM sin re-render; el cuerpo se oculta solo
+        // cuando está colapsada y no se está buscando (buscar lo fuerza a mostrar).
+        const rows = services.map((s) => {
           const open = state.homeCostDetailService === s.service;
           return `
-            <div class="homeSvcRow">
+            <div class="homeSvcRow" data-svc-name="${escapeAttribute(s.service.toLowerCase())}">
               <div class="homeSvcMain">
                 <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-cost-detail="${escapeAttribute(s.service)}"
                   aria-expanded="${open ? "true" : "false"}" aria-label="Ver detalle de uso de ${escapeAttribute(s.service)}" title="Ver detalle de uso">${chevron}</button>
@@ -344,9 +349,32 @@ export function createHomeModule(ctx) {
         }).join("");
         return `
           <div class="homeTopList homeSvcList">
-            ${sectionTitle("detail", "Detalle por servicio", collapsed)}
-            ${rows}
+            <div class="homeSvcListHead">
+              ${sectionTitle("detail", "Detalle por servicio", collapsed)}
+              <input type="search" id="homeSvcSearch" class="searchInput homeSvcSearch" placeholder="Buscar servicio (p. ej. bedrock)…" value="${escapeAttribute(query)}" aria-label="Buscar servicio" />
+            </div>
+            <div class="homeSvcListBody" ${collapsed && !searching ? "hidden" : ""}>
+              ${rows}
+              <p class="catalogEmpty" id="homeSvcNoResults" hidden>Ningún servicio con costo coincide con la búsqueda.</p>
+            </div>
           </div>`;
+      }
+
+      // Filtro del "Detalle por servicio": por DOM (sin re-render → conserva foco).
+      // Busca en la lista COMPLETA, así encuentra servicios fuera del top-10 del
+      // gráfico. Persiste en state y se re-aplica tras cada paint.
+      function applyServiceFilter() {
+        const q = (state.homeCostServiceSearch || "").trim().toLowerCase();
+        const body = elements.contentPanel.querySelector(".homeSvcListBody");
+        if (body) body.hidden = state.homeDetailCollapsed && !q;   // buscar fuerza mostrar
+        let visible = 0;
+        for (const el of elements.contentPanel.querySelectorAll("[data-svc-name]")) {
+          const match = !q || el.dataset.svcName.includes(q);
+          el.style.display = match ? "" : "none";
+          if (match) visible++;
+        }
+        const none = elements.contentPanel.querySelector("#homeSvcNoResults");
+        if (none) none.hidden = !(q && visible === 0);
       }
 
       // Cantidad legible: separador de miles + unidad (p. ej. "210,185,825 Requests").
@@ -1300,6 +1328,14 @@ export function createHomeModule(ctx) {
             applyAthenaUserFilter();   // sin re-render → no pierde el foco
           });
           applyAthenaUserFilter();      // re-aplica el filtro persistido tras cada paint
+        }
+        const svcSearch = elements.contentPanel.querySelector("#homeSvcSearch");
+        if (svcSearch) {
+          svcSearch.addEventListener("input", () => {
+            state.homeCostServiceSearch = svcSearch.value;
+            applyServiceFilter();          // sin re-render → no pierde el foco
+          });
+          applyServiceFilter();            // re-aplica el filtro persistido tras cada paint
         }
         const acct = elements.contentPanel.querySelector("#homeAccountSelect");
         if (acct) acct.addEventListener("change", () => { state.homeCostAccount = acct.value; loadHomeCosts(); });

@@ -133,6 +133,10 @@
   .athenaLlmError { background: var(--danger-soft); border-color: var(--danger-border); color: #991b1b; }
   .homeSectionTitle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 1.06rem; font-weight: 700; color: #0f172a; margin: 0 0 8px; }
   .homeSectionTitle:hover { color: var(--accent-strong, var(--accent)); }
+  /* Encabezado de "Detalle por servicio": título colapsable + buscador de servicio. */
+  .homeSvcListHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .homeSvcListHead .homeSectionTitle { margin: 0; }
+  .homeSvcSearch { flex: 0 1 260px; max-width: 260px; margin-bottom: 0; }
   .homeSectionCaret { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--accent-strong, var(--accent)); }
   .homeSectionCaret svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
   .homeSectionTitle.collapsed .homeSectionCaret svg { transform: rotate(-90deg); }
