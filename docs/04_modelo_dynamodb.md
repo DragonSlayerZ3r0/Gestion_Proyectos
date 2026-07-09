@@ -56,7 +56,8 @@ USER_MODULE
 PK = USER#<userId>
 SK = MODULE#<moduleKey>
 
-PERSON
+PERSON (el perfil guarda también los atributos de la vista Personal:
+  vacationDays={"2026": 20} —cuota anual— y staffNotes —nota exclusiva de esa vista—)
 PK = PERSON#<personId>
 SK = PROFILE
 

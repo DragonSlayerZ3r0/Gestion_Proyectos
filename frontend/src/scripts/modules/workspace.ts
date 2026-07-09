@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Módulo Proyectos y tareas (workspace). Inyección de dependencias desde el shell.
 export function createWorkspaceModule(ctx) {
-  const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel } = ctx;
+  const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel, mdLite } = ctx;
 
   // Columnas de la tabla de solicitudes: definición única (orden, etiqueta, clave
   // de orden, ancho por defecto). "Solicitud" es el identificador → siempre visible.
@@ -138,9 +138,12 @@ export function createWorkspaceModule(ctx) {
         // Comparten la MISMA barra de filtros — filtras en una, presentas en otra.
         const isBoard = (state.workspaceView || "manage") === "board";
         const viewToggle = `
-          <div class="searchScope segmented wsViewToggle" role="group" aria-label="Vista de solicitudes">
-            <button type="button" class="scopeSeg ${!isBoard ? "active" : ""}" data-ws-view="manage">Gestión</button>
-            <button type="button" class="scopeSeg ${isBoard ? "active" : ""}" data-ws-view="board">Tablero de avance</button>
+          <div class="wsHeroActions">
+            <div class="searchScope segmented wsViewToggle" role="group" aria-label="Vista de solicitudes">
+              <button type="button" class="scopeSeg ${!isBoard ? "active" : ""}" data-ws-view="manage">Gestión</button>
+              <button type="button" class="scopeSeg ${isBoard ? "active" : ""}" data-ws-view="board">Tablero de avance</button>
+            </div>
+            <button type="button" id="wsReportBtn" class="wsReportBtn" title="Generar reporte ejecutivo con IA"><span aria-hidden="true">📊</span><span class="wsReportBtnLabel"> Reporte ejecutivo</span></button>
           </div>`;
 
         elements.contentPanel.innerHTML = `
@@ -160,6 +163,7 @@ export function createWorkspaceModule(ctx) {
                 <select name="requestType" aria-label="Tipo de solicitud">
                   <option value="project">Proyecto</option>
                   <option value="report">Reporte</option>
+                  <option value="requirement">Requerimiento</option>
                 </select>
                 <button class="primaryButton" type="submit">Nuevo</button>
               </form>`}
@@ -381,6 +385,7 @@ export function createWorkspaceModule(ctx) {
             <option value="all">Todos</option>
             <option value="project" ${typeV === "project" ? "selected" : ""}>Proyecto</option>
             <option value="report" ${typeV === "report" ? "selected" : ""}>Reporte</option>
+            <option value="requirement" ${typeV === "requirement" ? "selected" : ""}>Requerimiento</option>
             ${projects.some((p) => !p.requestType) ? `<option value="__none__" ${typeV === "__none__" ? "selected" : ""}>Sin tipo</option>` : ""}
           </select></label>`;
 
@@ -543,7 +548,7 @@ export function createWorkspaceModule(ctx) {
       // Tabla maestro-detalle: una fila compacta por proyecto (escaneable de un
       // vistazo, patrón familiar tipo hoja de cálculo para usuarios sin experiencia
       // en herramientas de proyectos). Clic en la fila → detalle completo abajo.
-      const REQUEST_TYPE_LABELS = { project: "Proyecto", report: "Reporte" };
+      const REQUEST_TYPE_LABELS = { project: "Proyecto", report: "Reporte", requirement: "Requerimiento" };
       function requestTypeLabel(value) {
         return REQUEST_TYPE_LABELS[value] || "";
       }
@@ -665,8 +670,18 @@ export function createWorkspaceModule(ctx) {
       // Celda por columna (permite ocultar/mostrar y reordenar sin duplicar lógica).
       function renderProjectCell(key, project, peopleById) {
         switch (key) {
-          case "name":
-            return `<td class="projName">${escapeHtml(project.name)}</td>`;
+          case "name": {
+            // Clip discreto SOLO si hay adjuntos (patrón correo): monocromo tenue,
+            // sin columna propia ni color — es un indicio, no un estado (docs/06).
+            const attCount = (project.attachments || []).length;
+            // ANCLADO al borde derecho de la celda (no pegado al texto): con
+            // nombres largos que envuelven, al final del texto quedaba en posición
+            // variable y "se perdía"; antes del título rompería la alineación
+            // izquierda del identificador. Fijo a la derecha, los clips forman su
+            // propio riel vertical escaneable (patrón correo).
+            const clip = attCount ? `<span class="projClip" title="${attCount} adjunto${attCount === 1 ? "" : "s"}" aria-label="${attCount} adjunto${attCount === 1 ? "" : "s"}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16.5 6.5v9a4.5 4.5 0 0 1-9 0v-10a3 3 0 0 1 6 0v9.5a1.5 1.5 0 0 1-3 0V7.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>` : "";
+            return `<td class="projName"><span class="projNameText">${escapeHtml(project.name)}</span>${clip}</td>`;
+          }
           case "type":
             return `<td>${requestTypeLabel(project.requestType) || `<span class="emptyText">—</span>`}</td>`;
           case "area":
@@ -1082,8 +1097,9 @@ export function createWorkspaceModule(ctx) {
           </section>`;
       }
 
-      // Tipos que acepta el <input type=file> (alineado con la whitelist del backend).
-      const ATTACH_ACCEPT = ".png,.jpg,.jpeg,.webp,.gif,.pdf,.csv,.txt,.sql,.json,.log";
+      // Sin filtro `accept`: se sube casi cualquier binario de trabajo (Excel,
+      // Word, parquet, zip…) — el backend bloquea SOLO ejecutables/scripts y
+      // páginas activas (blocklist en services/attachments.py, 2026-07-08).
       const ATTACH_IMAGE_EXT = ["png", "jpg", "jpeg", "webp", "gif"];
       function isImageName(name) {
         const ext = (name || "").split(".").pop().toLowerCase();
@@ -1115,10 +1131,10 @@ export function createWorkspaceModule(ctx) {
               <button class="tinyButton ghost" type="button" data-attach-note-cancel>Cancelar</button>
             </form>` : ""}
             <div class="attachDropzone" data-attach-dropzone="${project.id}" tabindex="0" role="button" aria-label="Zona para arrastrar o pegar archivos">
-              <span class="attachDropHint">Arrastra o pega un archivo aquí (pantallazo, pdf, csv…)</span>
+              <span class="attachDropHint">Arrastra o pega un archivo aquí (pantallazo, Excel, pdf, csv…)</span>
               <div class="attachAddActions">
                 <label class="tinyButton attachFileBtn">+ Archivo
-                  <input type="file" data-attach-file="${project.id}" data-attach-update="" accept="${ATTACH_ACCEPT}" hidden multiple />
+                  <input type="file" data-attach-file="${project.id}" data-attach-update="" hidden multiple />
                 </label>
                 <button type="button" class="tinyButton ghost" data-attach-query-toggle="${project.id}">${queryOpen ? "Cancelar" : "+ Query"}</button>
               </div>
@@ -1344,6 +1360,7 @@ export function createWorkspaceModule(ctx) {
                   <option value="" ${project.requestType ? "" : "selected"}>Ninguno</option>
                   <option value="project" ${project.requestType === "project" ? "selected" : ""}>Proyecto</option>
                   <option value="report" ${project.requestType === "report" ? "selected" : ""}>Reporte</option>
+                  <option value="requirement" ${project.requestType === "requirement" ? "selected" : ""}>Requerimiento</option>
                 </select>
               </label>
               ${renderAreaField("requestingAreaId", "Área solicitante", project.requestingAreaId)}
@@ -1658,6 +1675,8 @@ export function createWorkspaceModule(ctx) {
             renderWorkspace();
           });
         }
+        const reportBtn = document.querySelector("#wsReportBtn");
+        if (reportBtn) reportBtn.addEventListener("click", openReportModal);
         // Tablero: expandir/colapsar el "¿Qué falta? / ¿Cuándo?" de una solicitud.
         for (const row of document.querySelectorAll("[data-board-toggle]")) {
           row.addEventListener("click", () => {
@@ -2500,7 +2519,11 @@ export function createWorkspaceModule(ctx) {
       async function deleteAttachment(ref) {
         const [projectId, attachmentId] = (ref || "").split(":");
         if (!projectId || !attachmentId) return;
-        if (!window.confirm("¿Eliminar este adjunto? No se puede deshacer.")) return;
+        // Confirmación ESPECÍFICA (con el nombre): el confirm genérico se acepta
+        // en automático por hábito; nombrar lo que se borra obliga a leer.
+        const att = (findProject(projectId)?.attachments || []).find((a) => a.id === attachmentId);
+        const attName = att ? (att.kind === "query" ? (att.title || "Query") : (att.fileName || "archivo")) : "este adjunto";
+        if (!window.confirm(`¿Eliminar "${attName}"? No se puede deshacer.`)) return;
         try {
           await apiRequest(`api/projects/${projectId}/attachments/${attachmentId}`, { method: "DELETE" });
           const project = findProject(projectId);
@@ -2772,6 +2795,236 @@ export function createWorkspaceModule(ctx) {
           card.hidden = query && !card.textContent.toLowerCase().includes(query);
         }
       }
+
+  // ── Reporte ejecutivo (LLM + plantillas de diagrama propias) ────────────────
+  // El modelo decide el CONTENIDO (qué solicitudes, qué nivel, qué hitos); estas
+  // plantillas SVG deciden el DIBUJO — determinista, siempre profesional. El spec
+  // llega ya validado/recortado por el backend.
+  const RAG_COLORS = { verde: "#15803d", ambar: "#b45309", rojo: "#b91c1c" };
+  const RAG_BG = { verde: "#dcfce7", ambar: "#fef3c7", rojo: "#fee2e2" };
+  const TL_COLORS = { hito: "#0f766e", entrega: "#1d4ed8", alerta: "#b91c1c" };
+
+  function svgText(x, y, text, size, opts = {}) {
+    return `<text x="${x}" y="${y}" font-size="${size}" font-family="Inter, ui-sans-serif, sans-serif"`
+      + `${opts.bold ? ' font-weight="700"' : ""}${opts.anchor ? ` text-anchor="${opts.anchor}"` : ""}`
+      + ` fill="${opts.fill || "#1b272b"}">${escapeHtml(text)}</text>`;
+  }
+  function diagramTitleSvg(title, width) {
+    return title ? svgText(16, 26, title, 14, { bold: true }) : "";
+  }
+
+  // Truncado defensivo: SVG no envuelve texto solo, y un nombre largo se
+  // encimaría con la columna siguiente (pasó con nombres de ~30 caracteres).
+  function svgTrunc(s, max) {
+    s = String(s || "");
+    return s.length > max ? s.slice(0, max - 1) + "…" : s;
+  }
+
+  function ragSvg(spec) {
+    const W = 720, rowH = 40, top = spec.title ? 44 : 16;
+    const nameX = 52, noteX = 268, chipW = 92;
+    const H = top + spec.items.length * rowH + 12;
+    const rows = spec.items.map((it, i) => {
+      const y = top + i * rowH;
+      const color = RAG_COLORS[it.level], bg = RAG_BG[it.level];
+      return `
+        <rect x="12" y="${y}" width="${W - 24}" height="${rowH - 8}" rx="8" fill="${i % 2 ? "#ffffff" : "#f8fbfb"}" stroke="#d8e1e4"/>
+        <circle cx="34" cy="${y + (rowH - 8) / 2}" r="8" fill="${color}"/>
+        ${svgText(nameX, y + 20, svgTrunc(it.name, 28), 13, { bold: true })}
+        ${it.note ? svgText(noteX, y + 20, svgTrunc(it.note, 48), 12, { fill: "#62737a" }) : ""}
+        ${it.dueDate ? `<rect x="${W - chipW - 24}" y="${y + 6}" width="${chipW}" height="20" rx="10" fill="${bg}"/>` + svgText(W - 24 - chipW / 2, y + 20, it.dueDate, 11, { anchor: "middle", fill: color }) : ""}`;
+    }).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#fff">${diagramTitleSvg(spec.title, W)}${rows}</svg>`;
+  }
+
+  function progressSvg(spec) {
+    const W = 680, rowH = 42, top = spec.title ? 48 : 20, labelW = 210, barW = W - labelW - 150;
+    const H = top + spec.items.length * rowH + 12;
+    const rows = spec.items.map((it, i) => {
+      const y = top + i * rowH;
+      const pct = it.progress, fillW = Math.round(barW * pct / 100);
+      const color = pct >= 80 ? "#15803d" : pct >= 40 ? "#0f766e" : "#b45309";
+      return `
+        ${svgText(labelW - 8, y + 16, svgTrunc(it.name, 28), 12.5, { anchor: "end", bold: true })}
+        <rect x="${labelW}" y="${y + 4}" width="${barW}" height="18" rx="9" fill="#eef2f4"/>
+        ${fillW > 0 ? `<rect x="${labelW}" y="${y + 4}" width="${Math.max(fillW, 14)}" height="18" rx="9" fill="${color}"/>` : ""}
+        ${svgText(labelW + barW + 10, y + 18, `${pct}%`, 12, { bold: true, fill: color })}
+        ${it.dueDate ? svgText(labelW + barW + 52, y + 18, it.dueDate, 11, { fill: "#62737a" }) : ""}`;
+    }).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#fff">${diagramTitleSvg(spec.title, W)}${rows}</svg>`;
+  }
+
+  function timelineSvg(spec) {
+    const items = spec.items.slice().sort((a, b) => a.date < b.date ? -1 : 1);
+    const W = 760, top = spec.title ? 56 : 30, axisY = top + 130, H = axisY + 96;
+    const t0 = new Date(items[0].date).getTime(), t1 = new Date(items[items.length - 1].date).getTime();
+    const span = Math.max(t1 - t0, 86400000), pad = 56;
+    const px = (d) => pad + (new Date(d).getTime() - t0) / span * (W - pad * 2);
+    // Marcas de semana sobre el eje.
+    let weeks = "";
+    const start = new Date(t0); start.setDate(start.getDate() - start.getDay() + 1);
+    for (let w = new Date(start); w.getTime() <= t1 + 86400000 * 6; w.setDate(w.getDate() + 7)) {
+      const x = px(w);
+      if (x < pad - 6 || x > W - pad + 6) continue;
+      weeks += `<line x1="${x}" y1="${axisY - 6}" x2="${x}" y2="${axisY + 6}" stroke="#c0ced2" stroke-width="1"/>`
+        + svgText(x, axisY + 22, `${String(w.getDate()).padStart(2, "0")}/${String(w.getMonth() + 1).padStart(2, "0")}`, 10, { anchor: "middle", fill: "#62737a" });
+    }
+    // Hoy.
+    const now = Date.now();
+    const todayMark = (now >= t0 - 86400000 && now <= t1 + 86400000)
+      ? `<line x1="${px(now)}" y1="${top - 8}" x2="${px(now)}" y2="${axisY}" stroke="#b91c1c" stroke-width="1.5" stroke-dasharray="4 3"/>` + svgText(px(now), top - 14, "hoy", 10, { anchor: "middle", fill: "#b91c1c" })
+      : "";
+    // Hitos alternando altura para que las etiquetas no choquen.
+    const marks = items.map((it, i) => {
+      const x = px(it.date), lift = 26 + (i % 3) * 34, color = TL_COLORS[it.kind];
+      return `
+        <line x1="${x}" y1="${axisY - lift + 10}" x2="${x}" y2="${axisY}" stroke="${color}" stroke-width="1.2"/>
+        <circle cx="${x}" cy="${axisY}" r="5.5" fill="${color}"/>
+        ${svgText(x, axisY - lift, it.label.length > 34 ? it.label.slice(0, 33) + "…" : it.label, 11, { anchor: "middle", bold: true, fill: color })}
+        ${svgText(x, axisY - lift + 13, it.date.slice(5), 9.5, { anchor: "middle", fill: "#62737a" })}`;
+    }).join("");
+    const legend = Object.entries({ hito: "Hito", entrega: "Entrega", alerta: "Alerta" }).map(([k, lab], i) =>
+      `<circle cx="${pad + i * 110}" cy="${H - 24}" r="5" fill="${TL_COLORS[k]}"/>` + svgText(pad + i * 110 + 12, H - 20, lab, 11, { fill: "#62737a" })).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#fff">
+      ${diagramTitleSvg(spec.title, W)}
+      <line x1="${pad - 16}" y1="${axisY}" x2="${W - pad + 16}" y2="${axisY}" stroke="#62737a" stroke-width="1.5"/>
+      ${weeks}${todayMark}${marks}${legend}</svg>`;
+  }
+
+  function diagramSvg(spec) {
+    if (!spec || !spec.items || !spec.items.length) return "";
+    if (spec.type === "rag") return ragSvg(spec);
+    if (spec.type === "progress") return progressSvg(spec);
+    if (spec.type === "timeline") return timelineSvg(spec);
+    return "";
+  }
+
+  function downloadDiagramPng(svgEl, filename) {
+    const xml = new XMLSerializer().serializeToString(svgEl);
+    const scale = 2;   // nítido en proyector/presentación
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = svgEl.viewBox.baseVal.width * scale;
+      canvas.height = svgEl.viewBox.baseVal.height * scale;
+      const ctx2 = canvas.getContext("2d");
+      ctx2.fillStyle = "#ffffff";
+      ctx2.fillRect(0, 0, canvas.width, canvas.height);
+      ctx2.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, "image/png");
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  }
+
+  const REPORT_PRESETS = [
+    { kind: "criticos", label: "🔴 Temas críticos y entregas" },
+    { kind: "detenidos", label: "⛔ Qué está detenido" },
+    { kind: "avance", label: "📈 Avance general" },
+    { kind: "hitos", label: "📅 Línea de tiempo de hitos" },
+  ];
+
+  function openReportModal() {
+    const modal = document.createElement("div");
+    modal.className = "wsReportModal";
+    modal.innerHTML = `
+      <div class="wsReportDialog" role="dialog" aria-label="Reporte ejecutivo">
+        <div class="wsReportHead">
+          <h3>📊 Reporte ejecutivo</h3>
+          <button type="button" class="wsReportClose" aria-label="Cerrar">×</button>
+        </div>
+        <div class="wsReportAsk">
+          <div class="wsReportPresets">
+            ${REPORT_PRESETS.map((p) => `<button type="button" class="wsReportPreset" data-kind="${p.kind}">${p.label}</button>`).join("")}
+          </div>
+          <div class="wsReportFree">
+            <input type="text" class="wsReportInput" placeholder="…o pídelo con tus palabras (ej. solo el área de Riesgos que vence este mes)" maxlength="500" />
+            <button type="button" class="primaryButton wsReportGo">Generar</button>
+          </div>
+        </div>
+        <div class="wsReportBody"><p class="wsReportHint">Elige un preajuste o escribe qué necesitas. El reporte se genera con IA sobre los datos actuales de las solicitudes.</p></div>
+      </div>`;
+    document.body.appendChild(modal);
+    const body = modal.querySelector(".wsReportBody");
+    // Token de generación: cada pedido nuevo lo incrementa y el sondeo del pedido
+    // anterior se aborta solo al notar que ya no es el vigente. Así "Cancelar" y
+    // pedir otro preajuste a media generación funcionan sin cerrar el modal (el
+    // worker del backend termina igual en segundo plano; su resultado expira solo).
+    let genSeq = 0;
+
+    function close() { genSeq++; modal.remove(); }
+    modal.querySelector(".wsReportClose").onclick = close;
+    modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+    modal.tabIndex = -1; modal.focus();
+    modal.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+    function cancelGeneration() {
+      genSeq++;
+      body.innerHTML = `<p class="wsReportHint">Generación cancelada. Elige un preajuste o escribe qué necesitas.</p>`;
+    }
+
+    async function generate(kind, text) {
+      const seq = ++genSeq;   // reemplaza cualquier generación en curso
+      body.innerHTML = `
+        <p class="wsReportLoading">Generando reporte… puede tardar hasta un minuto (analiza todas las solicitudes).</p>
+        <button type="button" class="tinyButton wsReportCancel">Cancelar</button>`;
+      body.querySelector(".wsReportCancel").onclick = cancelGeneration;
+      try {
+        const start = await apiRequest("api/workspace/report", {
+          method: "POST", body: JSON.stringify({ kind: kind || "", text: text || "" }),
+        });
+        const reportId = start.data.reportId;
+        for (let i = 0; i < 100 && seq === genSeq; i++) {
+          await new Promise((r) => setTimeout(r, 2500));
+          if (seq !== genSeq) return;               // cancelado o reemplazado
+          const p = await apiRequest(`api/workspace/report/${encodeURIComponent(reportId)}`);
+          if (seq !== genSeq) return;
+          if (p.data.status === "generating") continue;
+          renderResult(p.data);
+          return;
+        }
+        if (seq === genSeq) body.innerHTML = `<p class="wsReportError">El reporte está tardando más de lo esperado. Vuelve a intentarlo.</p>`;
+      } catch (err) {
+        if (seq === genSeq) body.innerHTML = `<p class="wsReportError">${escapeHtml(err?.message || "No se pudo generar el reporte.")}</p>`;
+      }
+    }
+
+    function renderResult(data) {
+      const svg = diagramSvg(data.diagram);
+      body.innerHTML = `
+        <div class="wsReportActions">
+          <button type="button" class="tinyButton wsReportCopy">⧉ Copiar texto</button>
+          ${svg ? `<button type="button" class="tinyButton wsReportPng">⬇ Descargar diagrama</button>` : ""}
+        </div>
+        <div class="wsReportText">${mdLite(data.report || "")}</div>
+        ${svg ? `<div class="wsReportDiagram">${svg}</div>` : ""}`;
+      body.querySelector(".wsReportCopy").onclick = async (e) => {
+        try {
+          await navigator.clipboard.writeText(data.report || "");
+          e.target.textContent = "✓ Copiado";
+          setTimeout(() => { e.target.textContent = "⧉ Copiar texto"; }, 1400);
+        } catch {}
+      };
+      const pngBtn = body.querySelector(".wsReportPng");
+      if (pngBtn) pngBtn.onclick = () => {
+        const el = body.querySelector(".wsReportDiagram svg");
+        if (el) downloadDiagramPng(el, "reporte-solicitudes.png");
+      };
+    }
+
+    for (const b of modal.querySelectorAll(".wsReportPreset")) {
+      b.addEventListener("click", () => generate(b.dataset.kind, ""));
+    }
+    const goBtn = modal.querySelector(".wsReportGo");
+    const input = modal.querySelector(".wsReportInput");
+    goBtn.addEventListener("click", () => generate("", input.value));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") generate("", input.value); });
+  }
 
   return { render: renderWorkspace, refresh: refreshWorkspace };
 }

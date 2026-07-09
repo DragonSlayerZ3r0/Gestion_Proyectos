@@ -25,7 +25,7 @@ _DEFAULT_STATUSES = [
 ]
 # Tipo de la solicitud (el módulo se muestra como "Solicitudes"; la clave interna
 # sigue siendo projects/PROJECT# — solo cambió la etiqueta, regla del proyecto).
-REQUEST_TYPES = ["project", "report"]
+REQUEST_TYPES = ["project", "report", "requirement"]
 PERSON_STATUSES = ["active", "inactive"]
 PROJECT_MEMBER_ROLES = ["owner", "member", "reader"]
 TASK_AUDIT_FIELDS = ["status", "priority", "assigneePersonId"]

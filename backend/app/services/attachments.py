@@ -25,12 +25,16 @@ from core.errors import ValidationError
 from repositories.workspace import WorkspaceRepository
 from services.name_directory import NameDirectory
 
-# Tipos permitidos (por extensión del nombre original). Imágenes para pantallazos,
-# pdf para documentos, texto/csv/sql para datos y consultas adjuntas como archivo.
-_ALLOWED_EXTENSIONS = {
-    "png", "jpg", "jpeg", "webp", "gif",      # imágenes
-    "pdf",                                      # documentos
-    "csv", "txt", "sql", "json", "log",        # texto/datos
+# Política de tipos (2026-07-08, pedido del usuario): BLOCKLIST en vez de
+# whitelist — se acepta prácticamente cualquier binario de trabajo (Excel, Word,
+# parquet, zip…; la whitelist inicial rechazaba .xlsx). Se bloquean SOLO
+# ejecutables/scripts y páginas activas (html/svg ejecutan scripts al abrirse
+# desde la presigned GET). El tope de 15 MB se mantiene.
+_BLOCKED_EXTENSIONS = {
+    "exe", "dll", "msi", "bat", "cmd", "com", "scr", "pif", "cpl",  # ejecutables Windows
+    "ps1", "psm1", "sh", "bash", "zsh", "vbs", "vbe", "wsf", "hta", # scripts
+    "js", "mjs", "jar", "apk", "app", "lnk",                        # otros ejecutables
+    "html", "htm", "svg", "xhtml",                                  # páginas activas
 }
 _MAX_FILE_BYTES = 15 * 1024 * 1024   # 15 MB por archivo
 _QUERY_MAX_CHARS = 20000             # texto de una query adjunta
@@ -237,9 +241,10 @@ class AttachmentService:
 
     def _validate_extension(self, file_name: str) -> None:
         ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
-        if ext not in _ALLOWED_EXTENSIONS:
-            allowed = ", ".join(sorted(_ALLOWED_EXTENSIONS))
-            raise ValidationError(f"Tipo de archivo no permitido. Se aceptan: {allowed}.")
+        if ext in _BLOCKED_EXTENSIONS:
+            raise ValidationError(
+                f"Por seguridad no se permiten archivos .{ext} "
+                "(ejecutables, scripts o páginas). Cualquier otro tipo sí.")
 
     def _validate_size(self, value: Any) -> int:
         try:

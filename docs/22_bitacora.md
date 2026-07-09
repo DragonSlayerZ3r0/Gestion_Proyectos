@@ -10,6 +10,18 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-08 · decisión — Invitaciones de Pizarra visibles sin refrescar (refresh + sondeo de lista)
+
+El invitado no veía la invitación: la lista de Pizarra se cargaba UNA vez por sesión y quedaba cacheada (ni salir/entrar al módulo la refrescaba). Fix en dos partes: (1) la lista se refresca en CADA entrada al módulo y al volver del editor (silencioso: pinta lo que hay y repinta al llegar lo fresco, sin "Cargando"); (2) sondeo cada ~10 s mientras el usuario está parado en la lista (solo módulo activo + vista lista + pestaña visible; repinta solo si algo cambió, preservando lo tecleado en "Nueva pizarra"). Costo analizado con el usuario: centavos/mes (una llamada a Cost Explorer cuesta más que un día de sondeos). Alternativa anotada para escala: push real por el WebSocket (canal personal) — más código, vale si crecen los usuarios o se quiere campanita global. OJO: el selector "Compartir con" lista usuarios SIN el módulo Pizarra asignado — esos nunca verán la invitación (mejora pendiente: marcarlos). Ver `docs/02`.
+
+## 2026-07-08 · decisión — Orden de columnas por usuario en la tabla de Solicitudes
+
+Cada usuario ordena las columnas a su gusto: menú `Columnas ▾` con flechas ↑/↓ por fila (además de mostrar/ocultar), persistido por navegador en el mismo localStorage que visibilidad/anchos (`gp.projectTable.v1`, clave `order`). "Solicitud" (identificador del maestro-detalle) siempre visible y SIEMPRE primera — sin flechas. Claves desconocidas guardadas se ignoran; columnas nuevas del código caen al final. Se eligió flechas en el menú y NO arrastrar encabezados: el arrastre del encabezado ya es el ajuste de ancho (mezclar gestos en la misma zona = errores de manipulación) y la regla de la app es gesto-como-atajo, nunca único camino. Ver `docs/06` estándar 2.
+
+## 2026-07-08 · estándar — Metadatos tenues y señales ancladas (lote de jerarquía visual)
+
+Tres refinamientos con el mismo principio (el usuario los fue señalando): (1) en "Última actividad" la fecha pasó a formato corto y tenue (`6 jul`, año solo si difiere; antes negrita+acento+formato largo — el metadato desplazaba al texto del seguimiento y usaba acento decorativo); (2) el clip de adjuntos va ANCLADO al borde derecho de la celda Solicitud (pegado al texto se perdía con nombres que envuelven; antes del título rompería la alineación izquierda del identificador — fijo forma un riel vertical escaneable, patrón correo); (3) la ficha de Personal es ACORDEÓN bajo la fila seleccionada con `scrollIntoView block:nearest` (al final del panel quedaba lejísimos del clic en listados grandes). Además: chips de acceso en Administración (color SOLO en privilegio: rol admin=acento, módulo Administración=ámbar) con familia de tokens nueva `--warn-soft`/`--warn-border`, y nota por persona `staffNotes` exclusiva de Personal. Ver `docs/06`, `docs/08`, `docs/09`, `docs/02`.
+
 ## 2026-07-08 · decisión — Colaboración en vivo de Pizarra: WebSocket serverless en la propia cuenta
 
 El usuario aclaró que "compartir" debía ser como el Live collaboration de excalidraw.com: varios editando el MISMO tablero a la vez. El componente embebido no trae eso (la colaboración nativa vive en los servidores de excalidraw.com — descartado: datos del banco a terceros + dominio bloqueado en laptops corporativas). Alternativas evaluadas con el usuario: servidor dedicado excalidraw-room en contenedor (descartado: costo fijo siempre encendido) y sync por sondeo (descartado: no es simultáneo real). **Elegido: API Gateway WebSocket serverless** — cada tablero es una sala; la MISMA Lambda ramifica por routeKey; el servidor solo releva (`hello/init/scene/pointer`); token de Cognito por query param validado con GetUser en $connect (WS no permite headers ni tiene authorizer JWT nativo); acceso por el modelo de compartir existente; conexiones en Dynamo con TTL; cliente reconcilia por (version, versionNonce) con mapa anti-eco + autoguardado 20s. Verificado en vivo: 400 sin token, 401 token inválido, sin errores en logs. La validación multi-navegador la hace el usuario (no se puede simular sin 2 sesiones). Ver `docs/02`, `docs/04`, `docs/05`.
@@ -169,6 +181,10 @@ Se crea esta bitácora como memoria compartida multiagente (la memoria persisten
 ## 2026-07-04 · decisión — Rediseño de "Solicitudes" (antes Proyectos y tareas) + 10 estándares de UX
 
 El módulo no resultaba intuitivo; se investigó y la clave fue: **los usuarios no conocen Trello/Asana pero todos conocen Excel** → tabla maestro-detalle en lugar de tarjetas/kanban como vista principal, una sola acción primaria, drag & drop solo como atajo. Se renombró la etiqueta a "Solicitudes" con campo `requestType` (project|report) — **las claves persistidas (`projects`, `tasks`) nunca se renombran, solo etiquetas** (regla general). Los 10 criterios quedaron como OBLIGATORIOS para todo módulo en `docs/06_frontend_ux.md`; módulo en `docs/08_proyectos_tareas.md`.
+
+## 2026-07-08 · decisión — Reporte ejecutivo de solicitudes: el LLM decide contenido, plantillas SVG propias dibujan
+
+Para las juntas que piden "un esquema distinto cada vez", se agregó el Reporte ejecutivo (modal en Solicitudes): preajustes + texto libre → GLM 5 (asíncrono, patrón del chat) responde markdown + spec JSON de UN diagrama que el backend valida y el frontend dibuja con plantillas SVG deterministas (semáforo RAG, barras de avance, línea de tiempo de hitos — Tanda 1 de un catálogo de ~15 acordado). Se descartó que el modelo genere el diagrama (Mermaid): un error de sintaxis del modelo rompería el render en plena junta; con spec validado, la basura degrada a solo-texto. Ver `docs/08_proyectos_tareas.md`.
 
 ## 2026-07-04 · incidente — Módulo Proyectos "vacío" por lecturas DynamoDB sin paginar
 

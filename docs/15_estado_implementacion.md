@@ -3,6 +3,7 @@
 ## Últimos avances (2026-07-07/08: adjuntos, Pizarra, filtros, Personal, vendor)
 
 - **Pizarra: colaboración EN VIVO** (2026-07-08): varios usuarios editan el mismo tablero a la vez (cursores con nombre, presencia "N en vivo", autoguardado). API Gateway **WebSocket** serverless `wss://6nb9mm3y1d.execute-api.us-east-1.amazonaws.com/dev` (misma Lambda, ramifica por routeKey; conexiones en Dynamo con TTL; token por query param validado con GetUser). Desplegado en dev; rechazos 400/401 verificados en vivo. Ver `docs/02`.
+- **Refinamientos UX** (2026-07-08): invitaciones de Pizarra sin refrescar (refresh al entrar + sondeo 10s en la lista); **orden de columnas por usuario** en Solicitudes (↑/↓ en `Columnas ▾`, localStorage); fecha corta/tenue en Última actividad; clip de adjuntos anclado al borde de la celda; ficha de Personal en acordeón + nota `staffNotes`; chips de acceso con color-solo-en-privilegio en Administración (tokens `--warn-*`). Todo en dev. Ver bitácora.
 - **Personal** (2026-07-08): ausencias del equipo (vacaciones/permiso/incapacidad) + saldo simple por año; vista desde el **menú del usuario** (no módulo); ver = usuario configurado, editar = solo admin. Desplegado en dev. Ver `docs/02`.
 - **Vendor auto-hospedado** (2026-07-07): D3, Chart.js, React y Excalidraw se sirven desde `/vendor/` del bucket del frontend — sin CDNs externos. Ver bitácora.
 

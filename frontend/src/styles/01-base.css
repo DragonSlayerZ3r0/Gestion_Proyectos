@@ -2019,3 +2019,17 @@
     }
   }
 
+
+  /* ── Salida formateada del LLM (mdLite): reporte ejecutivo, sugerencia Athena
+     y chat comparten estos elementos (tablas, encabezados, separadores). ────── */
+  .mdH { margin: 14px 0 6px; color: var(--text); line-height: 1.3; }
+  h3.mdH { font-size: 1rem; }
+  h4.mdH { font-size: 0.92rem; }
+  h5.mdH, h6.mdH { font-size: 0.85rem; }
+  .mdH:first-child { margin-top: 0; }
+  .mdHr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+  .mdTableWrap { overflow-x: auto; margin: 0 0 10px; }
+  .mdTable { border-collapse: collapse; width: 100%; font-size: 0.82rem; background: var(--panel); }
+  .mdTable th { text-align: left; background: var(--panel-soft); border-bottom: 2px solid var(--line-strong); padding: 7px 10px; font-weight: 700; white-space: nowrap; }
+  .mdTable td { border-bottom: 1px solid var(--line); padding: 6px 10px; vertical-align: top; }
+  .mdTable tr:last-child td { border-bottom: none; }

@@ -45,6 +45,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         ChatService().run_reply(event.get("userId", ""), event.get("sessionId", ""))
         return {"ok": True}
 
+    # Reporte ejecutivo de solicitudes en segundo plano (mismo motivo que el chat).
+    if event.get("action") == "workspace_report":
+        from services.exec_report import ExecReportService
+        ExecReportService().run(event.get("userId", ""), event.get("reportId", ""))
+        return {"ok": True}
+
     # Conteo de filas por área/tabla (tabla de control vía Athena), acotado a un rango.
     if event.get("action") == "datalake_records_scan":
         from services.datalake import DatalakeService

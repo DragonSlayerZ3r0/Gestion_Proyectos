@@ -823,7 +823,7 @@
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton,
       });
       const workspaceModule = createWorkspaceModule({
-        state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel,
+        state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel, mdLite,
       });
       const catalogModule = createCatalogModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, catalogDateLabel,
@@ -1009,17 +1009,41 @@
           .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<i>$1</i>")
           .replace(/`([^`]+)`/g, "<code>$1</code>");
       }
+      // Tabla markdown (| col | col |). Si la 2a línea es el separador |---|---|,
+      // la 1a fila es encabezado. Celdas con mdInline (negritas, código).
+      function mdTable(lines) {
+        const rows = lines.map((l) => l.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim()));
+        let header = null, bodyRows = rows;
+        if (rows.length >= 2 && rows[1].length && rows[1].every((c) => /^:?-{2,}:?$/.test(c))) {
+          header = rows[0];
+          bodyRows = rows.slice(2);
+        }
+        const th = header ? `<thead><tr>${header.map((c) => `<th>${mdInline(c)}</th>`).join("")}</tr></thead>` : "";
+        const tb = `<tbody>${bodyRows.map((r) => `<tr>${r.map((c) => `<td>${mdInline(c)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+        return `<div class="mdTableWrap"><table class="mdTable">${th}${tb}</table></div>`;
+      }
       function mdBlock(text) {
         const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
         return paragraphs.map((p) => {
           const lines = p.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (lines.length >= 2 && lines.every((l) => l.startsWith("|"))) return mdTable(lines);
           if (lines.length && lines.every((l) => /^\d+[.)]\s/.test(l))) {
             return `<ol>${lines.map((l) => `<li>${mdInline(l.replace(/^\d+[.)]\s/, ""))}</li>`).join("")}</ol>`;
           }
           if (lines.length && lines.every((l) => /^[-*]\s/.test(l))) {
             return `<ul>${lines.map((l) => `<li>${mdInline(l.replace(/^[-*]\s/, ""))}</li>`).join("")}</ul>`;
           }
-          return `<p>${lines.map(mdInline).join("<br>")}</p>`;
+          // Mixto: encabezados (#..####), separadores (---) y texto en el mismo bloque.
+          let out = "", buf = [];
+          const flush = () => { if (buf.length) { out += `<p>${buf.map(mdInline).join("<br>")}</p>`; buf = []; } };
+          for (const l of lines) {
+            const h = l.match(/^(#{1,4})\s+(.*)$/);
+            if (h) { flush(); const lvl = Math.min(h[1].length + 2, 6); out += `<h${lvl} class="mdH">${mdInline(h[2])}</h${lvl}>`; }
+            else if (/^(-{3,}|\*{3,}|_{3,})$/.test(l)) { flush(); out += `<hr class="mdHr">`; }
+            else buf.push(l);
+          }
+          flush();
+          return out;
         }).join("");
       }
       function mdLite(text) {
