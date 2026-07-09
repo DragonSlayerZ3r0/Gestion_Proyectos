@@ -107,12 +107,20 @@ export function createAdminModule(ctx) {
       // (estándar #4 de docs/06): neutro para lo normal; color SOLO en lo que
       // implica privilegio — rol Administrador (acento) y módulo Administración
       // (ámbar) — así se escanea de un vistazo quién puede administrar.
+      // Roles de la app: FUENTE ÚNICA del módulo (selects de alta/edición + chips).
+      const ROLE_OPTIONS = [
+        { key: "user", label: "Usuario" },
+        { key: "admin", label: "Administrador" },
+      ];
+      const roleOptionsHtml = (selected) => ROLE_OPTIONS
+        .map((r) => `<option value="${r.key}" ${selected === r.key ? "selected" : ""}>${r.label}</option>`)
+        .join("");
+
       function accessChips(u) {
         const set = new Set(u.modules || []);
         const groups = adminModuleGroups().filter((g) => g.keys.some((k) => set.has(k)));
-        const role = u.role === "admin"
-          ? `<span class="accessChip roleAdmin">Administrador</span>`
-          : `<span class="accessChip">Usuario</span>`;
+        const roleLabel = ROLE_OPTIONS.find((r) => r.key === u.role)?.label || u.role;
+        const role = `<span class="accessChip ${u.role === "admin" ? "roleAdmin" : ""}">${escapeHtml(roleLabel)}</span>`;
         const mods = groups.length
           ? groups.map((g) => `<span class="accessChip ${g.key === "admin" ? "priv" : ""}">${escapeHtml(g.label)}</span>`).join("")
           : `<span class="accessChip empty">Sin módulos</span>`;
@@ -128,8 +136,7 @@ export function createAdminModule(ctx) {
                 </label>
                 <label>Rol
                   <select name="role">
-                    <option value="user" ${u.role === "user" ? "selected" : ""}>Usuario</option>
-                    <option value="admin" ${u.role === "admin" ? "selected" : ""}>Administrador</option>
+                    ${roleOptionsHtml(u.role)}
                   </select>
                 </label>
                 <label>Estado
@@ -198,8 +205,7 @@ export function createAdminModule(ctx) {
               </label>
               <label>Rol
                 <select name="role">
-                  <option value="user" selected>Usuario</option>
-                  <option value="admin">Administrador</option>
+                  ${roleOptionsHtml("user")}
                 </select>
               </label>
               <fieldset class="adminModules">

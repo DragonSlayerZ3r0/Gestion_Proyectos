@@ -10,8 +10,34 @@ from services.attachments import AttachmentService
 from services.name_directory import NameDirectory
 
 
-TASK_STATUSES = ["pending", "in_progress", "review", "done"]
-TASK_PRIORITIES = ["low", "medium", "high", "critical"]
+# ── Catálogos de valores: FUENTE ÚNICA {key, label} (regla 2026-07-09) ────────
+# Agregar un valor aquí lo propaga SOLO a todo (selects de crear/editar, filtros,
+# chips, columnas): get_workspace publica estos catálogos y el frontend los
+# deriva — nunca escribir las opciones a mano en un <select>. Las listas de
+# claves para validación se DERIVAN de aquí.
+TASK_STATUSES_CATALOG = [
+    {"key": "pending", "label": "Pendiente"},
+    {"key": "in_progress", "label": "En progreso"},
+    {"key": "review", "label": "En revisión"},
+    {"key": "done", "label": "Completada"},
+]
+TASK_PRIORITIES_CATALOG = [
+    {"key": "low", "label": "Baja"},
+    {"key": "medium", "label": "Media"},
+    {"key": "high", "label": "Alta"},
+    {"key": "critical", "label": "Crítica"},
+]
+REQUEST_TYPES_CATALOG = [
+    {"key": "project", "label": "Proyecto"},
+    {"key": "report", "label": "Reporte"},
+    {"key": "requirement", "label": "Requerimiento"},
+]
+PERSON_STATUSES_CATALOG = [
+    {"key": "active", "label": "Activo"},
+    {"key": "inactive", "label": "Inactivo"},
+]
+TASK_STATUSES = [t["key"] for t in TASK_STATUSES_CATALOG]
+TASK_PRIORITIES = [t["key"] for t in TASK_PRIORITIES_CATALOG]
 PROJECT_STATUSES = ["planned", "active", "paused", "closed"]
 # Paleta fija de colores para los estados (legibles y coherentes con la app; sin un
 # rojo "de peligro" salvo el histórico "closed"). El catálogo guarda solo la clave.
@@ -25,8 +51,8 @@ _DEFAULT_STATUSES = [
 ]
 # Tipo de la solicitud (el módulo se muestra como "Solicitudes"; la clave interna
 # sigue siendo projects/PROJECT# — solo cambió la etiqueta, regla del proyecto).
-REQUEST_TYPES = ["project", "report", "requirement"]
-PERSON_STATUSES = ["active", "inactive"]
+REQUEST_TYPES = [t["key"] for t in REQUEST_TYPES_CATALOG]
+PERSON_STATUSES = [t["key"] for t in PERSON_STATUSES_CATALOG]
 PROJECT_MEMBER_ROLES = ["owner", "member", "reader"]
 TASK_AUDIT_FIELDS = ["status", "priority", "assigneePersonId"]
 UPDATE_MAX_CHARS = 2000
@@ -104,18 +130,10 @@ class WorkspaceService:
             "statusColors": STATUS_COLORS,
             "people": sorted(people, key=lambda person: person["fullName"].lower()),
             "projects": sorted(projects, key=lambda project: project["updatedAt"], reverse=True),
-            "taskStatuses": [
-                {"key": "pending", "label": "Pendiente"},
-                {"key": "in_progress", "label": "En progreso"},
-                {"key": "review", "label": "En revisión"},
-                {"key": "done", "label": "Completada"}
-            ],
-            "taskPriorities": [
-                {"key": "low", "label": "Baja"},
-                {"key": "medium", "label": "Media"},
-                {"key": "high", "label": "Alta"},
-                {"key": "critical", "label": "Crítica"}
-            ]
+            "taskStatuses": TASK_STATUSES_CATALOG,
+            "taskPriorities": TASK_PRIORITIES_CATALOG,
+            "requestTypes": REQUEST_TYPES_CATALOG,
+            "personStatuses": PERSON_STATUSES_CATALOG
         }
 
     @staticmethod

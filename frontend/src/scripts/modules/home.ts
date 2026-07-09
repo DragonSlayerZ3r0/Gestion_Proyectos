@@ -737,6 +737,14 @@ export function createHomeModule(ctx) {
 
       // ── Pestaña Athena: consumo por usuario (CloudTrail + Athena) ─────────────
       function athenaRange() {
+        // "yesterday" = AYER completo (día cerrado: datos estables y el caché del
+        // backend lo conserva con TTL largo al ser ventana ya inmutable).
+        if (state.athenaRangeDays === "yesterday") {
+          const y = new Date();
+          y.setUTCDate(y.getUTCDate() - 1);
+          const day = y.toISOString().slice(0, 10);
+          return { start: day, end: day };
+        }
         const end = new Date().toISOString().slice(0, 10);
         const s = new Date();
         s.setUTCDate(s.getUTCDate() - (state.athenaRangeDays - 1));
@@ -1027,6 +1035,7 @@ export function createHomeModule(ctx) {
             <div class="homeCostControls">
               <label>Rango
                 <select id="athenaRangeSelect">
+                  <option value="yesterday" ${days === "yesterday" ? "selected" : ""}>Ayer</option>
                   ${[7, 14, 30].map((n) => `<option value="${n}" ${days === n ? "selected" : ""}>Últimos ${n} días</option>`).join("")}
                 </select>
               </label>
@@ -1181,7 +1190,7 @@ export function createHomeModule(ctx) {
         }
         const athRange = elements.contentPanel.querySelector("#athenaRangeSelect");
         if (athRange) athRange.addEventListener("change", () => {
-          state.athenaRangeDays = Number(athRange.value) || 7;
+          state.athenaRangeDays = athRange.value === "yesterday" ? "yesterday" : (Number(athRange.value) || 7);
           state.athenaData = null; state.athenaStatus = "empty";
           state.athenaUserAp = {}; state.athenaOpenUser = null;  // el drill es por ventana
           ensureAthena(true);

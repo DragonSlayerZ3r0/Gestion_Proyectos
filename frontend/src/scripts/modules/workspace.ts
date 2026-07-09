@@ -161,9 +161,7 @@ export function createWorkspaceModule(ctx) {
               <form id="projectQuickForm" class="projectCreateForm">
                 <input name="name" type="text" placeholder="Nueva solicitud" required />
                 <select name="requestType" aria-label="Tipo de solicitud">
-                  <option value="project">Proyecto</option>
-                  <option value="report">Reporte</option>
-                  <option value="requirement">Requerimiento</option>
+                  ${requestTypes().map((t) => `<option value="${t.key}">${escapeHtml(t.label)}</option>`).join("")}
                 </select>
                 <button class="primaryButton" type="submit">Nuevo</button>
               </form>`}
@@ -383,9 +381,7 @@ export function createWorkspaceModule(ctx) {
         const typeSel = `<label class="filterSelect">Tipo
           <select data-filter="type">
             <option value="all">Todos</option>
-            <option value="project" ${typeV === "project" ? "selected" : ""}>Proyecto</option>
-            <option value="report" ${typeV === "report" ? "selected" : ""}>Reporte</option>
-            <option value="requirement" ${typeV === "requirement" ? "selected" : ""}>Requerimiento</option>
+            ${requestTypes().map((t) => `<option value="${t.key}" ${typeV === t.key ? "selected" : ""}>${escapeHtml(t.label)}</option>`).join("")}
             ${projects.some((p) => !p.requestType) ? `<option value="__none__" ${typeV === "__none__" ? "selected" : ""}>Sin tipo</option>` : ""}
           </select></label>`;
 
@@ -474,7 +470,7 @@ export function createWorkspaceModule(ctx) {
           `<span class="activeFilterChip"><span class="activeFilterChipText"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span><button type="button" class="activeFilterChipRemove" data-chip-remove="${dim}" aria-label="Quitar filtro ${escapeHtml(label)}">×</button></span>`;
         const chips = [];
         const typeF = state.projectTypeFilter || "all";
-        if (typeF !== "all") chips.push(chip("type", "Tipo", typeF === "__none__" ? "Sin tipo" : (REQUEST_TYPE_LABELS[typeF] || typeF)));
+        if (typeF !== "all") chips.push(chip("type", "Tipo", typeF === "__none__" ? "Sin tipo" : (requestTypeLabel(typeF) || typeF)));
         const areaF = state.projectAreaFilter || "all";
         if (areaF !== "all") chips.push(chip("area", "Solicita", areaF === "__none__" ? "Sin área" : (areaName(areaF) || areaF)));
         const targetF = state.projectTargetAreaFilter || "all";
@@ -548,9 +544,20 @@ export function createWorkspaceModule(ctx) {
       // Tabla maestro-detalle: una fila compacta por proyecto (escaneable de un
       // vistazo, patrón familiar tipo hoja de cálculo para usuarios sin experiencia
       // en herramientas de proyectos). Clic en la fila → detalle completo abajo.
-      const REQUEST_TYPE_LABELS = { project: "Proyecto", report: "Reporte", requirement: "Requerimiento" };
+      // Catálogo de tipos desde el PAYLOAD (fuente única en backend/services/
+      // workspace.py → REQUEST_TYPES_CATALOG): agregar un tipo allá lo propaga a
+      // los 3 selects (nuevo/filtro/detalle), etiquetas de columna y chips. El
+      // fallback local solo cubre el instante de un deploy cruzado.
+      const REQUEST_TYPES_FALLBACK = [
+        { key: "project", label: "Proyecto" },
+        { key: "report", label: "Reporte" },
+        { key: "requirement", label: "Requerimiento" },
+      ];
+      function requestTypes() {
+        return state.workspace?.requestTypes?.length ? state.workspace.requestTypes : REQUEST_TYPES_FALLBACK;
+      }
       function requestTypeLabel(value) {
-        return REQUEST_TYPE_LABELS[value] || "";
+        return requestTypes().find((t) => t.key === value)?.label || "";
       }
 
       // Área solicitante: catálogo vivo (quién pide la solicitud). Las solicitudes
@@ -1326,8 +1333,7 @@ export function createWorkspaceModule(ctx) {
               <label>Estado
                 <select name="status">
                   <option value="" ${person.status ? "" : "selected"}>Ninguno</option>
-                  <option value="active" ${person.status === "active" ? "selected" : ""}>Activo</option>
-                  <option value="inactive" ${person.status === "inactive" ? "selected" : ""}>Inactivo</option>
+                  ${(state.workspace?.personStatuses || [{ key: "active", label: "Activo" }, { key: "inactive", label: "Inactivo" }]).map((st) => `<option value="${st.key}" ${person.status === st.key ? "selected" : ""}>${escapeHtml(st.label)}</option>`).join("")}
                 </select>
               </label>
               <label>Vacaciones o disponibilidad<textarea name="availabilityNotes" rows="3">${escapeHtml(person.availabilityNotes)}</textarea></label>
@@ -1358,9 +1364,7 @@ export function createWorkspaceModule(ctx) {
               <label>Tipo
                 <select name="requestType">
                   <option value="" ${project.requestType ? "" : "selected"}>Ninguno</option>
-                  <option value="project" ${project.requestType === "project" ? "selected" : ""}>Proyecto</option>
-                  <option value="report" ${project.requestType === "report" ? "selected" : ""}>Reporte</option>
-                  <option value="requirement" ${project.requestType === "requirement" ? "selected" : ""}>Requerimiento</option>
+                  ${requestTypes().map((t) => `<option value="${t.key}" ${project.requestType === t.key ? "selected" : ""}>${escapeHtml(t.label)}</option>`).join("")}
                 </select>
               </label>
               ${renderAreaField("requestingAreaId", "Área solicitante", project.requestingAreaId)}

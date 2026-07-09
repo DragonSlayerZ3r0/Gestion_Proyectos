@@ -75,6 +75,10 @@ item `USER#<email> / MODULE#reports`).
    módulo backend la incorpora al API. `infra/` cambia únicamente cuando el módulo
    requiere infraestructura, permisos IAM o configuración adicional.
 
+### Catálogos de valores (regla 2026-07-09)
+
+Si el módulo tiene conjuntos de valores seleccionables (tipos, estados…), defínelos como **catálogo `{key, label}` en el servicio** y publícalos en el payload del GET principal; deriva de ahí la lista de claves para validación. El frontend recorre el catálogo en selects, filtros, chips y etiquetas (con un fallback local mínimo). Nunca escribas las opciones a mano en un `<select>` — agregar un valor debe ser tocar UN lugar. Referencias: `REQUEST_TYPES_CATALOG` en `services/workspace.py` y su consumo en `workspace.ts` (`requestTypes()`).
+
 ## 3. Frontend — módulo de UI
 
 1. Crear `frontend/src/scripts/modules/reports.ts` con una factory que recibe sus

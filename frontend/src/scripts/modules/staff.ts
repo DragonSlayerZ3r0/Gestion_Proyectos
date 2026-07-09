@@ -13,6 +13,13 @@ export function createStaffModule(ctx) {
   };
   const typeLabel = (t) => TYPE_META[t]?.label || t;
   const typeClass = (t) => TYPE_META[t]?.cls || "";
+  // Claves de tipo desde el PAYLOAD (fuente única: ABSENCE_TYPES en
+  // services/staff.py); TYPE_META aporta etiqueta/color local. Un tipo nuevo en
+  // el backend aparece solo en el select, la leyenda y el calendario.
+  function absenceTypes() {
+    const keys = state.staffData?.absenceTypes?.length ? state.staffData.absenceTypes : Object.keys(TYPE_META);
+    return keys.map((k) => [k, TYPE_META[k] || { label: k, cls: "" }]);
+  }
 
   function isAdmin() {
     return (state.profile?.user?.roles || []).includes("admin");
@@ -157,7 +164,7 @@ export function createStaffModule(ctx) {
             <button class="tinyButton ghost" type="button" data-staff-month="1" aria-label="Mes siguiente">›</button>
           </div>
           <div class="staffLegend">
-            ${Object.entries(TYPE_META).map(([k, m]) => `<span class="staffLegendItem"><span class="staffCalCell ${m.cls}"></span>${m.label}</span>`).join("")}
+            ${absenceTypes().map(([k, m]) => `<span class="staffLegendItem"><span class="staffCalCell ${m.cls}"></span>${m.label}</span>`).join("")}
           </div>
         </div>
         ${people.length && !anyAbsence ? `<p class="staffCalHint">El calendario está vacío porque aún no se ha registrado ninguna ausencia. ${isAdmin() ? "Abre una persona abajo y usa “+ Registrar ausencia”." : "Solo los administradores registran ausencias."}</p>` : ""}
@@ -228,7 +235,7 @@ export function createStaffModule(ctx) {
         ${state.staffFormOpen ? `
         <form class="staffAbsForm" data-staff-abs-form="${person.id}">
           <label>Tipo
-            <select name="type">${Object.entries(TYPE_META).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join("")}</select>
+            <select name="type">${absenceTypes().map(([k, m]) => `<option value="${k}">${m.label}</option>`).join("")}</select>
           </label>
           <label>Desde<input name="startDate" type="date" required /></label>
           <label>Hasta<input name="endDate" type="date" required /></label>

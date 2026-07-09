@@ -950,6 +950,10 @@
       // ─────────────────────────────────────────────────────────────────────────
 
       function priorityLabel(priority) {
+        // Etiqueta desde el catálogo del payload (fuente única en el backend:
+        // TASK_PRIORITIES_CATALOG); el mapa local es solo fallback pre-carga.
+        const fromCatalog = state.workspace?.taskPriorities?.find((p) => p.key === priority)?.label;
+        if (fromCatalog) return fromCatalog;
         const labels = {
           low: "Baja",
           medium: "Media",
