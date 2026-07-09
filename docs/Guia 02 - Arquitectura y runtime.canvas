@@ -331,34 +331,43 @@
    "y": 780,
    "width": 900,
    "height": 300,
-   "label": "Tiempo real y almacenamiento (2026-07-08)"
+   "label": "Tiempo real, almacenamiento y OCR (2026-07-08/09)"
   },
   {
    "id": "wsapi",
    "type": "text",
    "x": -40,
    "y": 840,
-   "width": 280,
-   "height": 190,
+   "width": 200,
+   "height": 210,
    "text": "## API Gateway WebSocket\nColaboración en vivo de Pizarra: cada tablero es una sala; la MISMA Lambda ramifica por routeKey. Token Cognito por query param, validado en $connect."
   },
   {
    "id": "storage",
    "type": "text",
-   "x": 290,
+   "x": 180,
    "y": 840,
-   "width": 280,
-   "height": 190,
+   "width": 200,
+   "height": 210,
    "text": "## S3 storage compartido\n`gad-storage-<env>`: adjuntos de solicitudes y escenas de Pizarra. URLs prefirmadas — el binario nunca pasa por la API. Prefijo por app + IAM acotado."
   },
   {
    "id": "vendor",
    "type": "text",
-   "x": 620,
+   "x": 400,
    "y": 840,
-   "width": 180,
-   "height": 190,
-   "text": "## /vendor/\nD3, Chart.js, React y Excalidraw auto-hospedados en el bucket del frontend (sin CDNs externos)."
+   "width": 190,
+   "height": 210,
+   "text": "## /vendor/\nD3, Chart.js, React y Excalidraw auto-hospedados (sin CDNs externos: laptops restringidas)."
+  },
+  {
+   "id": "textract",
+   "type": "text",
+   "x": 610,
+   "y": 840,
+   "width": 195,
+   "height": 210,
+   "text": "## Textract + GLM 5\nAsuetos desde la imagen oficial: OCR (Textract) + GLM 5 estructura → borrador que el ADMIN confirma."
   }
  ],
  "edges": [
@@ -576,6 +585,14 @@
    "toSide": "top",
    "label": "sirve librerías",
    "color": "3"
+  },
+  {
+   "id": "eocr1",
+   "fromNode": "services",
+   "fromSide": "bottom",
+   "toNode": "textract",
+   "toSide": "right",
+   "label": "OCR + estructurar asuetos"
   }
  ]
 }

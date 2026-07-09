@@ -65,13 +65,13 @@ Aplicada por `scripts/grant-hub-cost-explorer.sh`. Contenido real (Resource `*`)
 ### 1c. Inline `AthenaIngestionControl` — registros + monitoreo de Athena
 **Aplicada a mano (no hay script).** Contenido real (5 sentencias):
 
-| Sid | Acciones | Resource |
-| --- | --- | --- |
-| `Athena` | `athena:StartQueryExecution`, `GetQueryExecution`, `GetQueryResults`, `StopQueryExecution`, `GetWorkGroup`, `BatchGetQueryExecution`, `ListQueryExecutions` | `*` |
-| `GlueRead` | `glue:GetTable`, `GetDatabase`, `GetPartitions`, `GetPartition` | `catalog`, `database/stage_staging`, `table/stage_staging/ctl_ingestion_unstructured` (todo en `396913696127`) |
-| `LakeFormation` | `lakeformation:GetDataAccess` | `*` |
-| `S3ControlRead` | `s3:GetObject`, `s3:ListBucket`, `s3:GetBucketLocation` | `arc-ingestioncontrol` (+ `/*`) — datos de la tabla de control |
-| `S3AthenaResults` | `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:GetBucketLocation` | `arc-athena-query-resultsdata` (+ `/*`) — resultados de Athena |
+| Sid               | Acciones                                                                                                                                                    | Resource                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `Athena`          | `athena:StartQueryExecution`, `GetQueryExecution`, `GetQueryResults`, `StopQueryExecution`, `GetWorkGroup`, `BatchGetQueryExecution`, `ListQueryExecutions` | `*`                                                                                                            |
+| `GlueRead`        | `glue:GetTable`, `GetDatabase`, `GetPartitions`, `GetPartition`                                                                                             | `catalog`, `database/stage_staging`, `table/stage_staging/ctl_ingestion_unstructured` (todo en `396913696127`) |
+| `LakeFormation`   | `lakeformation:GetDataAccess`                                                                                                                               | `*`                                                                                                            |
+| `S3ControlRead`   | `s3:GetObject`, `s3:ListBucket`, `s3:GetBucketLocation`                                                                                                     | `arc-ingestioncontrol` (+ `/*`) — datos de la tabla de control                                                 |
+| `S3AthenaResults` | `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:GetBucketLocation`                                                                                     | `arc-athena-query-resultsdata` (+ `/*`) — resultados de Athena                                                 |
 
 Datos clave (constantes del código en `backend/app/services/datalake.py`,
 `athena_monitor.py`): workgroup `primary` (su *OutputLocation* real es

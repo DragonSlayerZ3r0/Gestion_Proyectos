@@ -7,7 +7,7 @@
    "y": -190,
    "width": 760,
    "height": 120,
-   "text": "# ¿Qué estándares visuales y de UX rigen toda interfaz?\nLos 10 criterios obligatorios para módulos nuevos o rediseños, las señales del maestro-detalle, responsive y animaciones. Detalle completo: `docs/06_frontend_ux.md`.",
+   "text": "# ¿Qué estándares visuales y de UX rigen toda interfaz?\nLos 13 criterios obligatorios para módulos nuevos o rediseños, las señales del maestro-detalle apilado, las reglas responsive y las de animación. Detalle: docs/06.",
    "color": "1"
   },
   {
@@ -284,6 +284,24 @@
    "height": 170,
    "color": "5",
    "text": "## 11 · El guardado cuenta su historia\nClic → botón \"Guardando…\" deshabilitado; al confirmar \"✓ Guardado\". En lo real: merge local de la respuesta (sin recargar todo) y backend sin N+1 (GSI byEntityType)."
+  },
+  {
+   "id": "s12",
+   "type": "text",
+   "x": 380,
+   "y": 540,
+   "width": 340,
+   "height": 170,
+   "text": "## 12 · Detalle = inspector compacto\nEtiquetas tenues, inputs densos, acciones de campo inline. Fechas con `<input type=date>` nativo; en pares Desde/Hasta la inicial MANDA (precarga + min)."
+  },
+  {
+   "id": "s13",
+   "type": "text",
+   "x": 760,
+   "y": 540,
+   "width": 340,
+   "height": 170,
+   "text": "## 13 · Un solo punto de entrada\nSi un contenido pertenece a varios contextos (adjuntos), UN lugar de alta + la relación como propiedad editable (\"Relacionar con\"). En los demás contextos, solo vista."
   }
  ],
  "edges": [

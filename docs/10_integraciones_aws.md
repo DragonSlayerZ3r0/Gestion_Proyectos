@@ -44,6 +44,18 @@ El perfil operativo validado para iniciar construcción está documentado en `do
 - Autenticación: sin authorizer JWT nativo — el access token de Cognito viaja como query param y `$connect` lo valida con `cognito-idp:GetUser` (autenticado por el propio token, no requiere permiso IAM).
 - Variables: la URL sale del output `WebSocketUrl` → `config.json.wsUrl`.
 
+## Bedrock (GLM 5)
+
+- Uso: sugerencias SQL (Athena), chat de Apoyo técnico y estructuración de asuetos.
+- Permisos IAM: `bedrock:InvokeModel`/`Converse` sobre `zai.glm-5` vía el rol del hub (AssumeRole) — el SCP de la organización bloquea Claude/AgentCore; detalle en `docs/permisos_hub.md`.
+- Consideraciones: en el chat la generación es asíncrona (la Lambda se auto-invoca; API Gateway corta a 29 s).
+
+## Textract
+
+- Uso: OCR de la publicación oficial de asuetos (2026-07-09). Pipeline: imagen reducida en el navegador → `DetectDocumentText` → GLM 5 estructura → borrador que el admin confirma (human-in-the-loop; nada se guarda automático).
+- Permisos IAM: `textract:DetectDocumentText` en el rol de la Lambda (sid `TextractDetectText`).
+- Consideraciones: la imagen viaja en el body (base64 <1 MB tras la reducción) — el límite de invocación síncrona de Lambda es 6 MB y se valida DEL LADO QUE ENVÍA (incidente 2026-07-09 en bitácora).
+
 ## CloudWatch
 
 - Uso: logs y métricas.

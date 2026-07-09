@@ -65,7 +65,7 @@
    "width": 280,
    "height": 130,
    "color": "1",
-   "text": "## 3 · Validar\n`npm run check` cubre frontend, Python y síntesis CDK."
+   "text": "## 3 · Validar\n`npm run check`: build frontend, Python (compileall), estándar DynamoDB, tokens CSS y synth CDK."
   },
   {
    "id": "publish",
@@ -145,7 +145,7 @@
    "width": 280,
    "height": 130,
    "color": "1",
-   "text": "## Admin cuenta app\nPrecrea el rol Lambda de prod cuando IAM está gobernado."
+   "text": "## Admin cuenta app\nPrecrea el rol Lambda de prod cuando IAM está gobernado. OJO: debe incluir los permisos nuevos (S3 gad-storage por prefijo, execute-api:ManageConnections del WebSocket, textract:DetectDocumentText) — lista vigente en docs/15."
   },
   {
    "id": "trust",

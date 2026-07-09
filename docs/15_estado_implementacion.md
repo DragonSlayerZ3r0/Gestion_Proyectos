@@ -3,6 +3,7 @@
 ## Últimos avances (2026-07-07/08: adjuntos, Pizarra, filtros, Personal, vendor)
 
 - **Pizarra: colaboración EN VIVO** (2026-07-08): varios usuarios editan el mismo tablero a la vez (cursores con nombre, presencia "N en vivo", autoguardado). API Gateway **WebSocket** serverless `wss://6nb9mm3y1d.execute-api.us-east-1.amazonaws.com/dev` (misma Lambda, ramifica por routeKey; conexiones en Dynamo con TTL; token por query param validado con GetUser). Desplegado en dev; rechazos 400/401 verificados en vivo. Ver `docs/02`.
+- **Asuetos** (2026-07-09): catálogo HOLIDAY + extracción desde la imagen oficial (imagen reducida en el navegador → Textract → GLM 5 → borrador que el admin confirma/edita); pintados en el calendario de Personal y los completos excluidos del saldo. Conteo de días hábiles por ausencia. Desplegado en dev. Ver `docs/02`.
 - **Refinamientos UX** (2026-07-08): invitaciones de Pizarra sin refrescar (refresh al entrar + sondeo 10s en la lista); **orden de columnas por usuario** en Solicitudes (↑/↓ en `Columnas ▾`, localStorage); fecha corta/tenue en Última actividad; clip de adjuntos anclado al borde de la celda; ficha de Personal en acordeón + nota `staffNotes`; chips de acceso con color-solo-en-privilegio en Administración (tokens `--warn-*`). Todo en dev. Ver bitácora.
 - **Personal** (2026-07-08): ausencias del equipo (vacaciones/permiso/incapacidad) + saldo simple por año; vista desde el **menú del usuario** (no módulo); ver = usuario configurado, editar = solo admin. Desplegado en dev. Ver `docs/02`.
 - **Vendor auto-hospedado** (2026-07-07): D3, Chart.js, React y Excalidraw se sirven desde `/vendor/` del bucket del frontend — sin CDNs externos. Ver bitácora.
@@ -86,7 +87,7 @@ Sirve como trazabilidad y no define pendientes vigentes:
 | DynamoDB table | `gestion-proyectos-dev-main` |
 | Lambda API | `gestion-proyectos-dev-api` |
 | Rol de ejecución Lambda | `gestion-proyectos-dev-api-role` (ARN `arn:aws:iam::186281981036:role/gestion-proyectos-dev-api-role`), nombre estable definido en CDK y verificado en AWS el 2026-06-26; usar este ARN para grants externos (S3 cross-account, Lake Formation) |
-| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) · S3 RW sobre `gad-storage-dev-…/gestion-proyectos/*` (adjuntos y pizarras, acotado al prefijo) · `execute-api:ManageConnections` sobre la API WebSocket (empujar mensajes a la sala) |
+| Permisos del rol | DynamoDB RW sobre `gestion-proyectos-dev-main` · logs · Glue read-only (`GetDatabases/GetDatabase/GetTables/GetTable/GetPartitions`) · `lambda:InvokeFunction` sobre sí mismo (sync) · S3 RW sobre `gad-storage-dev-…/gestion-proyectos/*` (adjuntos y pizarras, acotado al prefijo) · `execute-api:ManageConnections` sobre la API WebSocket (empujar mensajes a la sala) · `textract:DetectDocumentText` (OCR de asuetos) |
 | Usuario inicial | `usr041100@banrural.com.gt` |
 
 ## Recursos definidos por CDK

@@ -85,7 +85,7 @@
    "width": 260,
    "height": 130,
    "color": "1",
-   "text": "## npm run check\nCompila frontend, valida Python y sintetiza CDK."
+   "text": "## npm run check\nBuild frontend, Python (compileall), estándar DynamoDB, tokens CSS y synth CDK."
   },
   {
    "id": "awsidentity",

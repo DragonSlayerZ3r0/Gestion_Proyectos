@@ -63,6 +63,8 @@ Lenguajes, frameworks y herramientas concretas por capa:
 - Glue Catalog: metadata técnica de bases, tablas y columnas.
 - Athena: preview y consultas controladas.
 - S3 Data Lake: datos fuente.
+- Bedrock (GLM 5, `zai.glm-5`): sugerencias SQL de Athena, chat de Apoyo técnico y estructuración de asuetos (el SCP bloquea Claude; ver `docs/permisos_hub.md`).
+- Textract: OCR de la publicación oficial de asuetos (Personal → "Subir asuetos"; el humano confirma el borrador).
 - CloudWatch: logs y métricas.
 - IAM: permisos entre servicios.
 - Lake Formation: control adicional opcional sobre datos.
