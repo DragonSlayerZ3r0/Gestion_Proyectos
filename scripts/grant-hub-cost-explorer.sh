@@ -14,10 +14,14 @@
 # (mode "assume" + roleArn) y `cdk deploy`. Ver docs/02_modulos_funcionales.md.
 # El rol de la Lambda lo crea el stack de la app (gestion-proyectos-dev-api-role).
 #
-# OJO: este script otorga SOLO Cost Explorer + CloudTrail (suficiente para cuentas
-# de costo). El HUB (396913696127) necesita ADEMÁS Athena/Glue/S3 y el grant de
-# Lake Formation para "registros del data lake" y el monitoreo de Athena — eso NO
-# está aquí. Set COMPLETO del hub documentado en: docs/permisos_hub.md
+# OJO: este script otorga Cost Explorer + CloudTrail + CloudWatch de solo lectura
+# (suficiente para el dashboard de Facturación: costos, responsables y consumo de
+# modelos LLM Bedrock/Mantle). El HUB (396913696127) necesita ADEMÁS Athena/Glue/S3
+# y el grant de Lake Formation para "registros del data lake" y el monitoreo de
+# Athena — eso NO está aquí. Set COMPLETO del hub documentado en: docs/permisos_hub.md
+#
+# Re-ejecutar es seguro e idempotente: put-role-policy reemplaza solo las inline
+# nombradas aquí; NO toca las políticas hechas a mano del hub (glm-5, Athena, etc.).
 set -euo pipefail
 
 ROLE_NAME="gestion-proyectos-cost-reader"
@@ -29,6 +33,11 @@ EOF
 )
 PERMS=$(cat <<EOF
 {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ce:GetCostAndUsage","ce:GetCostForecast","ce:GetDimensionValues","cloudtrail:LookupEvents"],"Resource":"*"}]}
+EOF
+)
+# Consumo de modelos LLM (Bedrock/Mantle): métricas de CloudWatch AWS/BedrockMantle.
+OBSERVABILITY=$(cat <<EOF
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudwatch:ListMetrics","cloudwatch:GetMetricStatistics","cloudwatch:GetMetricData"],"Resource":"*"}]}
 EOF
 )
 
@@ -44,6 +53,8 @@ fi
 
 aws iam put-role-policy --role-name "$ROLE_NAME" \
   --policy-name CostExplorerReadOnly --policy-document "$PERMS"
+aws iam put-role-policy --role-name "$ROLE_NAME" \
+  --policy-name ObservabilityReadOnly --policy-document "$OBSERVABILITY"
 
 TARGET_ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 echo "Listo: arn:aws:iam::${TARGET_ACCOUNT}:role/${ROLE_NAME}"

@@ -25,11 +25,12 @@ admin del hub; los de la **app** los crea el CDK al desplegar.
 | --- | --- | --- | --- |
 | Trust para asumir el rol del hub | **Hub** 396913696127 | trust policy del rol `gestion-proyectos-cost-reader` | script `grant-hub-cost-explorer.sh` |
 | Cost Explorer + `cloudtrail:LookupEvents` | **Hub** | inline `CostExplorerReadOnly` del rol `cost-reader` | script `grant-hub-cost-explorer.sh` |
+| CloudWatch read (`ListMetrics`/`GetMetricStatistics`/`GetMetricData`) para el **consumo de modelos LLM** (Bedrock/Mantle) | **Hub** | inline `ObservabilityReadOnly` del rol `cost-reader` | script `grant-hub-cost-explorer.sh` |
 | Athena + Glue + `lakeformation:GetDataAccess` + S3 (datos `arc-ingestioncontrol` + resultados `arc-athena-query-resultsdata`) | **Hub** | inline `AthenaIngestionControl` del rol `cost-reader` | **a mano** (sin script — Mec. 1c) |
 | `SELECT`/`DESCRIBE` sobre la tabla de control | **Hub** (Lake Formation) | grant LF al rol `cost-reader` | **a mano** (comando — Mec. 3) |
 | `bedrock:InvokeModel`/`Converse`/`ConverseStream` sobre `zai.glm-5` | **Hub** | inline `BedrockLLMInvoke` del rol `cost-reader` | **a mano** (sin script — Mec. 1d) |
 | Listar S3 del lake (histograma), lado dueño del bucket | **Hub** | bucket policy de cada bucket (`arc-ingestioncontrol`, `arc-enterprise-data`, …) | script `grant-datalake-s3.sh` / a mano (Mec. 2) |
-| Identidad de la Lambda: logs, Glue read, `s3:ListBucket` lake, CE, CloudTrail, `sts:AssumeRole`→`cost-reader`, DynamoDB RW | **App** 186281981036 | inline CDK `ApiFunctionRoleDefaultPolicy…` del rol app | **CDK** (automático en deploy) |
+| Identidad de la Lambda: logs, Glue read, `s3:ListBucket` lake, CE, CloudTrail, **CloudWatch metrics read**, `sts:AssumeRole`→`cost-reader`, DynamoDB RW | **App** 186281981036 | inline CDK `ApiFunctionRoleDefaultPolicy…` del rol app | **CDK** (automático en deploy) |
 
 **Regla simple:** todo lo que toca **datos/servicios del hub** se otorga **en el
 hub** (sobre el rol `cost-reader` o las bucket policies / Lake Formation). Todo lo
@@ -59,8 +60,9 @@ Se aplica con `scripts/grant-hub-cost-explorer.sh` (idempotente).
 Aplicada por `scripts/grant-hub-cost-explorer.sh`. Contenido real (Resource `*`):
 `ce:GetCostAndUsage`, `ce:GetCostForecast`, `ce:GetDimensionValues`, `cloudtrail:LookupEvents`.
 
-> Este script sirve también para **cuentas de costo nuevas** (solo costos). El hub
-> necesita ADEMÁS la inline 1c (que NO está en ningún script).
+> Este script sirve también para **cuentas de costo nuevas**: aplica esta inline
+> **más** la 1e (`ObservabilityReadOnly`, CloudWatch). El hub necesita ADEMÁS la
+> inline 1c (que NO está en ningún script).
 
 ### 1c. Inline `AthenaIngestionControl` — registros + monitoreo de Athena
 **Aplicada a mano (no hay script).** Contenido real (5 sentencias):
@@ -97,6 +99,17 @@ proveedor que sí soporta invocación **on-demand** (sin inference profile,
 sin salir de `us-east-1`): **GLM 5** (Z.AI), tras comparar benchmarks de código
 contra DeepSeek V3.2, Kimi K2.5 y Qwen3-Coder disponibles en la cuenta.
 
+> **Actualización 2026-07-09/10 — el bloqueo ya tiene puerta lateral:** Claude SÍ es
+> invocable desde el hub vía **Bedrock Mantle** (la experiencia nueva "Projects":
+> Messages API de Anthropic en `bedrock-mantle.us-east-1.api.aws`, SigV4 con service
+> `bedrock-mantle`, sirviendo desde us-east-1 → la SCP de regiones no aplica).
+> Verificado con invocaciones reales: Haiku 4.5, Opus 4.7 (con tool use), Opus 4.8 y
+> GPT 5.5 (solo Responses API); Fable 5 suscrito pero exige modo de retención ≠
+> "default" (pendiente). **GLM 5 se mantiene como LLM de la plataforma por decisión;**
+> si algún día se migra, el permiso del rol sería `bedrock-mantle:CreateInference`
+> sobre el proyecto Mantle (en vez de esta sentencia 1d). Detalle completo y comandos
+> reproducibles: `../Agente_Mantenimiento/docs/01_hallazgos_bedrock_mantle.md`.
+
 Contenido real (1 sentencia, `Resource` acotado a un solo modelo — ampliar aquí si
 se agrega otro modelo vetted):
 
@@ -112,6 +125,33 @@ se agrega otro modelo vetted):
 > producción) en realidad usa **`openai.gpt-oss-120b-1:0`** — el mismo patrón
 > "modelo on-demand sin cross-region" que se replicó aquí para el LLM de
 > sugerencias/chat.
+
+### 1e. Inline `ObservabilityReadOnly` — consumo de modelos LLM (Bedrock/Mantle)
+
+Aplicada por `scripts/grant-hub-cost-explorer.sh` (idempotente; se agregó el
+2026-07-10). Contenido real (Resource `*`): `cloudwatch:ListMetrics`,
+`cloudwatch:GetMetricStatistics`, `cloudwatch:GetMetricData`.
+
+**✅ Aplicada en el hub el 2026-07-10** con el perfil federado `fab-datos-prod-sso`
+(re-ejecución del script). Verificado post-aplicación: el rol quedó con sus 4 inline
+(`AthenaIngestionControl` y `BedrockLLMInvoke` manuales intactas + las 2 del script)
+y `list-metrics` sobre `AWS/BedrockMantle` en el hub devuelve 4 modelos con datos:
+`anthropic.claude-haiku-4-5`, `anthropic.claude-opus-4-7`, `anthropic.claude-opus-4-8`
+y `openai.gpt-5.5`.
+
+**Para qué:** el panel de **Facturación** muestra, además de los costos en USD, el
+**consumo de los modelos Claude vía Bedrock Mantle** (invocaciones + tokens de
+entrada/salida por modelo). Ese consumo NO lo desglosa Cost Explorer: se lee de
+**CloudWatch, namespace `AWS/BedrockMantle`** (métricas `Inferences`,
+`TotalInputTokens`, `TotalOutputTokens`; dimensión `Model`) en el hub, que es donde
+corren los modelos. Mecanismo descubierto en el proyecto hermano
+`../Agente_Mantenimiento` (su `docs/01`), replicado aquí en `services/home.py`
+(`get_llm_consumption`).
+
+> Está **ligado al selector de cuenta**: cada cuenta lee su propio CloudWatch. Las
+> cuentas sin modelos (o cuyo rol aún no tiene esta inline) devuelven "sin consumo"
+> sin romper la vista de costos. Aplicar la inline en cada cuenta que vaya teniendo
+> modelos re-ejecutando el script con el perfil admin de esa cuenta.
 
 ---
 
@@ -164,6 +204,8 @@ ninguna administrada:
    deploy). Contiene: `logs:*` (create/put), `glue` read, `lambda:InvokeFunction`
    (a sí misma), `s3:ListBucket`+`s3:GetBucketLocation` sobre `DATA_LAKE_BUCKETS`,
    `ce:*` (incl. `GetTags`, `ListCostAllocationTags`), `cloudtrail:LookupEvents`,
+   `cloudwatch:ListMetrics`/`GetMetricStatistics`/`GetMetricData` (sid
+   `CloudWatchMetricsRead`, consumo de modelos LLM de la cuenta app),
    `identitystore:GetUserId`/`DescribeUser` (resolver nombres reales en el monitoreo
    de Athena, sid `IdentityStoreReadOnly`), `sts:AssumeRole` →
    `gestion-proyectos-cost-reader`, y **DynamoDB RW** (incl. `BatchGetItem`) sobre
@@ -197,6 +239,7 @@ Nada de esto rompe hoy, pero conviene depurarlo y **NO arrastrarlo a prod**:
 | Feature | Mecanismo(s) en el hub |
 | --- | --- |
 | Costos cross-account (Facturación) | 1a + 1b (`ce:*`) |
+| Consumo de modelos LLM (Bedrock/Mantle) en Facturación | 1a + **1e** (`cloudwatch:ListMetrics`/`GetMetricStatistics`/`GetMetricData`) |
 | Responsables (CloudTrail) | 1a + 1b (`cloudtrail:LookupEvents`) |
 | Registros del data lake (Athena) | 1a + **1c** + **3** (LF) |
 | Monitoreo consumo de Athena | 1a + 1c (`cloudtrail:LookupEvents`, `athena:Batch/List/Get…`) |

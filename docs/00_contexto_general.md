@@ -60,3 +60,13 @@ Los flujos permiten crear una tarea, cambiar una prioridad o revisar un proyecto
 - El menú frontend solo refleja permisos ya calculados.
 - Todo cambio sensible debe auditarse.
 - La documentación debe actualizarse junto con la implementación.
+
+## Ecosistema de proyectos hermanos (2026-07)
+
+Esta plataforma convive con proyectos independientes al mismo nivel de directorio. **Regla (2026-07-10): la documentación de cada hermano es autocontenida en SU repo** — aquí solo se referencia lo que afecta a esta plataforma.
+
+| Proyecto | Qué es | Relación con esta plataforma |
+| --- | --- | --- |
+| `../Agente_Mantenimiento` | Agente tipo Claude Code (web, Cognito propio, LLM Claude vía Bedrock Mantle) para usuarios avanzados | **La mantiene**: lee sus logs, stacks, métricas y costos con roles propios de solo lectura. Separado a propósito (fuera de banda: sobrevive a un deploy roto de la plataforma) |
+| `../Proxy_Mantle` | Proxy SigV4 local de encendido manual para usar los modelos del hub (Claude/GPT vía Mantle) en TUIs personales (OpenCode) | Ninguna en runtime; comparte el hallazgo Mantle. Cumple la política de solo-federados (sin API keys) |
+| `../Plataforma_Inteligencia` | v2 multinube (core portable + adapters), Fase 0 | Sucesora conceptual; esta v1 sigue su curso normal |

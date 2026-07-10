@@ -83,6 +83,8 @@ Model access ya habilitado; no requiere pasos adicionales para usarlos desde Lam
 - No existe variante on-demand de Claude 4.x limitada a us-east-1. Los Claude 3 legacy on-demand están bloqueados por el proveedor (sin uso en 30 días).
 - Desbloqueo: requiere que el administrador de la organización agregue excepción a la SCP para `bedrock:InvokeModel` en us-east-2/us-west-2 (al menos sobre `foundation-model/anthropic.*`).
 
+> **Actualización 2026-07-09/10 — Claude SÍ es invocable vía Bedrock Mantle.** La restricción de esta sección aplica solo a la vía clásica de `bedrock-runtime`. La experiencia nueva de Bedrock ("Projects"/Mantle) expone el Messages API de Anthropic en `https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages` (SigV4, service `bedrock-mantle`) **sirviendo desde us-east-1**, por lo que la SCP de regiones no la bloquea. Verificado con invocaciones reales en el hub: Haiku 4.5 ✅, Opus 4.7 ✅ (incluido tool use), Opus 4.8 ✅ y GPT 5.5 ✅ (este solo habla el Responses API de OpenAI, `/openai/v1/responses`); Fable 5 suscrito pero exige un modo de retención de datos distinto de "default" (pendiente). La acción IAM que exige Mantle es `bedrock-mantle:CreateInference` sobre el proyecto. GLM 5 sigue siendo el LLM de la plataforma por decisión; comandos reproducibles y detalle completo en `../Agente_Mantenimiento/docs/01_hallazgos_bedrock_mantle.md`.
+
 ### Alternativas generativas on-demand en us-east-1 (verificadas)
 
 Modelos que corren completamente dentro de us-east-1, sin cross-region, compatibles con la restricción regional de la institución:

@@ -96,6 +96,11 @@
         homeCostServiceSearch: "",  // filtro de "Detalle por servicio" (busca en la lista completa)
         homeDailyCollapsed: false,
         homeCreditsCollapsed: false,
+        // Consumo de modelos LLM (Bedrock/Mantle) de la cuenta seleccionada.
+        homeLlm: null,
+        homeLlmLoading: false,
+        homeLlmError: "",
+        homeLlmCollapsed: false,
         homeDaily: null,
         homeDailyLoading: false,
         homeDailyError: "",

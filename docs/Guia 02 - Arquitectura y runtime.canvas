@@ -242,7 +242,7 @@
    "width": 200,
    "height": 150,
    "color": "2",
-   "text": "## Servicios del hub\nGlue, Athena, S3, Lake Formation y Cost Explorer."
+   "text": "## Servicios del hub\nGlue, Athena, S3, Lake Formation, Cost Explorer, CloudWatch (consumo LLM) y Bedrock: GLM 5 (clásico) y Claude/GPT vía Mantle (us-east-1, pasa la SCP)."
   },
   {
    "id": "routes",
@@ -368,6 +368,15 @@
    "width": 195,
    "height": 210,
    "text": "## Textract + GLM 5\nAsuetos desde la imagen oficial: OCR (Textract) + GLM 5 estructura → borrador que el ADMIN confirma."
+  },
+  {
+   "id": "hermanos",
+   "type": "text",
+   "x": 2040,
+   "y": 780,
+   "width": 300,
+   "height": 300,
+   "text": "## Proyectos hermanos\nDoc autocontenida en cada repo (regla 2026-07-10):\n- `../Agente_Mantenimiento` — agente de mantenimiento de ESTA plataforma (Claude vía Mantle, roles de lectura propios).\n- `../Proxy_Mantle` — proxy SigV4 local para TUIs (encendido manual).\n- `../Plataforma_Inteligencia` — v2 multinube (Fase 0).\nVer `docs/00` sección Ecosistema."
   }
  ],
  "edges": [

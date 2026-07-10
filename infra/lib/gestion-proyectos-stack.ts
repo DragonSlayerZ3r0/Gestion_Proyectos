@@ -345,6 +345,14 @@ export class GestionProyectosStack extends Stack {
         actions: ["cloudtrail:LookupEvents"],
         resources: ["*"],
       }));
+      // CloudWatch (solo lectura) para el consumo de modelos LLM (Bedrock/Mantle)
+      // de la cuenta app: métricas AWS/BedrockMantle (invocaciones + tokens). En
+      // las cuentas "assume" el mismo permiso lo aplica scripts/grant-hub-cost-explorer.sh.
+      ownedRole.addToPolicy(new iam.PolicyStatement({
+        sid: "CloudWatchMetricsRead",
+        actions: ["cloudwatch:ListMetrics", "cloudwatch:GetMetricStatistics", "cloudwatch:GetMetricData"],
+        resources: ["*"],
+      }));
       // Textract (OCR): extraer el borrador de asuetos desde la imagen de la
       // publicación oficial (Personal → "Subir asuetos"; el humano confirma).
       ownedRole.addToPolicy(new iam.PolicyStatement({

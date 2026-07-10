@@ -189,6 +189,20 @@
   .sortableTh:hover { color: var(--accent-strong, var(--accent)); }
   .sortableTh.active { color: var(--accent-strong, var(--accent)); }
   .homeSvcTable th.num { text-align: right; }
+  /* Consumo de modelos LLM (Bedrock/Mantle): tabla por modelo (uso, no USD). */
+  .homeLlmBody { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .homeLlmNum { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .homeLlmModel { font-weight: 600; }
+  .homeLlmTable tfoot td { border-top: 2px solid var(--line); border-bottom: none; font-weight: 700; }
+  .homeLlmTable tfoot td.homeLlmNum { text-align: right; }
+  .homeLlmHint { font-style: normal; }
+  /* Costo estimado (≈): distinto del costo real de Cost Explorer — badge + tinte
+     tenue para que se lea como aproximación, no como cifra facturada. */
+  .homeLlmEstBadge { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); font-size: 0.72rem; font-weight: 700; vertical-align: baseline; }
+  .homeLlmEst { color: var(--text-soft); }
+  .homeLlmNoPrice { color: var(--muted); }
+  .homeLlmEstNote { margin: 8px 0 0; font-size: 0.76rem; color: var(--muted); max-width: 900px; }
+  .homeLlmEstNote b { color: var(--text-soft); }
   .homeSpikeCallout { background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; border-radius: 8px; padding: 8px 12px; font-size: 0.86rem; margin: 8px 0; }
   .homeSpikeUp { color: #b45309; font-weight: 700; }
   .homeSpikeDown { color: #1e7a3c; font-weight: 600; }

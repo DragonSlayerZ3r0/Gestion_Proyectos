@@ -132,6 +132,9 @@ export function createHomeModule(ctx) {
         // Si el análisis de picos ya está cacheado, se muestra solo (sin costo);
         // si no, queda el botón "Analizar picos". No bloquea ni gasta consulta.
         loadDailyByService({ cachedOnly: true, silent: true });
+        // Consumo de modelos LLM (Bedrock/Mantle) de la cuenta: en paralelo, no
+        // bloquea los costos (CloudWatch AWS/BedrockMantle; uso, no dólares).
+        loadLlmConsumption(force);
         const { start, end } = periodRange(state.homeCostPeriod);
         try {
           const payload = await apiRequest(`api/home/costs?account=${encodeURIComponent(state.homeCostAccount)}&start=${start}&end=${end}${force ? "&force=1" : ""}`);
@@ -140,6 +143,31 @@ export function createHomeModule(ctx) {
           state.homeCostsError = err?.message || "No se pudieron cargar los costos.";
         }
         state.homeCostsLoading = false;
+        repaintCostPanel();
+      }
+
+      function clearLlm() {
+        state.homeLlm = null;
+        state.homeLlmError = "";
+        state.homeLlmLoading = false;
+      }
+
+      // Consumo de modelos LLM (Bedrock/Mantle) de la cuenta y periodo actuales.
+      // Uso (invocaciones + tokens), no dólares. Silencioso: pinta cuando llega,
+      // sin bloquear la carga de costos.
+      async function loadLlmConsumption(force) {
+        state.homeLlm = null;
+        state.homeLlmError = "";
+        state.homeLlmLoading = true;
+        repaintCostPanel();
+        const { start, end } = periodRange(state.homeCostPeriod);
+        try {
+          const payload = await apiRequest(`api/home/llm-consumption?account=${encodeURIComponent(state.homeCostAccount)}&start=${start}&end=${end}${force ? "&force=1" : ""}`);
+          state.homeLlm = payload.data;
+        } catch (err) {
+          state.homeLlmError = err?.message || "No se pudo cargar el consumo de modelos.";
+        }
+        state.homeLlmLoading = false;
         repaintCostPanel();
       }
 
@@ -309,6 +337,7 @@ export function createHomeModule(ctx) {
           </div>
           ${dailySpikeSection()}
           ${serviceDetailSection(gross ? (c.grossByService || []) : (c.byService || []))}
+          ${llmConsumptionSection()}
           ${(c.creditsByService || []).length ? `
             <div class="homeTopList">
               ${sectionTitle("credits", "Créditos por servicio", state.homeCreditsCollapsed)}
@@ -375,6 +404,69 @@ export function createHomeModule(ctx) {
         }
         const none = elements.contentPanel.querySelector("#homeSvcNoResults");
         if (none) none.hidden = !(q && visible === 0);
+      }
+
+      // Consumo de modelos LLM (Bedrock/Mantle) de la cuenta: invocaciones + tokens
+      // por modelo (uso, NO dólares — no lo desglosa Cost Explorer). Ligado al selector
+      // de cuenta: cada cuenta lee su propio CloudWatch; las que no tienen modelos
+      // (o cuyo rol aún no tiene el permiso) muestran una nota tenue, sin romper.
+      function llmConsumptionSection() {
+        const collapsed = state.homeLlmCollapsed;
+        return `
+          <div class="homeTopList homeLlmList">
+            ${sectionTitle("llm", "Consumo de modelos · Bedrock / Mantle", collapsed)}
+            ${collapsed ? "" : `<div class="homeLlmBody">${llmConsumptionBody()}</div>`}
+          </div>`;
+      }
+
+      function llmConsumptionBody() {
+        if (state.homeLlmLoading) return `<p class="catalogEmpty">Cargando consumo de modelos…</p>`;
+        if (state.homeLlmError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.homeLlmError)}</p>`;
+        const d = state.homeLlm;
+        if (!d) return `<p class="catalogEmpty">Sin datos.</p>`;
+        if (d.available === false) {
+          // El rol de esta cuenta aún no tiene el permiso de CloudWatch (grant manual).
+          return `<p class="catalogEmpty homeLlmHint">Esta cuenta aún no expone métricas de modelos (falta el permiso de CloudWatch en su rol, o no usa Bedrock/Mantle). El consumo aparecerá en cuanto tenga modelos y el permiso aplicado.</p>`;
+        }
+        const models = d.models || [];
+        if (!models.length) return `<p class="catalogEmpty">Sin consumo de modelos en esta cuenta para el período.</p>`;
+        const t = d.totals || {};
+        const cell = (v) => `<td class="homeLlmNum">${Number(v || 0).toLocaleString("en-US")}</td>`;
+        // Costo ESTIMADO (≈): tokens medidos × precio público de referencia.
+        // Sin tarifa de referencia → "—" (nunca se inventa). El detalle de la
+        // base del estimado va en la nota bajo la tabla.
+        const estCell = (v) => v
+          ? `<td class="homeLlmNum homeLlmEst">≈ $${fmtUsd(v)}</td>`
+          : `<td class="homeLlmNum homeLlmEst homeLlmNoPrice" title="Modelo sin tarifa de referencia">—</td>`;
+        const estTitle = "Estimado: tokens medidos × precio público de referencia por millón de tokens. No es la factura.";
+        return `
+          <p class="homeCostHint">Invocaciones y tokens por modelo en el período. Fuente: CloudWatch <code>AWS/BedrockMantle</code>.</p>
+          <table class="homeSvcTable homeLlmTable">
+            <thead><tr>
+              <th>Modelo</th>
+              <th class="num">Invocaciones</th>
+              <th class="num">Tokens entrada</th>
+              <th class="num">Tokens salida</th>
+              <th class="num homeLlmEstTh" title="${escapeAttribute(estTitle)}">Costo estimado <span class="homeLlmEstBadge" aria-label="valor estimado">≈</span></th>
+            </tr></thead>
+            <tbody>
+              ${models.map((m) => `<tr>
+                <td class="homeLlmModel">${escapeHtml(m.model)}</td>
+                ${cell(m.invocations)}
+                ${cell(m.inputTokens)}
+                ${cell(m.outputTokens)}
+                ${estCell(m.estimatedUsd)}
+              </tr>`).join("")}
+            </tbody>
+            <tfoot><tr>
+              <td>Total</td>
+              ${cell(t.invocations)}
+              ${cell(t.inputTokens)}
+              ${cell(t.outputTokens)}
+              ${estCell(t.estimatedUsd)}
+            </tr></tfoot>
+          </table>
+          <p class="homeLlmEstNote"><span class="homeLlmEstBadge">≈</span> El costo es una <b>estimación</b>: tokens reales medidos × precio público de referencia de Anthropic en Bedrock por millón de tokens. <b>No es la factura</b>: el cobro real de Mantle se liquida vía AWS Marketplace en la cuenta <b>pagadora</b> de la organización (no visible desde las cuentas miembro — aquí Cost Explorer registra estos servicios en $0.00). Modelos sin tarifa de referencia muestran "—".</p>`;
       }
 
       // Cantidad legible: separador de miles + unidad (p. ej. "210,185,825 Requests").
@@ -1381,7 +1473,7 @@ export function createHomeModule(ctx) {
             repaintCostPanel();
           });
         }
-        const sectionFlags = { detail: "homeDetailCollapsed", daily: "homeDailyCollapsed", credits: "homeCreditsCollapsed" };
+        const sectionFlags = { detail: "homeDetailCollapsed", daily: "homeDailyCollapsed", credits: "homeCreditsCollapsed", llm: "homeLlmCollapsed" };
         for (const h of elements.contentPanel.querySelectorAll("[data-section-toggle]")) {
           h.addEventListener("click", () => {
             const flag = sectionFlags[h.dataset.sectionToggle];

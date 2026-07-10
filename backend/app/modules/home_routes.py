@@ -38,6 +38,14 @@ def _cost_daily(req: Request):
     return success(HomeService().get_daily_by_service(account, start, end, force, cached_only))
 
 
+def _llm_consumption(req: Request):
+    account = req.query.get("account") or ""
+    start = req.query.get("start") or ""
+    end = req.query.get("end") or ""
+    force = req.query.get("force") == "1"
+    return success(HomeService().get_llm_consumption(account, start, end, force))
+
+
 def _cost_responsibles(req: Request):
     account = req.query.get("account") or ""
     service = req.query.get("service") or ""
@@ -65,6 +73,10 @@ def register(router: Router) -> None:
     # Costo diario por servicio para detección de picos.
     router.add(["GET"], "/api/home/costs/daily", _cost_daily, modules=["home"], home_tab="home_facturacion",
                error_msg="Error inesperado al cargar el costo diario.")
+    # Consumo de modelos LLM (Bedrock/Mantle) por cuenta: invocaciones + tokens
+    # desde CloudWatch AWS/BedrockMantle (uso, no dólares).
+    router.add(["GET"], "/api/home/llm-consumption", _llm_consumption, modules=["home"], home_tab="home_facturacion",
+               error_msg="Error inesperado al cargar el consumo de modelos.")
     # Responsables (CloudTrail) de un servicio en un rango.
     router.add(["GET"], "/api/home/costs/responsibles", _cost_responsibles, modules=["home"], home_tab="home_facturacion",
                error_msg="Error inesperado al cargar los responsables.")

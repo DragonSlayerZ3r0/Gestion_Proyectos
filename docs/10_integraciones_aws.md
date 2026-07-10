@@ -47,7 +47,7 @@ El perfil operativo validado para iniciar construcción está documentado en `do
 ## Bedrock (GLM 5)
 
 - Uso: sugerencias SQL (Athena), chat de Apoyo técnico y estructuración de asuetos.
-- Permisos IAM: `bedrock:InvokeModel`/`Converse` sobre `zai.glm-5` vía el rol del hub (AssumeRole) — el SCP de la organización bloquea Claude/AgentCore; detalle en `docs/permisos_hub.md`.
+- Permisos IAM: `bedrock:InvokeModel`/`Converse` sobre `zai.glm-5` vía el rol del hub (AssumeRole). La SCP de la organización bloquea Claude/AgentCore por la vía clásica; desde 2026-07-09 Claude sí es invocable vía Bedrock Mantle (us-east-1) y GLM 5 se mantiene por decisión — detalle en `docs/permisos_hub.md` 1d.
 - Consideraciones: en el chat la generación es asíncrona (la Lambda se auto-invoca; API Gateway corta a 29 s).
 
 ## Textract

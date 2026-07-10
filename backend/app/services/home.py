@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from botocore.exceptions import ClientError
 
 from core.errors import ValidationError
 from repositories.catalog import CatalogRepository
@@ -212,6 +213,128 @@ class HomeService:
         data["cached"] = False
         data["fetchedAt"] = now
         return data
+
+    # ── Consumo de modelos LLM (Bedrock / Mantle) ────────────────────────────
+    # A diferencia de los costos (dólares de Cost Explorer), el consumo de los
+    # modelos Claude vía Bedrock Mantle NO se desglosa por modelo en Cost Explorer:
+    # se mide en CloudWatch, namespace AWS/BedrockMantle (métricas Inferences,
+    # TotalInputTokens, TotalOutputTokens; dimensión Model). Es USO (invocaciones +
+    # tokens), no USD. Vive por cuenta: cada cuenta lee SU propio CloudWatch (mismo
+    # rol cross-account que Cost Explorer); las cuentas sin modelos devuelven vacío.
+    # Hallado en el proyecto hermano Agente_Mantenimiento (docs/01 de ese repo).
+    _MANTLE_NAMESPACE = "AWS/BedrockMantle"
+
+    # Precios de REFERENCIA por millón de tokens (entrada, salida) en USD, para la
+    # ESTIMACIÓN de costo: tokens reales medidos × precio público de lista de
+    # Anthropic en Bedrock (referencia 2026-07; actualizar aquí si cambian).
+    # La factura REAL de Mantle se liquida vía AWS Marketplace en la cuenta
+    # PAGADORA de la organización (866174429827, gestionada vía GBM) — no visible
+    # desde las cuentas miembro: en su Cost Explorer los servicios "Claude …
+    # (Amazon Bedrock Edition)" registran uso con costo $0.00 (verificado
+    # 2026-07-10 en el proyecto hermano). Modelos sin precio aquí muestran "—"
+    # en la UI (no se inventa tarifa).
+    _LLM_REF_PRICES_USD_MTOK = {
+        "anthropic.claude-haiku-4-5": (1.0, 5.0),
+        "anthropic.claude-opus-4-7": (5.0, 25.0),
+        "anthropic.claude-opus-4-8": (5.0, 25.0),
+    }
+
+    def get_llm_consumption(self, account: str, start: str, end: str, force: bool = False) -> dict[str, Any]:
+        account = (account or "").strip()
+        if account not in COST_ACCOUNTS:
+            raise ValidationError("Cuenta no permitida.")
+        self._validate_date(start, "inicio")
+        self._validate_date(end, "fin")
+
+        ttl = self._ttl_for_period(end)
+        key = f"{account}#{start}#{end}#llm-mantle"
+        if not force:
+            cached = self._costs.get_cost_cache(key)
+            if cached:
+                fetched_at = cached.get("fetchedAt", "")
+                if self._fresh(fetched_at, ttl):
+                    data = self._decode(cached.get("data") or {})
+                    data["cached"] = True
+                    data["fetchedAt"] = fetched_at
+                    return data
+
+        try:
+            client = self._client(account, "cloudwatch")
+            data = self._fetch_llm_consumption(client, start, end)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            # El rol de la cuenta aún no tiene el permiso de CloudWatch (grant
+            # manual pendiente): se reporta sin romper la vista de costos.
+            if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation"):
+                return {"available": False, "reason": "forbidden", "models": [],
+                        "account": account, "cached": False, "fetchedAt": self._now()}
+            raise
+
+        data["account"] = account
+        data["start"] = start
+        data["end"] = end
+        now = self._now()
+        self._costs.put_cost_cache(key, self._encode(data), now)
+        data["cached"] = False
+        data["fetchedAt"] = now
+        return data
+
+    def _fetch_llm_consumption(self, client, start: str, end: str) -> dict[str, Any]:
+        start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        # Modelos con métricas en la ventana (dimensión Model de la métrica base).
+        metrics = client.list_metrics(
+            Namespace=self._MANTLE_NAMESPACE, MetricName="Inferences").get("Metrics", [])
+        models = sorted({
+            d["Value"] for m in metrics for d in m.get("Dimensions", [])
+            if d.get("Name") == "Model"
+        })
+        rows = []
+        tot_inv = tot_in = tot_out = tot_usd = 0.0
+        for model in models:
+            inv = self._sum_mantle_metric(client, "Inferences", model, start_dt, end_dt)
+            tin = self._sum_mantle_metric(client, "TotalInputTokens", model, start_dt, end_dt)
+            tout = self._sum_mantle_metric(client, "TotalOutputTokens", model, start_dt, end_dt)
+            if inv == 0 and tin == 0 and tout == 0:
+                continue
+            # Estimación: tokens × precio de referencia. Sin precio → "" (la UI
+            # muestra "—"); nunca se inventa una tarifa.
+            price = self._LLM_REF_PRICES_USD_MTOK.get(model)
+            usd = ""
+            if price:
+                est = (tin / 1_000_000) * price[0] + (tout / 1_000_000) * price[1]
+                tot_usd += est
+                usd = f"{est:.2f}"
+            rows.append({
+                "model": model,
+                # Cifras como string (convención de caché: DynamoDB sin floats).
+                "invocations": str(int(inv)),
+                "inputTokens": str(int(tin)),
+                "outputTokens": str(int(tout)),
+                "estimatedUsd": usd,
+            })
+            tot_inv += inv
+            tot_in += tin
+            tot_out += tout
+        rows.sort(key=lambda r: int(r["invocations"]), reverse=True)
+        return {
+            "available": True,
+            "models": rows,
+            "totals": {
+                "invocations": str(int(tot_inv)),
+                "inputTokens": str(int(tot_in)),
+                "outputTokens": str(int(tot_out)),
+                "estimatedUsd": f"{tot_usd:.2f}",
+            },
+        }
+
+    def _sum_mantle_metric(self, client, metric: str, model: str, start_dt, end_dt) -> float:
+        resp = client.get_metric_statistics(
+            Namespace=self._MANTLE_NAMESPACE, MetricName=metric,
+            Dimensions=[{"Name": "Model", "Value": model}],
+            StartTime=start_dt, EndTime=end_dt, Period=86400, Statistics=["Sum"],
+        )
+        return sum(p.get("Sum", 0) for p in resp.get("Datapoints", []))
 
     # ── Responsables (CloudTrail): el "quién" forense de un pico ──────────────
     def get_responsibles(self, account: str, service: str, start: str, end: str,
