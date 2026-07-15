@@ -64,6 +64,7 @@ Lenguajes, frameworks y herramientas concretas por capa:
 - Athena: preview y consultas controladas.
 - S3 Data Lake: datos fuente.
 - Bedrock (GLM 5, `zai.glm-5`): sugerencias SQL de Athena, chat de Apoyo técnico y estructuración de asuetos. La SCP bloquea Claude solo por la vía clásica de `bedrock-runtime`; desde 2026-07-09 Claude SÍ es invocable vía **Bedrock Mantle** (endpoint us-east-1) — GLM 5 se mantiene por decisión; ver `docs/permisos_hub.md` 1d.
+- Bedrock (Titan Embeddings V2, `amazon.titan-embed-text-v2:0`): **índice de embeddings** para la búsqueda semántica del Reporte ejecutivo (256 dims, normalizado). Nativo de Amazon → la SCP de Claude no aplica. Los vectores viven en la **misma tabla DynamoDB** (item por vector, `entityType=EMBEDDING#{namespace}`, Binary float32; búsqueda coseno en la Lambda) — sin OpenSearch ni infra de vectores. El corazón es `core/embeddings.py`, **genérico y parametrizable** (tabla/namespace/modelo/credenciales), reutilizable en otros módulos y plataformas hermanas; cableado del dominio en `services/embedding_index.py`. **Mecánica completa en `docs/23_busqueda_semantica.md`**; ver también `docs/02` (Reporte ejecutivo) y bitácora 2026-07-15.
 - Textract: OCR de la publicación oficial de asuetos (Personal → "Subir asuetos"; el humano confirma el borrador).
 - CloudWatch: logs y métricas.
 - IAM: permisos entre servicios.

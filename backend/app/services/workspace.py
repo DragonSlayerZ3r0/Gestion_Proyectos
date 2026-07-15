@@ -10,6 +10,44 @@ from services.attachments import AttachmentService
 from services.name_directory import NameDirectory
 
 
+# ── Indexado semántico (best-effort) ─────────────────────────────────────────
+# Envuelven los helpers de embedding_index con import DIFERIDO: si el módulo de
+# embeddings tuviera un problema de import, el CRUD de solicitudes/seguimientos
+# sigue funcionando. Nunca lanzan (los helpers ya son best-effort por dentro).
+def _index_solicitud(project: dict[str, Any]) -> None:
+    try:
+        from services.embedding_index import safe_index_solicitud
+        safe_index_solicitud(project)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _index_seguimiento(update: dict[str, Any]) -> None:
+    try:
+        from services.embedding_index import safe_index_seguimiento
+        safe_index_seguimiento(update)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _deindex_solicitud(project_id: str, update_ids: list[str]) -> None:
+    try:
+        from services.embedding_index import NS_SEGUIMIENTO, NS_SOLICITUD, safe_delete
+        safe_delete(NS_SOLICITUD, project_id)
+        for uid in update_ids:
+            safe_delete(NS_SEGUIMIENTO, uid)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _deindex_seguimiento(update_id: str) -> None:
+    try:
+        from services.embedding_index import NS_SEGUIMIENTO, safe_delete
+        safe_delete(NS_SEGUIMIENTO, update_id)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 # ── Catálogos de valores: FUENTE ÚNICA {key, label} (regla 2026-07-09) ────────
 # Agregar un valor aquí lo propaga SOLO a todo (selects de crear/editar, filtros,
 # chips, columnas): get_workspace publica estos catálogos y el frontend los
@@ -358,6 +396,7 @@ class WorkspaceService:
         project = self._normalize_project(item)
         project["members"] = []
         project["tasks"] = []
+        _index_solicitud(project)
         return project
 
     def add_project_member(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
@@ -432,6 +471,10 @@ class WorkspaceService:
         project = self._normalize_project(self._repository.update_project(project_id, values))
         project["members"] = [self._normalize_member(item) for item in self._repository.list_project_members(project_id)]
         project["tasks"] = [self._normalize_task(item) for item in self._repository.list_project_tasks(project_id)]
+        # Re-indexa solo si cambió nombre o descripción (lo que se vectoriza); el
+        # índice es idempotente por hash, así que otras ediciones no re-embeben.
+        if "name" in payload or "description" in payload:
+            _index_solicitud(project)
         return project
 
     def update_project_member(self, project_id: str, person_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
@@ -485,7 +528,10 @@ class WorkspaceService:
         for att in self._repository.list_project_attachments(project_id):
             if att.get("kind") == "file" and att.get("storageKey"):
                 attach_service._delete_object(att["storageKey"])
+        # Vectores: el de la solicitud + el de cada seguimiento (antes de borrarlos).
+        update_ids = [u.get("updateId", "") for u in self._repository.list_project_updates(project_id)]
         self._repository.delete_project(project_id)
+        _deindex_solicitud(project_id, update_ids)
         return {"projectId": project_id, "removed": True}
 
     def delete_task(self, project_id: str, task_id: str, identity: dict[str, str]) -> dict[str, Any]:
@@ -566,6 +612,7 @@ class WorkspaceService:
         # Nombre del autor listo desde ya (así la entrada recién creada no muestra
         # el correo hasta la próxima recarga completa).
         update["createdByName"] = NameDirectory().resolve([update["createdBy"]]).get(update["createdBy"], "")
+        _index_seguimiento(item)
         return update
 
     def update_project_update(self, project_id: str, update_id: str, payload: dict[str, Any],
@@ -585,11 +632,14 @@ class WorkspaceService:
         # El autor no cambia al editar, pero se resuelve para no perder el nombre
         # en el merge del frontend (createdBy se conserva en el item).
         update["createdByName"] = NameDirectory().resolve([update["createdBy"]]).get(update["createdBy"], "")
+        if "text" in payload:                # solo el texto se vectoriza
+            _index_seguimiento(update)
         return update
 
     def delete_project_update(self, project_id: str, update_id: str,
                               identity: dict[str, str]) -> dict[str, Any]:
         self._repository.delete_project_update(project_id, update_id)
+        _deindex_seguimiento(update_id)
         return {"projectId": project_id, "updateId": update_id, "removed": True}
 
     def create_task(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:

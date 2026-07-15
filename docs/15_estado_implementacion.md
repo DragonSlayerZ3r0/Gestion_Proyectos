@@ -1,5 +1,10 @@
 # Estado de implementación
 
+## Último avance (2026-07-15: búsqueda semántica + reporte ejecutivo de dos pasos)
+
+- **Reporte ejecutivo con IA reescrito** para escalar a miles de solicitudes y responder bajo **cualquier contexto** ("qué hizo un usuario", "qué hay pendiente", temas por concepto). Antes volcaba TODO el portafolio al LLM (no escala; `llm.py` lanza error pasados 60K chars). Ahora **tres pasos** (`services/exec_report.py`): planificador LLM barato → filtro estructurado (conceptos+sinónimos, palabras clave, personas, estados, agregados); búsqueda **híbrida** en código (estructurada + **semántica embeddings** + literal) con puntuación por relevancia y **recorte elegante** a presupuesto (45K chars, avisa "incluidas X de Y"); redactor sobre el subconjunto. Preguntas amplias → recencia + agregados. **Fallback total** (nunca se rompe). Desplegado en dev.
+- **Índice de embeddings genérico y reutilizable**: `core/embeddings.py` (cero imports del proyecto, parametrizable por tabla/**namespace**/modelo/credenciales — copiable a plataformas hermanas) + cableado `services/embedding_index.py` (**Amazon Titan Embeddings V2** vía rol del hub; namespaces `solicitud`/`seguimiento`). Vectores en la **misma DynamoDB** (`entityType=EMBEDDING#{ns}`, Binary float32, coseno en la Lambda) — sin OpenSearch. Indexado **on-write best-effort** + backfill idempotente (`embeddings_backfill`). **Permiso**: ARN de Titan en la inline `BedrockLLMInvoke` del hub. **Verificado E2E**: 42 solicitudes + 80 seguimientos indexados; búsqueda semántica de Sagemaker acierta #1. Ver `docs/01`, `docs/02`, `permisos_hub.md` 1d, bitácora 2026-07-15.
+
 ## Últimos avances (2026-07-07/08: adjuntos, Pizarra, filtros, Personal, vendor)
 
 - **Pizarra: colaboración EN VIVO** (2026-07-08): varios usuarios editan el mismo tablero a la vez (cursores con nombre, presencia "N en vivo", autoguardado). API Gateway **WebSocket** serverless `wss://6nb9mm3y1d.execute-api.us-east-1.amazonaws.com/dev` (misma Lambda, ramifica por routeKey; conexiones en Dynamo con TTL; token por query param validado con GetUser). Desplegado en dev; rechazos 400/401 verificados en vivo. Ver `docs/02`.

@@ -51,6 +51,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         ExecReportService().run(event.get("userId", ""), event.get("reportId", ""))
         return {"ok": True}
 
+    # Backfill de embeddings: indexa TODO lo existente (one-shot idempotente).
+    # Se dispara a mano: aws lambda invoke con {"action":"embeddings_backfill"}.
+    if event.get("action") == "embeddings_backfill":
+        from services.embedding_index import backfill_all
+        return {"ok": True, "stats": backfill_all()}
+
     # Conteo de filas por área/tabla (tabla de control vía Athena), acotado a un rango.
     if event.get("action") == "datalake_records_scan":
         from services.datalake import DatalakeService

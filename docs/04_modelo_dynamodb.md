@@ -45,6 +45,7 @@ gestion-proyectos-main-{env}
 - `COMMENT`
 - `AUDIT_EVENT`
 - `SETTING`
+- `EMBEDDING#<namespace>` (vectores de búsqueda semántica, 2026-07-15 — ver `docs/23`)
 
 ## Ejemplos de claves
 
@@ -123,6 +124,16 @@ DRAWING_SHARE (invitación por usuario: status pending → el invitado acepta
   (accepted, ve/edita) o rechaza (se borra el item). Solo el dueño invita/revoca)
 PK = DRAWING#<drawingId>
 SK = SHARE#<email>
+
+EMBEDDING (vector de búsqueda semántica, 2026-07-15. UN item por documento
+  vectorizado; namespaces actuales: solicitud (nombre+descripción, docId=projectId)
+  y seguimiento (texto, docId=updateId). Atributos: vec=Binary (float32 empacado,
+  256 dims = 1 KB), dim, srcHash (huella del texto → idempotencia: no re-embebe si
+  no cambió), meta (map con projectId/date/author…), updatedAt. entityType lleva el
+  namespace para que el GSI devuelva SOLO ese segmento en una query. Genérico y
+  parametrizable — core/embeddings.py; mecánica completa en docs/23)
+PK = EMBED#<namespace>#<docId>
+SK = EMBED#<namespace>
 
 DRAW_CONNECTION (colaboración en vivo 2026-07-08: conexiones WebSocket de la
   sala de un tablero. DOS items por conexión — miembro de sala para el fan-out
@@ -205,6 +216,8 @@ Los cambios de tarea en estado, prioridad o responsable generan `AUDIT_EVENT` co
 ## Índices
 
 **GSI `byEntityType`** (2026-07-03, en uso): partition `entityType`, sort `PK`, proyección ALL. Es el índice de los **listados globales** — personas, proyectos, membresías de una persona, tareas (conteo del Panel) y usuarios/módulos de Administración consultan SOLO sus items en vez de escanear la tabla completa (con los items `ATHENA#EXEC` del monitoreo, un scan filtrado leía megas para devolver kilobytes). Acceso vía `BaseRepository._query_entity_type(tipo, filtro_extra)` con **fallback automático al scan paginado** si el índice no está ACTIVO (backfill tras crearlo, o stack recién creado) — así el orden de despliegue nunca rompe la vista.
+
+La **búsqueda semántica** también se apoya en este GSI: como `entityType` es `EMBEDDING#<namespace>`, una sola query trae TODOS los vectores de ese namespace (y solo esos) con su vector completo (proyección ALL); el coseno se calcula en la Lambda. `DynamoVectorStore` no hereda de `BaseRepository` (el módulo `core/embeddings.py` es autocontenido a propósito) pero **respeta la regla de paginación** con su propio loop de `LastEvaluatedKey`. Detalle en `docs/23`.
 
 ## Índices potenciales
 

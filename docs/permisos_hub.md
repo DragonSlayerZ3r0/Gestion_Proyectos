@@ -28,7 +28,7 @@ admin del hub; los de la **app** los crea el CDK al desplegar.
 | CloudWatch read (`ListMetrics`/`GetMetricStatistics`/`GetMetricData`) para el **consumo de modelos LLM** (Bedrock/Mantle) | **Hub** | inline `ObservabilityReadOnly` del rol `cost-reader` | script `grant-hub-cost-explorer.sh` |
 | Athena + Glue + `lakeformation:GetDataAccess` + S3 (datos `arc-ingestioncontrol` + resultados `arc-athena-query-resultsdata`) | **Hub** | inline `AthenaIngestionControl` del rol `cost-reader` | **a mano** (sin script — Mec. 1c) |
 | `SELECT`/`DESCRIBE` sobre la tabla de control | **Hub** (Lake Formation) | grant LF al rol `cost-reader` | **a mano** (comando — Mec. 3) |
-| `bedrock:InvokeModel`/`Converse`/`ConverseStream` sobre `zai.glm-5` | **Hub** | inline `BedrockLLMInvoke` del rol `cost-reader` | **a mano** (sin script — Mec. 1d) |
+| `bedrock:InvokeModel`/`Converse`/`ConverseStream` sobre `zai.glm-5` **y** `amazon.titan-embed-text-v2:0` | **Hub** | inline `BedrockLLMInvoke` del rol `cost-reader` | **a mano** (sin script — Mec. 1d) |
 | Listar S3 del lake (histograma), lado dueño del bucket | **Hub** | bucket policy de cada bucket (`arc-ingestioncontrol`, `arc-enterprise-data`, …) | script `grant-datalake-s3.sh` / a mano (Mec. 2) |
 | Identidad de la Lambda: logs, Glue read, `s3:ListBucket` lake, CE, CloudTrail, **CloudWatch metrics read**, `sts:AssumeRole`→`cost-reader`, DynamoDB RW | **App** 186281981036 | inline CDK `ApiFunctionRoleDefaultPolicy…` del rol app | **CDK** (automático en deploy) |
 
@@ -128,12 +128,22 @@ contra DeepSeek V3.2, Kimi K2.5 y Qwen3-Coder disponibles en la cuenta.
 > sobre el proyecto Mantle (en vez de esta sentencia 1d). Detalle completo y comandos
 > reproducibles: `../Agente_Mantenimiento/docs/01_hallazgos_bedrock_mantle.md`.
 
-Contenido real (1 sentencia, `Resource` acotado a un solo modelo — ampliar aquí si
-se agrega otro modelo vetted):
+Contenido real (`Resource` es una lista acotada a los modelos vetted — ampliar aquí
+si se agrega otro):
 
 | Sid | Acciones | Resource |
 | --- | --- | --- |
-| `BedrockLLMInvoke` | `bedrock:InvokeModel`, `bedrock:Converse`, `bedrock:ConverseStream` | `arn:aws:bedrock:us-east-1::foundation-model/zai.glm-5` |
+| `BedrockLLMInvoke` | `bedrock:InvokeModel`, `bedrock:Converse`, `bedrock:ConverseStream` | `arn:.../zai.glm-5` **y** `arn:.../amazon.titan-embed-text-v2:0` |
+
+**Ampliación 2026-07-15 — Titan Embeddings V2 para búsqueda semántica.** Se agregó
+`arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0` a la lista
+`Resource` (a mano, perfil `fab-datos-prod-sso`; verificado: la inline quedó con los
+2 ARNs). Es el modelo del **índice de embeddings** del reporte ejecutivo (búsqueda de
+dos pasos, ver `docs/02` y bitácora 2026-07-15). **Por qué Titan pasa donde Claude no:**
+es modelo **nativo de Amazon** (no pasa por Marketplace, no exige inference profile
+cross-region), invocable on-demand en us-east-1 → la SCP de regiones no aplica y no hay
+suscripción Marketplace que gestionar. Verificado con `invoke-model` real (256 dims,
+normalizado). Costo ~$0.02 por millón de tokens.
 
 > Nota sobre el agente existente `agent-gad-analitica-bdr` (normalizador de
 > direcciones, hub): su configuración (DRAFT) referencia Claude Opus 4.6 vía
