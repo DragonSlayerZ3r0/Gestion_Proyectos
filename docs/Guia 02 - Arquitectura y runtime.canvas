@@ -18,7 +18,7 @@
 		{"id":"services","type":"text","x":980,"y":410,"width":320,"height":110,"color":"5","text":"## Servicios de dominio\nEjecutan reglas de proyectos, catálogo, inicio y administración."},
 		{"id":"repos","type":"text","x":980,"y":580,"width":320,"height":110,"color":"5","text":"## Repositorios por dominio\nPersistencia aislada sobre una tabla single-table."},
 		{"id":"ddb","type":"text","x":1560,"y":70,"width":320,"height":110,"color":"2","text":"## DynamoDB\nDatos operativos, autorización, contexto y cachés."},
-		{"id":"glue","type":"text","x":1560,"y":240,"width":320,"height":110,"color":"2","text":"## Glue Catalog\nMetadata técnica; el sync la cachea en DynamoDB."},
+		{"id":"glue","type":"text","x":1560,"y":240,"width":320,"height":110,"color":"2","text":"## Glue Catalog\nMetadata técnica; el sync la cachea en DynamoDB. Multi-cuenta (2026-07-15): default el hub 396913696127 vía AssumeRole + grants LF DESCRIBE; llaves DynamoDB con cuenta."},
 		{"id":"athena","type":"text","x":1560,"y":410,"width":320,"height":110,"color":"2","text":"## Athena\nConsultas controladas de lectura, registros y monitoreo."},
 		{"id":"lake","type":"text","x":1560,"y":580,"width":320,"height":110,"color":"2","text":"## S3 Data Lake\nDatos fuente privados; acceso de lectura gobernado."},
 		{"id":"async","type":"text","x":940,"y":840,"width":190,"height":150,"color":"5","text":"## Auto-invocación Lambda\nSync de catálogo y escaneos largos se ejecutan fuera del límite HTTP."},

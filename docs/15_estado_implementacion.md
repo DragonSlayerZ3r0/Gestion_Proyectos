@@ -24,7 +24,7 @@
 
 ## Avances previos (refactor a arquitectura modular + módulos nuevos)
 
-- **Módulo Inicio (dashboard)** implementado: pestañas Resumen (proyectos/tareas/personas + catálogo, con gráficas Chart.js) y Facturación (costos AWS, solo admin). Costos vía Cost Explorer con selector de cuenta **186281981036 (app)** y **396913696127 (hub, vía rol cross-account `gestion-proyectos-cost-reader` + AssumeRole)**, toggle bruto/neto, caché en DynamoDB (`HOME#COSTS`) con TTL diferenciado y botón "Actualizar ahora". Ver `docs/02_modulos_funcionales.md`.
+- **Módulo Inicio (dashboard)** implementado: pestañas Resumen (proyectos/tareas/personas + catálogo, con gráficas Chart.js) y Facturación (costos AWS, solo admin). Costos vía Cost Explorer con selector de cuenta — **default el hub `396913696127`** (regla 2026-07-15: todo selector de cuentas arranca en el hub; vía rol cross-account `gestion-proyectos-cost-reader` + AssumeRole) más **186281981036 (app, directo)** y las mod-datos —, toggle bruto/neto, caché en DynamoDB (`HOME#COSTS`) con TTL diferenciado y botón "Actualizar ahora". Ver `docs/02_modulos_funcionales.md`.
 - **Módulo Administración funcional**: alta/edición/eliminación de usuarios (perfil + módulos + rol + estado) desde la UI; solo Cognito sigue manual. Guard de rol admin en backend. Ver `docs/09_admin_accesos.md`.
 - **Borrado** de proyectos, tareas, personas (dentro del panel de edición) y de usuarios (admin), con cascada y confirmación.
 - **Refactor SOLID (sin cambiar el contrato HTTP):**
@@ -269,17 +269,22 @@ aws cloudfront create-invalidation --distribution-id E2K3CA110228B1 --paths "/*"
 
 `/tmp/config-prod.json` contiene los valores runtime públicos de `dev` (no versionado). El `--exclude config.json` evita que el sync borre el config publicado.
 
-## Catálogo Data Lake: visibilidad pendiente
+## Catálogo Data Lake: visibilidad del hub — RESUELTA (2026-07-15)
 
-La Lambda `gestion-proyectos-dev-api` (rol `gestion-proyectos-dev-api-role` tras `infra:deploy`; antes el autogenerado por CDK) solo ve las bases Glue locales en modo legado `IAM_ALLOWED_PRINCIPALS` (`arc_dev`, `arc_sandbox_desa`, `default`). Las bases del data lake hub (cuenta `396913696127`) requieren, pendiente de ejecutar:
-
-1. Lado hub (perfil `bdr-fed`): grants Lake Formation `DESCRIBE` (base + `ALL_TABLES`) hacia la cuenta `186281981036` por cada base compartida.
-2. Lado consumidor (CDK): resource links por base compartida y grant `DESCRIBE` sobre cada link únicamente al rol de la Lambda, sin abrir visibilidad a otros usuarios o aplicaciones.
+El plan original (grants LF cross-account hacia la cuenta `186281981036` +
+resource links por CDK) quedó **descartado**. La vía implementada es el
+**Catálogo multi-cuenta**: selector de cuenta en el módulo (default = hub
+`396913696127`) que enruta al Glue de esa cuenta vía **AssumeRole** al rol
+`gestion-proyectos-cost-reader` (GlueRead ampliado), más **grants LF
+`DESCRIBE` al rol** por base + `TableWildcard` (LF filtra en silencio las
+bases gobernadas — sin el grant, el sync trajo 6 de 14 bases). La caché y el
+contexto en DynamoDB llevan namespace por cuenta. Detalle: `docs/07`,
+`docs/permisos_hub.md` (1c, con el comando para bases nuevas) y bitácora
+2026-07-15.
 
 ## Siguiente paso operativo
 
-1. Ejecutar los grants Lake Formation del lado hub y completar los resource links por CDK para que el catálogo vea todas las bases del data lake.
-2. Validar con sesión real el módulo de catálogo completo: búsqueda, detalle, grafo de relaciones y edición de contexto funcional.
-3. Agregar comentarios simples a tareas si el flujo de edición queda aprobado.
+1. Validar con sesión real el módulo de catálogo completo: búsqueda, detalle, grafo de relaciones y edición de contexto funcional (incluye el selector de cuenta y responsive).
+2. Agregar comentarios simples a tareas si el flujo de edición queda aprobado.
 
 Usuario inicial para prueba: `usr041100@banrural.com.gt`.

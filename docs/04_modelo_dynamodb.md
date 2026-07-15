@@ -132,12 +132,15 @@ DRAW_CONNECTION (colaboración en vivo 2026-07-08: conexiones WebSocket de la
 PK = DRAWROOM#<drawingId>   SK = CONN#<connectionId>
 PK = DRAWCONN#<connectionId> SK = META
 
-TABLE_CONTEXT
-PK = TABLE#<database>#<table>
+TABLE_CONTEXT (2026-07-15: llaves con cuenta AWS — varias cuentas replican el
+  hub con bases homónimas; también aplica a COLUMN_CONTEXT, TABLE_USAGE y toda
+  la caché CATALOG_*. La documentación pre-multicuenta se migró al namespace
+  del hub 396913696127)
+PK = TABLE#<accountId>#<database>#<table>
 SK = CONTEXT
 
 COLUMN_CONTEXT
-PK = TABLE#<database>#<table>
+PK = TABLE#<accountId>#<database>#<table>
 SK = COLUMN#<columnName>
 
 AUDIT_EVENT
@@ -145,16 +148,16 @@ PK = AUDIT#<date>
 SK = <timestamp>#<eventId>
 
 CATALOG_DB (caché de Glue)
-PK = CATALOG#DB
+PK = CATALOG#<accountId>#DB
 SK = <database>
 
 CATALOG_TABLE (caché de Glue, incluye columnas y glueUpdatedAt)
-PK = CATALOG#<database>
+PK = CATALOG#<accountId>#<database>
 SK = TABLE#<table>
 
-CATALOG_SYNC (estado del sync global)
+CATALOG_SYNC (estado del sync global, un item por cuenta)
 PK = CATALOG#SYNC
-SK = META
+SK = META#<accountId>
 
 HOME_COSTS (caché de costos AWS por cuenta y periodo)
 PK = HOME#COSTS

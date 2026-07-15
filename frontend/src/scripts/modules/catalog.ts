@@ -4,6 +4,15 @@
 export function createCatalogModule(ctx) {
   const { state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, catalogDateLabel } = ctx;
 
+  // Toda llamada del módulo lleva la cuenta activa (varias cuentas de la org
+  // tienen bases de datos homónimas con contenido distinto — el backend enruta
+  // al Glue correcto y separa la caché/contexto por cuenta).
+  const acctParam = () => `account=${encodeURIComponent(state.catalogAccount)}`;
+  const withAcct = (path) => `${path}${path.includes("?") ? "&" : "?"}${acctParam()}`;
+  // La caché de tablas también se separa por cuenta (la búsqueda por columnas
+  // lee de aquí; sin el prefijo, mezclaría columnas de otra cuenta).
+  const cacheKey = (db, table) => `${state.catalogAccount}::${db}::${table}`;
+
   // Normaliza para buscar: minúsculas + sin acentos (así "recuperacion" encuentra
   // "recuperación"). Se usa tanto para la consulta como para el texto indexado.
   const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -15,7 +24,7 @@ export function createCatalogModule(ctx) {
     const c = t.context || {};
     const ctxText = [t.description, c.description, c.usagePrimary, c.usageNotes, c.responsible, c.domain, c.sensitivity, c.status]
       .map(norm).join("  ");
-    const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
+    const cols = state.catalogTableCache[cacheKey(t.database, t.name)]?.columns || [];
     return (
       (scopes.includes("table")   && norm(t.name).includes(nq)) ||
       (scopes.includes("context") && ctxText.includes(nq)) ||
@@ -56,7 +65,7 @@ export function createCatalogModule(ctx) {
       const g = matchSnippet(t.description, nq); if (g) reasons.push(["Contexto", "Descripción (Glue)", g]);
       for (const [f, lab] of CTX_FIELDS) { const s = matchSnippet(c[f], nq); if (s) reasons.push(["Contexto", lab, s]); }
     }
-    const cols = state.catalogTableCache[`${t.database}::${t.name}`]?.columns || [];
+    const cols = state.catalogTableCache[cacheKey(t.database, t.name)]?.columns || [];
     if (scopes.includes("column")) for (const col of cols) { const s = matchSnippet(col.name, nq); if (s) reasons.push(["Columna", col.name, s]); }
     if (scopes.includes("colDesc")) for (const col of cols) {
       const s = matchSnippet(col.context?.description, nq) || matchSnippet(col.context?.notes, nq);
@@ -90,10 +99,19 @@ export function createCatalogModule(ctx) {
           state.catalogLoading = true;
           paintCatalog();
           try {
-            const payload = await apiRequest("api/catalog");
+            const payload = await apiRequest(withAcct("api/catalog"));
             state.catalogDatabases = payload.data.databases || [];
             state.catalogSyncedAt = payload.data.syncedAt;
             state.catalogSyncStatus = payload.data.syncStatus;
+            // Lista real de cuentas habilitadas (la manda el backend; la
+            // primera es la default). El valor inicial del estado es solo
+            // un arranque optimista.
+            if (payload.data.accounts?.length) {
+              state.catalogAccounts = payload.data.accounts;
+              if (!state.catalogAccounts.some((a) => a.id === state.catalogAccount)) {
+                state.catalogAccount = state.catalogAccounts[0].id;
+              }
+            }
             state.catalogLoading = false;
             // Si se entra con un sync en curso, sondear hasta que termine.
             if (state.catalogSyncStatus === "syncing") startCatalogSyncPolling();
@@ -109,6 +127,29 @@ export function createCatalogModule(ctx) {
         paintCatalog();
       }
 
+      async function selectCatalogAccount(accountId) {
+        if (accountId === state.catalogAccount) return;
+        if (hasUnsavedColumnChanges() && !window.confirm("Tienes cambios de columnas sin guardar. ¿Descartarlos y cambiar de cuenta?")) {
+          paintCatalog(); // restaura el valor del selector
+          return;
+        }
+        // Cambio de cuenta = catálogo distinto: se limpia TODO el estado del
+        // módulo (bases, tablas, selección, búsqueda y caché de columnas).
+        state.catalogAccount = accountId;
+        stopCatalogSyncPolling();
+        state.catalogDatabases = [];
+        state.catalogSelectedDb = null;
+        state.catalogSelectedTable = null;
+        state.catalogTables = [];
+        state.catalogTablesLoading = false;
+        state.catalogTablesError = "";
+        state.catalogSearch = "";
+        state.catalogSyncedAt = null;
+        state.catalogSyncStatus = null;
+        state.catalogTableCache = {};
+        await renderCatalog();
+      }
+
       async function selectCatalogDb(dbName) {
         state.catalogSelectedDb = dbName;
         state.catalogSelectedTable = null;
@@ -118,7 +159,7 @@ export function createCatalogModule(ctx) {
         state.catalogSearch = "";
         paintCatalog();
         try {
-          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}`);
+          const payload = await apiRequest(withAcct(`api/catalog/${encodeURIComponent(dbName)}`));
           state.catalogTables = payload.data || [];
         } catch (err) {
           state.catalogTables = [];
@@ -163,9 +204,9 @@ export function createCatalogModule(ctx) {
         state.catalogSelectedTable = { name: tableName, database: dbName, loading: true, columns: [], context: {} };
         paintCatalog();
         try {
-          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}`);
+          const payload = await apiRequest(withAcct(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}`));
           state.catalogSelectedTable = payload.data;
-          state.catalogTableCache[`${dbName}::${tableName}`] = payload.data;
+          state.catalogTableCache[cacheKey(dbName, tableName)] = payload.data;
         } catch (err) {
           state.catalogSelectedTable = { name: tableName, database: dbName, error: true, errorMsg: err.message, columns: [], context: {} };
         }
@@ -176,7 +217,7 @@ export function createCatalogModule(ctx) {
         const btn = elements.contentPanel.querySelector(".syncAllBtn");
         if (btn) btn.disabled = true;
         try {
-          await apiRequest("api/catalog/sync", { method: "POST" });
+          await apiRequest(withAcct("api/catalog/sync"), { method: "POST" });
           state.catalogSyncStatus = "syncing";
           state.catalogDatabases = [];
           state.catalogTables = [];
@@ -210,7 +251,7 @@ export function createCatalogModule(ctx) {
           if (state.activeModule !== "catalog") { stopCatalogSyncPolling(); return; }
           if (attempts > maxAttempts) { stopCatalogSyncPolling(); return; }
           try {
-            const payload = await apiRequest("api/catalog");
+            const payload = await apiRequest(withAcct("api/catalog"));
             const dbs = payload.data.databases || [];
             const status = payload.data.syncStatus;
             const countChanged = dbs.length !== state.catalogDatabases.length;
@@ -238,7 +279,7 @@ export function createCatalogModule(ctx) {
         const btn = elements.contentPanel.querySelector(`[data-sync-db="${CSS.escape(dbName)}"]`);
         if (btn) { btn.disabled = true; btn.textContent = "…"; }
         try {
-          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/sync`, { method: "POST" });
+          const payload = await apiRequest(withAcct(`api/catalog/${encodeURIComponent(dbName)}/sync`), { method: "POST" });
           const idx = state.catalogDatabases.findIndex(d => d.name === dbName);
           if (idx >= 0) state.catalogDatabases[idx] = { ...state.catalogDatabases[idx], tableCount: payload.data.tableCount, syncedAt: payload.data.syncedAt };
           state.catalogTables = [];
@@ -253,7 +294,7 @@ export function createCatalogModule(ctx) {
         const btn = elements.contentPanel.querySelector(".syncTableBtn");
         if (btn) { btn.disabled = true; btn.textContent = "…"; }
         try {
-          await apiRequest(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}/sync`, { method: "POST" });
+          await apiRequest(withAcct(`api/catalog/${encodeURIComponent(dbName)}/${encodeURIComponent(tableName)}/sync`), { method: "POST" });
           await selectCatalogTable(dbName, tableName);
         } catch (err) {
           if (btn) { btn.disabled = false; btn.textContent = "↻"; }
@@ -330,6 +371,20 @@ export function createCatalogModule(ctx) {
         const prevTableScroll = elements.contentPanel.querySelector(".catalogTableList")?.scrollTop || 0;
         const prevSidebarScroll = elements.contentPanel.querySelector(".catalogSidebar")?.scrollTop || 0;
 
+        // Selector de cuenta AWS (varias cuentas replican el hub con bases
+        // homónimas). La lista viene del backend; antes de la primera respuesta
+        // se muestra solo la cuenta activa.
+        const accountOptions = (state.catalogAccounts?.length
+          ? state.catalogAccounts
+          : [{ id: state.catalogAccount, name: state.catalogAccount }]);
+        const accountSelectHtml = `
+          <label class="catalogAccountWrap">
+            <span class="catalogAccountLabel">Cuenta</span>
+            <select class="catalogAccountSelect" title="Cuenta AWS del catálogo">
+              ${accountOptions.map((a) => `<option value="${escapeAttribute(a.id)}" ${a.id === state.catalogAccount ? "selected" : ""}>${escapeHtml(a.name || a.id)}</option>`).join("")}
+            </select>
+          </label>`;
+
         elements.contentPanel.innerHTML = `
           <div class="catalogSidebar">
             <div class="catalogSidebarHeader">
@@ -341,6 +396,7 @@ export function createCatalogModule(ctx) {
                 </svg>
               </button>
             </div>
+            ${accountSelectHtml}
             ${syncBadge}
             <nav class="catalogDbList">${dbListHtml}</nav>
           </div>
@@ -542,7 +598,7 @@ export function createCatalogModule(ctx) {
         const valueEl = el.querySelector(".catalogFichaStatsValue");
         const { db, table } = el.dataset;
         try {
-          const payload = await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}?stats=1`);
+          const payload = await apiRequest(withAcct(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}?stats=1`));
           const s = payload.data?.stats;
           if (!s || !s.available) {
             valueEl.textContent = s?.reason || "no disponible";
@@ -567,7 +623,7 @@ export function createCatalogModule(ctx) {
         if (!valueEl || valueEl.textContent !== "—") return; // ya cargado
         valueEl.textContent = "calculando…";
         try {
-          const payload = await apiRequest(`api/catalog/${encodeURIComponent(dbName)}?stats=1`);
+          const payload = await apiRequest(withAcct(`api/catalog/${encodeURIComponent(dbName)}?stats=1`));
           const s = payload.data?.stats;
           if (!s || !s.available) {
             valueEl.textContent = s?.reason || "no disponible";
@@ -589,6 +645,8 @@ export function createCatalogModule(ctx) {
         const panel = elements.contentPanel;
 
         panel.querySelector(".syncAllBtn")?.addEventListener("click", syncCatalogAll);
+        const accountSelect = panel.querySelector(".catalogAccountSelect");
+        if (accountSelect) accountSelect.addEventListener("change", () => selectCatalogAccount(accountSelect.value));
         panel.querySelector(".catalogGraphBtn")?.addEventListener("click", openCatalogGraph);
         panel.querySelector(".catalogReportBtn")?.addEventListener("click", downloadCatalogReport);
 
@@ -626,7 +684,7 @@ export function createCatalogModule(ctx) {
             det.dataset.usageLoaded = "1";
             const body = det.querySelector(".catalogUsageBody");
             try {
-              const p = await apiRequest(`api/catalog/${encodeURIComponent(det.dataset.usageDb)}/${encodeURIComponent(det.dataset.usageTable)}/usage`);
+              const p = await apiRequest(withAcct(`api/catalog/${encodeURIComponent(det.dataset.usageDb)}/${encodeURIComponent(det.dataset.usageTable)}/usage`));
               const d = p.data || {};
               const rows = d.users || [];
               if (!rows.length) {
@@ -669,7 +727,7 @@ export function createCatalogModule(ctx) {
             // precargan en segundo plano y la lista se refina conforme llegan
             const needsCols = q && (scopes.includes("column") || scopes.includes("colDesc"));
             if (needsCols && !state.catalogColsPreloading) {
-              const missing = state.catalogTables.some(t => !state.catalogTableCache[`${t.database}::${t.name}`]);
+              const missing = state.catalogTables.some(t => !state.catalogTableCache[cacheKey(t.database, t.name)]);
               if (missing) {
                 state.catalogColsPreloading = true;
                 ensureCatalogTableDetails(state.catalogTables, () => applySearch())
@@ -723,7 +781,7 @@ export function createCatalogModule(ctx) {
             };
             btn.disabled = true;
             try {
-              await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/context`, {
+              await apiRequest(withAcct(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/context`), {
                 method: "PUT",
                 body: JSON.stringify(body),
               });
@@ -813,7 +871,7 @@ export function createCatalogModule(ctx) {
             const results = await Promise.allSettled(dirty.map(async colDiv => {
               const column = colDiv.dataset.column;
               const body = colValues(colDiv);
-              await apiRequest(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}/context`, {
+              await apiRequest(withAcct(`api/catalog/${encodeURIComponent(db)}/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}/context`), {
                 method: "PUT",
                 body: JSON.stringify(body),
               });
@@ -884,7 +942,7 @@ export function createCatalogModule(ctx) {
       // Precarga el detalle (columnas) de las tablas que falten en caché, con
       // concurrencia limitada. onProgress se invoca conforme llegan resultados.
       async function ensureCatalogTableDetails(tables, onProgress) {
-        const pending = tables.filter(t => !state.catalogTableCache[`${t.database}::${t.name}`]);
+        const pending = tables.filter(t => !state.catalogTableCache[cacheKey(t.database, t.name)]);
         if (!pending.length) return;
         const queue = [...pending];
         let done = 0;
@@ -892,8 +950,8 @@ export function createCatalogModule(ctx) {
           while (queue.length) {
             const t = queue.shift();
             try {
-              const payload = await apiRequest(`api/catalog/${encodeURIComponent(t.database)}/${encodeURIComponent(t.name)}`);
-              state.catalogTableCache[`${t.database}::${t.name}`] = payload.data;
+              const payload = await apiRequest(withAcct(`api/catalog/${encodeURIComponent(t.database)}/${encodeURIComponent(t.name)}`));
+              state.catalogTableCache[cacheKey(t.database, t.name)] = payload.data;
             } catch {
               // Tabla sin detalle disponible: se omite
             }
@@ -928,7 +986,7 @@ export function createCatalogModule(ctx) {
           ];
           const rows = [headers];
           for (const t of tables) {
-            const full = state.catalogTableCache[`${t.database}::${t.name}`] || t;
+            const full = state.catalogTableCache[cacheKey(t.database, t.name)] || t;
             const c = full.context || {};
             const base = [
               t.database, t.name, c.description, c.usagePrimary, c.responsible,
@@ -1261,7 +1319,7 @@ export function createCatalogModule(ctx) {
           }
         }
         function ringOuter(d) {
-          const hasRing = state.catalogTableCache[`${d.db}::${d.label}`];
+          const hasRing = state.catalogTableCache[cacheKey(d.db, d.label)];
           if (!hasRing) return tableR(d) + 6;
           return sphereRadius(tableR(d), d.columnCount) + 16;
         }

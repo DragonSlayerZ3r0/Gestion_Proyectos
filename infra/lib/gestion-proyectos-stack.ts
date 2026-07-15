@@ -281,14 +281,16 @@ export class GestionProyectosStack extends Stack {
     //   3) cdk deploy.
     // mode "direct" = Cost Explorer de la propia cuenta de la Lambda (sin asumir
     // rol); mode "assume" = otra cuenta vía sts:AssumeRole a roleArn.
+    // La PRIMERA cuenta es la default del selector (regla 2026-07-15: todo
+    // selector de cuentas arranca en el hub, igual que el Catálogo).
     const costAccounts: { id: string; name: string; mode: "direct" | "assume"; roleArn?: string }[] = [
-      { id: this.account, name: "aws-bdr-cta-analitica-fab-datos-desa", mode: "direct" },
       {
         id: "396913696127",
         name: "aws-bdr-cta-analitica-fab-datos-prod",
         mode: "assume",
         roleArn: "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader",
       },
+      { id: this.account, name: "aws-bdr-cta-analitica-fab-datos-desa", mode: "direct" },
       {
         id: "068657603409",
         name: "aws-bdr-cta-analitica-mod-datos-desa",
@@ -305,6 +307,23 @@ export class GestionProyectosStack extends Stack {
     const assumeCostRoleArns = costAccounts
       .filter((a) => a.mode === "assume" && a.roleArn)
       .map((a) => a.roleArn!);
+
+    // ── Fuente ÚNICA de cuentas del módulo Catálogo ────────────────────────────
+    // Cuentas cuyo Glue Data Catalog se puede explorar. La PRIMERA es la default:
+    // el hub del data lake (fab-datos prod), que es el catálogo "real" que la
+    // plataforma ya usa para Athena, monitoreo y chat SQL. La cuenta app es una
+    // réplica de pruebas (bases homónimas con contenido distinto). El acceso
+    // cross-account reutiliza el rol cost-reader del hub, cuya política inline
+    // AthenaIngestionControl incluye la lectura de Glue (ver docs/permisos_hub.md).
+    const catalogAccounts: { id: string; name: string; mode: "direct" | "assume"; roleArn?: string }[] = [
+      {
+        id: "396913696127",
+        name: "aws-bdr-cta-analitica-fab-datos-prod",
+        mode: "assume",
+        roleArn: "arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader",
+      },
+      { id: this.account, name: "aws-bdr-cta-analitica-fab-datos-desa", mode: "direct" },
+    ];
 
     if (ownedRole) {
       ownedRole.addToPolicy(new iam.PolicyStatement({
@@ -402,6 +421,8 @@ export class GestionProyectosStack extends Stack {
         DEFAULT_MODULES: MODULES.join(","),
         // Fuente única de cuentas de costos (ver costAccounts arriba).
         COST_ACCOUNTS: JSON.stringify(costAccounts),
+        // Cuentas del módulo Catálogo; la primera es la default (ver catalogAccounts).
+        CATALOG_ACCOUNTS: JSON.stringify(catalogAccounts),
         // Almacenamiento de adjuntos (bucket compartido + prefijo de esta app).
         ATTACHMENTS_BUCKET: attachmentsBucket.bucketName,
         ATTACHMENTS_PREFIX

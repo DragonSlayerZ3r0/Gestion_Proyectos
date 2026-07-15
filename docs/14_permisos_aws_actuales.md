@@ -12,6 +12,8 @@
 > (rol cross-account `gestion-proyectos-cost-reader`, bucket policies y grants de
 > Lake Formation) están consolidados en **[permisos_hub.md](permisos_hub.md)** —
 > ahí está el set COMPLETO por feature y lo que hay que repetir para prod.
+> Último cambio del hub: 2026-07-15 (Catálogo multi-cuenta — `GlueRead` ampliado
+> a todo el catálogo + grants LF `DESCRIBE` por base al rol; ver Mec. 1c).
 
 ## Perfil validado
 

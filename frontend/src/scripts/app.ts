@@ -74,6 +74,11 @@
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
+        // Cuenta AWS activa del Catálogo (varias cuentas replican el hub con
+        // bases homónimas). La lista real la manda el backend; este valor solo
+        // es el default hasta la primera respuesta (hub del data lake).
+        catalogAccounts: null,
+        catalogAccount: "396913696127",
         catalogDatabases: [],
         catalogSelectedDb: null,
         catalogTables: [],
@@ -114,7 +119,9 @@
         homeRespLoading: false,
         homeRespError: "",
         homeCostAccounts: null,
-        homeCostAccount: "186281981036",
+        // Default = hub (regla 2026-07-15: todo selector de cuentas arranca en
+        // el hub del data lake; la lista real llega del backend).
+        homeCostAccount: "396913696127",
         homeCostPeriod: null,
         homeCostView: "net",
         homeTab: "resumen",

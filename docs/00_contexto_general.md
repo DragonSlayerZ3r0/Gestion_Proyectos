@@ -37,7 +37,7 @@ Los flujos permiten crear una tarea, cambiar una prioridad o revisar un proyecto
 ## Alcance y límites del producto
 
 - La gestión de proyectos utiliza un modelo operativo ligero de proyectos, personas, tareas y Kanban.
-- El catálogo complementa el gobierno de datos con metadata técnica y contexto funcional.
+- El catálogo complementa el gobierno de datos con metadata técnica y contexto funcional. Es multi-cuenta: explora el Glue de la cuenta seleccionada (default el hub del data lake `396913696127`; las demás cuentas son réplicas de prueba con bases homónimas).
 - Los servicios AWS se presentan mediante funciones del producto y permanecen abstraídos detrás del backend.
 - Las consultas de datos se ejecutan mediante operaciones controladas en el backend.
 - La visibilidad del catálogo se calcula según los permisos funcionales de cada usuario.

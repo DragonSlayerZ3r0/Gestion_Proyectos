@@ -122,9 +122,9 @@ arrow(745, 572, 760, 572, color="#ca8a04")
 rect(55, 655, 280, 92, "#fca5a5", "#dc2626", sw=2)
 txt(195, 685, "DynamoDB\ngestion-proyectos-dev-main\nPK / SK  ·  PAY_PER_REQUEST  ·  PITR", size=11, color="#7f1d1d", w=268)
 
-# Glue
+# Glue (multi-cuenta 2026-07-15: selector con default en el hub)
 rect(415, 655, 260, 92, "#f0abfc", "#a21caf", sw=2)
-txt(545, 701, "AWS Glue Catalog\nmetadata técnica · BDs · tablas · columnas", size=12, color="#4a044e", w=248)
+txt(545, 701, "AWS Glue Catalog (multi-cuenta)\napp directo · hub 396913696127\n(AssumeRole + grants LF DESCRIBE)", size=11, color="#4a044e", w=248)
 
 # Athena
 rect(745, 655, 260, 92, "#a78bfa", "#6d28d9", sw=2)
@@ -165,8 +165,8 @@ arrow(555, 468, 555, 500, "event{ path, method, claims }")
 # Lambda → DynamoDB
 arrow(300, 630, 235, 655, "Query / PutItem / UpdateItem")
 
-# Lambda → Glue (implementado: sync del catálogo)
-arrow(545, 630, 545, 655, "GetDatabases/Tables (sync)", color="#a21caf")
+# Lambda → Glue (sync del catálogo por cuenta seleccionada)
+arrow(545, 630, 545, 655, "GetDatabases/Tables (sync por cuenta)", color="#a21caf")
 
 # Lambda → Athena (dashed)
 arrow(800, 630, 845, 655, "StartQuery controlado", dashed=True, color="#6d28d9")
@@ -182,7 +182,7 @@ arrow(1115, 545, 1032, 545, "↺ auto-invoca async\ncatalog_sync_all / datalake_
 
 # ── Límite cross-account: recursos en la cuenta hub 396913696127 ───────────────
 rect(728, 760, 460, 122, "transparent", "#be185d", sw=2, style="dashed", rx=True)
-txt(905, 873, "Cuenta hub 396913696127 · acceso cross-account (bucket policy S3 / AssumeRole Cost Explorer)", size=9, color="#be185d", w=450)
+txt(905, 873, "Cuenta hub 396913696127 · acceso cross-account (bucket policy S3 / AssumeRole: Cost Explorer, Athena, Glue del Catálogo)", size=9, color="#be185d", w=450)
 
 # Athena → S3 DataLake
 arrow(875, 747, 875, 775, "s3://datalake/*", color="#059669")

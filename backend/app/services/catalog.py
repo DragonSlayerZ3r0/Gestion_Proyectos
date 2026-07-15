@@ -8,12 +8,19 @@ import boto3
 
 from repositories.catalog import CatalogRepository
 from repositories.glue import GlueRepository
+from services import catalog_accounts
 
 
 class CatalogService:
-    def __init__(self) -> None:
-        self._glue = GlueRepository()
-        self._db = CatalogRepository()
+    """Explora el Glue Data Catalog de UNA cuenta (varias cuentas de la org
+    replican el hub con bases de datos homónimas pero contenido distinto). Sin
+    cuenta explícita opera sobre la default: el hub del data lake."""
+
+    def __init__(self, account: str | None = None) -> None:
+        cfg = catalog_accounts.resolve_account(account)
+        self._account = cfg["id"]
+        self._glue = GlueRepository(catalog_accounts.glue_client(cfg))
+        self._db = CatalogRepository(self._account)
         self._s3 = boto3.client("s3")
 
     # ── Lectura desde caché DynamoDB (siempre rápida) ────────────────────────
@@ -25,6 +32,9 @@ class CatalogService:
             "databases": sorted([_format_db_cache(d) for d in databases], key=lambda d: d["name"]),
             "syncedAt": sync_meta.get("syncedAt") if sync_meta else None,
             "syncStatus": sync_meta.get("status") if sync_meta else None,
+            # Para el selector del frontend (la primera cuenta es la default).
+            "account": self._account,
+            "accounts": catalog_accounts.list_accounts(),
         }
 
     def list_tables(self, database: str) -> list[dict[str, Any]]:
@@ -202,12 +212,15 @@ class CatalogService:
 
     # ── Sync individual de tabla (síncrono, <1s) ─────────────────────────────
 
+    def _build_table_cache_item(self, database: str, raw: dict[str, Any], synced_at: str) -> dict[str, Any]:
+        return _build_table_cache_item_for(self._account, self._db.catalog_tables_pk(database), database, raw, synced_at)
+
     def sync_table(self, database: str, table_name: str) -> dict[str, Any]:
         raw = self._glue.get_table(database, table_name)
         if not raw:
             raise ValueError(f"Tabla {table_name} no encontrada en Glue.")
         now = datetime.now(timezone.utc).isoformat()
-        item = _build_table_cache_item(database, raw, now)
+        item = self._build_table_cache_item(database, raw, now)
         # Stats S3 de la tabla, guardadas en el item para lectura instantánea
         try:
             item["stats"] = self._s3_stats(item.get("location", ""))
@@ -252,7 +265,7 @@ class CatalogService:
             glue_updated_at = _glue_updated_at(raw)
             if cached and glue_updated_at and cached.get("glueUpdatedAt") == glue_updated_at:
                 continue  # sin cambios en Glue: no se reescribe
-            self._db.put_catalog_table(_build_table_cache_item(database, raw, now))
+            self._db.put_catalog_table(self._build_table_cache_item(database, raw, now))
             updated += 1
         # Lo que quedó en cached_by_name ya no existe en Glue: huérfanas
         for orphan_name in cached_by_name:
@@ -272,10 +285,13 @@ class CatalogService:
         return {"tableCount": len(raw_tables), "updated": updated, "removed": len(cached_by_name)}
 
     # ── Sync global (invoca Lambda de forma asíncrona) ────────────────────────
+    # El sync global cubre TODAS las cuentas habilitadas, no solo la del servicio:
+    # el usuario ve un solo botón "sincronizar todo" sin importar la cuenta activa.
 
     def start_sync_all(self, function_name: str) -> str:
         now = datetime.now(timezone.utc).isoformat()
-        self._db.put_catalog_sync_meta(now, "syncing")
+        for account in catalog_accounts.CATALOG_ACCOUNTS:
+            CatalogRepository(account).put_catalog_sync_meta(now, "syncing")
         boto3.client("lambda").invoke(
             FunctionName=function_name,
             InvocationType="Event",
@@ -283,19 +299,28 @@ class CatalogService:
         )
         return now
 
-    def run_sync_all(self) -> None:
-        """Ejecutado de forma asíncrona por Lambda self-invocation o EventBridge."""
-        now = datetime.now(timezone.utc).isoformat()
-        self._db.put_catalog_sync_meta(now, "syncing")
-        databases = self._glue.list_databases()
-        for db in databases:
-            db_name = db["Name"]
-            description = db.get("Description", "")
+    @staticmethod
+    def run_sync_all() -> None:
+        """Ejecutado de forma asíncrona por Lambda self-invocation o EventBridge.
+        Sincroniza el catálogo de cada cuenta habilitada; si una cuenta falla
+        (p. ej. permisos), su meta queda en error y las demás continúan."""
+        for account in catalog_accounts.CATALOG_ACCOUNTS:
+            now = datetime.now(timezone.utc).isoformat()
             try:
-                self._sync_database_tables(db_name, now, description, db.get("LocationUri", ""))
+                service = CatalogService(account)
             except Exception:
-                pass
-        self._db.put_catalog_sync_meta(now, "ok")
+                CatalogRepository(account).put_catalog_sync_meta(now, "error")
+                continue
+            service._db.put_catalog_sync_meta(now, "syncing")
+            try:
+                for db in service._glue.list_databases():
+                    try:
+                        service._sync_database_tables(db["Name"], now, db.get("Description", ""), db.get("LocationUri", ""))
+                    except Exception:
+                        pass
+                service._db.put_catalog_sync_meta(now, "ok")
+            except Exception:
+                service._db.put_catalog_sync_meta(now, "error")
 
     # ── Contexto funcional (escrito por usuarios) ─────────────────────────────
 
@@ -303,8 +328,8 @@ class CatalogService:
         now = datetime.now(timezone.utc).isoformat()
         existing = self._db.get_table_context(database, table_name)
         item: dict[str, Any] = {
-            "PK": f"TABLE#{database}#{table_name}", "SK": "CONTEXT",
-            "entityType": "TABLE_CONTEXT",
+            "PK": self._db.table_entity_pk(database, table_name), "SK": "CONTEXT",
+            "entityType": "TABLE_CONTEXT", "account": self._account,
             "database": database, "tableName": table_name,
             "description": body.get("description", ""),
             "usagePrimary": body.get("usagePrimary", ""),
@@ -324,8 +349,8 @@ class CatalogService:
         now = datetime.now(timezone.utc).isoformat()
         existing = self._db.get_column_context(database, table_name, column_name)
         item: dict[str, Any] = {
-            "PK": f"TABLE#{database}#{table_name}", "SK": f"COLUMN#{column_name}",
-            "entityType": "COLUMN_CONTEXT",
+            "PK": self._db.table_entity_pk(database, table_name), "SK": f"COLUMN#{column_name}",
+            "entityType": "COLUMN_CONTEXT", "account": self._account,
             "database": database, "tableName": table_name, "columnName": column_name,
             "description": body.get("description", ""),
             "sensitivity": body.get("sensitivity", ""),
@@ -373,7 +398,7 @@ def _derive_format(raw: dict[str, Any], storage: dict[str, Any]) -> str:
     return ""
 
 
-def _build_table_cache_item(database: str, raw: dict[str, Any], synced_at: str) -> dict[str, Any]:
+def _build_table_cache_item_for(account: str, pk: str, database: str, raw: dict[str, Any], synced_at: str) -> dict[str, Any]:
     storage = raw.get("StorageDescriptor", {})
     partition_keys = raw.get("PartitionKeys") or []
     columns = [
@@ -384,9 +409,10 @@ def _build_table_cache_item(database: str, raw: dict[str, Any], synced_at: str) 
         for c in partition_keys
     ]
     return {
-        "PK": f"CATALOG#{database}",
+        "PK": pk,
         "SK": f"TABLE#{raw['Name']}",
         "entityType": "CATALOG_TABLE",
+        "account": account,
         "name": raw["Name"],
         "database": database,
         "tableType": raw.get("TableType", ""),

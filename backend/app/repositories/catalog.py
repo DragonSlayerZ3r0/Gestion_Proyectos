@@ -7,67 +7,91 @@ from repositories.base import BaseRepository
 
 
 class CatalogRepository(BaseRepository):
-    """Caché de metadata del catálogo (Glue) y contexto funcional."""
+    """Caché de metadata del catálogo (Glue) y contexto funcional.
+
+    Todas las llaves llevan la CUENTA AWS como namespace (varias cuentas pueden
+    tener bases de datos con el mismo nombre — p. ej. arc_dev existe en el hub y
+    en la cuenta app con contenidos distintos). Sin cuenta explícita se usa la
+    default (el hub del data lake)."""
+
+    def __init__(self, account: str | None = None) -> None:
+        super().__init__()
+        from services.catalog_accounts import default_account_id
+        self._account = account or default_account_id()
+
+    # ── Llaves (namespace por cuenta) ─────────────────────────────────────────
+
+    def table_entity_pk(self, database: str, table_name: str) -> str:
+        """PK de los items funcionales de una tabla (CONTEXT/COLUMN#/USAGE)."""
+        return f"TABLE#{self._account}#{database}#{table_name}"
+
+    def catalog_db_pk(self) -> str:
+        return f"CATALOG#{self._account}#DB"
+
+    def catalog_tables_pk(self, database: str) -> str:
+        return f"CATALOG#{self._account}#{database}"
 
     # ── Sync meta ─────────────────────────────────────────────────────────────
+
     def get_catalog_sync_meta(self) -> dict[str, Any] | None:
-        response = self._table.get_item(Key={"PK": "CATALOG#SYNC", "SK": "META"})
+        response = self._table.get_item(Key={"PK": "CATALOG#SYNC", "SK": f"META#{self._account}"})
         return response.get("Item")
 
     def put_catalog_sync_meta(self, synced_at: str, status: str) -> None:
         self._table.put_item(Item={
-            "PK": "CATALOG#SYNC", "SK": "META",
-            "entityType": "CATALOG_SYNC", "syncedAt": synced_at, "status": status,
+            "PK": "CATALOG#SYNC", "SK": f"META#{self._account}",
+            "entityType": "CATALOG_SYNC", "account": self._account,
+            "syncedAt": synced_at, "status": status,
         })
 
-    # ── Bases de datos ─────────────────────────────────────────────────────────
     def list_catalog_databases(self) -> list[dict[str, Any]]:
-        return self._query_all(KeyConditionExpression=Key("PK").eq("CATALOG#DB"))
+        return self._query_all(KeyConditionExpression=Key("PK").eq(self.catalog_db_pk()))
 
     def put_catalog_database(self, database: str, table_count: int, synced_at: str, description: str = "", location: str = "", stats: dict[str, Any] | None = None) -> None:
-        item = {
-            "PK": "CATALOG#DB", "SK": database,
-            "entityType": "CATALOG_DB",
-            "database": database, "description": description,
-            "tableCount": table_count, "syncedAt": synced_at,
+        item: dict[str, Any] = {
+            "PK": self.catalog_db_pk(), "SK": database,
+            "entityType": "CATALOG_DB", "account": self._account,
+            "database": database,
+            "tableCount": table_count,
+            "syncedAt": synced_at,
+            "description": description,
             "location": location,
         }
         if stats is not None:
             item["stats"] = stats
         self._table.put_item(Item=item)
 
-    # ── Tablas ────────────────────────────────────────────────────────────────
     def update_catalog_table_stats(self, database: str, table: str, stats: dict[str, Any]) -> None:
         """Actualiza solo las stats S3 de una tabla sin reescribir el resto del
         item (preserva el sync diferencial de la metadata de Glue)."""
         self._table.update_item(
-            Key={"PK": f"CATALOG#{database}", "SK": f"TABLE#{table}"},
+            Key={"PK": self.catalog_tables_pk(database), "SK": f"TABLE#{table}"},
             UpdateExpression="SET #st = :st",
             ExpressionAttributeNames={"#st": "stats"},
             ExpressionAttributeValues={":st": stats},
         )
 
     def list_catalog_tables(self, database: str) -> list[dict[str, Any]]:
-        items = self._query_all(
-            KeyConditionExpression=Key("PK").eq(f"CATALOG#{database}") & Key("SK").begins_with("TABLE#"),
+        return self._query_all(
+            KeyConditionExpression=Key("PK").eq(self.catalog_tables_pk(database)) & Key("SK").begins_with("TABLE#"),
             ProjectionExpression="#n, #db, tableType, description, columnCount, syncedAt, glueUpdatedAt, #loc, SK",
             ExpressionAttributeNames={"#n": "name", "#db": "database", "#loc": "location"},
         )
-        return items
 
     def get_catalog_table(self, database: str, table: str) -> dict[str, Any] | None:
-        response = self._table.get_item(Key={"PK": f"CATALOG#{database}", "SK": f"TABLE#{table}"})
+        response = self._table.get_item(Key={"PK": self.catalog_tables_pk(database), "SK": f"TABLE#{table}"})
         return response.get("Item")
 
     def put_catalog_table(self, item: dict[str, Any]) -> None:
         self._table.put_item(Item=item)
 
     def delete_catalog_table(self, database: str, table: str) -> None:
-        self._table.delete_item(Key={"PK": f"CATALOG#{database}", "SK": f"TABLE#{table}"})
+        self._table.delete_item(Key={"PK": self.catalog_tables_pk(database), "SK": f"TABLE#{table}"})
 
-    # ── Contexto funcional ─────────────────────────────────────────────────────
+    # ── Contexto funcional ────────────────────────────────────────────────────
+
     def get_table_context(self, database: str, table_name: str) -> dict[str, Any] | None:
-        response = self._table.get_item(Key={"PK": f"TABLE#{database}#{table_name}", "SK": "CONTEXT"})
+        response = self._table.get_item(Key={"PK": self.table_entity_pk(database, table_name), "SK": "CONTEXT"})
         return response.get("Item")
 
     def batch_get_table_contexts(self, database: str, table_names: list[str]) -> dict[str, dict[str, Any]]:
@@ -79,7 +103,7 @@ class CatalogRepository(BaseRepository):
         if not table_names:
             return result
         dynamodb = boto3.resource("dynamodb")
-        prefix = f"TABLE#{database}#"
+        prefix = f"TABLE#{self._account}#{database}#"
         for i in range(0, len(table_names), 100):
             chunk = table_names[i:i + 100]
             request: Any = {self._table.name: {"Keys": [{"PK": f"{prefix}{n}", "SK": "CONTEXT"} for n in chunk]}}
@@ -92,11 +116,8 @@ class CatalogRepository(BaseRepository):
                 request = resp.get("UnprocessedKeys") or None
         return result
 
-    # ── Uso reciente (quién consultó la tabla en Athena) ───────────────────────
-    # Lo escribe el escaneo del monitoreo de Athena (services/athena_monitor.py):
-    # un item por tabla con los usuarios que la consultaron en la ventana.
     def get_table_usage(self, database: str, table_name: str) -> dict[str, Any] | None:
-        response = self._table.get_item(Key={"PK": f"TABLE#{database}#{table_name}", "SK": "USAGE"})
+        response = self._table.get_item(Key={"PK": self.table_entity_pk(database, table_name), "SK": "USAGE"})
         return response.get("Item")
 
     def put_table_usage_bulk(self, items: list[dict[str, Any]]) -> None:
@@ -106,10 +127,10 @@ class CatalogRepository(BaseRepository):
 
     def list_column_contexts(self, database: str, table_name: str) -> list[dict[str, Any]]:
         return self._query_all(
-            KeyConditionExpression=Key("PK").eq(f"TABLE#{database}#{table_name}") & Key("SK").begins_with("COLUMN#"))
+            KeyConditionExpression=Key("PK").eq(self.table_entity_pk(database, table_name)) & Key("SK").begins_with("COLUMN#"))
 
     def get_column_context(self, database: str, table_name: str, column_name: str) -> dict[str, Any] | None:
-        response = self._table.get_item(Key={"PK": f"TABLE#{database}#{table_name}", "SK": f"COLUMN#{column_name}"})
+        response = self._table.get_item(Key={"PK": self.table_entity_pk(database, table_name), "SK": f"COLUMN#{column_name}"})
         return response.get("Item")
 
     def put_context(self, item: dict[str, Any]) -> None:

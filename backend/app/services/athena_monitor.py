@@ -537,19 +537,22 @@ class AthenaMonitorService:
         # agregada más reciente sobreescribe).
         usage_items: list[dict[str, Any]] = []
         usage_at = self._now()
+        # Las consultas escaneadas corren contra el Athena del hub, así que el
+        # índice se escribe en el namespace de esa cuenta (la default del catálogo).
+        usage_repo = CatalogRepository()
         for (db, table), by_user in table_usage.items():
             urows = [{"user": usr, "name": names.get(usr, ""),
                       "count": rec["count"], "lastRun": rec["lastRun"]}
                      for usr, rec in by_user.items()]
             urows.sort(key=lambda r: r["lastRun"], reverse=True)
             usage_items.append({
-                "PK": f"TABLE#{db}#{table}", "SK": "USAGE", "entityType": "TABLE_USAGE",
+                "PK": usage_repo.table_entity_pk(db, table), "SK": "USAGE", "entityType": "TABLE_USAGE",
                 "database": db, "table": table, "users": urows[:20],
                 "start": start, "end": end, "scannedAt": usage_at,
             })
         if usage_items:
             try:
-                CatalogRepository().put_table_usage_bulk(usage_items)
+                usage_repo.put_table_usage_bulk(usage_items)
             except Exception:
                 pass        # el índice de uso nunca debe tumbar el escaneo principal
         data = {

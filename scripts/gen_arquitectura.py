@@ -110,8 +110,8 @@ box(50, 618, 230, 96, "#FCA5A5", "#DC2626", "DynamoDB", "gestion-proyectos-dev-m
 a('<text x="165" y="692" font-size="8" fill="#991B1B" text-anchor="middle">PK: USER# · PERSON# · PROJECT# · AUDIT# · SETTING#</text>')
 a('<text x="165" y="703" font-size="8" fill="#991B1B" text-anchor="middle">SK: PROFILE · MODULE# · META · TASK# · PERSON#</text>')
 
-# Glue Catalog
-box(360, 618, 215, 96, "#F0ABFC", "#A21CAF", "AWS Glue Catalog", "metadata técnica · BDs · tablas · columnas", rx=10)
+# Glue Catalog (multi-cuenta: app directo + hub vía AssumeRole)
+box(360, 618, 215, 96, "#F0ABFC", "#A21CAF", "AWS Glue Catalog", "multi-cuenta · app directo · hub AssumeRole+LF", rx=10)
 
 # Athena
 box(650, 618, 215, 96, "#A78BFA", "#6D28D9", "Amazon Athena", "preview controlado · resultados limitados", rx=10)

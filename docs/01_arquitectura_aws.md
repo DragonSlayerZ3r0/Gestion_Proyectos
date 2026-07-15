@@ -60,14 +60,14 @@ Lenguajes, frameworks y herramientas concretas por capa:
 - API Gateway (WebSocket): colaboración en vivo de Pizarra (salas por tablero).
 - Lambda Python: lógica de negocio.
 - DynamoDB: datos operativos, autorización funcional y contexto.
-- Glue Catalog: metadata técnica de bases, tablas y columnas.
+- Glue Catalog: metadata técnica de bases, tablas y columnas. **Multi-cuenta desde 2026-07-15**: el Catálogo explora el Glue de la cuenta seleccionada — default el hub `396913696127` (el catálogo real del data lake, vía AssumeRole al rol `gestion-proyectos-cost-reader` + grants LF `DESCRIBE`); la cuenta app es réplica de pruebas (bases homónimas con contenido distinto). Fuente única `catalogAccounts` en CDK; detalle en `docs/07`.
 - Athena: preview y consultas controladas.
 - S3 Data Lake: datos fuente.
 - Bedrock (GLM 5, `zai.glm-5`): sugerencias SQL de Athena, chat de Apoyo técnico y estructuración de asuetos. La SCP bloquea Claude solo por la vía clásica de `bedrock-runtime`; desde 2026-07-09 Claude SÍ es invocable vía **Bedrock Mantle** (endpoint us-east-1) — GLM 5 se mantiene por decisión; ver `docs/permisos_hub.md` 1d.
 - Textract: OCR de la publicación oficial de asuetos (Personal → "Subir asuetos"; el humano confirma el borrador).
 - CloudWatch: logs y métricas.
 - IAM: permisos entre servicios.
-- Lake Formation: control adicional opcional sobre datos.
+- Lake Formation: gobierna parte del catálogo del hub. OJO: filtra en silencio `GetDatabases`/`GetTables` — el rol cross-account necesita grants `DESCRIBE` por base para que el Catálogo la vea (`docs/permisos_hub.md` 1c).
 
 ## Flujo frontend a backend
 
@@ -101,10 +101,10 @@ Todas las operaciones pasan por API Gateway y Lambda. El frontend accede a Dynam
 
 ## Flujo consulta Data Lake
 
-1. Frontend solicita catálogo o preview.
-2. Lambda valida permisos funcionales en DynamoDB.
-3. Lambda obtiene metadata técnica desde Glue Catalog.
-4. Lambda combina metadata técnica con contexto funcional guardado en DynamoDB.
+1. Frontend solicita catálogo o preview (con la cuenta seleccionada, `?account=`).
+2. Lambda valida permisos funcionales en DynamoDB y la cuenta contra la whitelist `CATALOG_ACCOUNTS`.
+3. Lambda obtiene metadata técnica desde el Glue Catalog de esa cuenta (directo o AssumeRole al hub).
+4. Lambda combina metadata técnica con contexto funcional guardado en DynamoDB (namespace por cuenta).
 5. Para preview, Lambda ejecuta consulta Athena controlada.
 6. Lambda devuelve datos limitados y seguros.
 

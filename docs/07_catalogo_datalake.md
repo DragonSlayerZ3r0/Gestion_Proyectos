@@ -21,6 +21,32 @@ Athena = preview o consulta controlada
 - Ubicación técnica si aplica.
 - Particiones si aplica.
 
+## Multi-cuenta (2026-07-15)
+
+Varias cuentas de la org replican el hub con bases de datos **homónimas pero de
+contenido distinto** (p. ej. `arc_dev` tiene 11 tablas en el hub y 33 en la
+cuenta app). El módulo explora el Glue de UNA cuenta a la vez:
+
+- **Selector de cuenta** en el sidebar (patrón del selector de Facturación).
+  Fuente única: `catalogAccounts` en el stack CDK → env var `CATALOG_ACCOUNTS`
+  → `services/catalog_accounts.py`. La PRIMERA entrada es la **default: el hub
+  `396913696127`** (fab-datos prod), que es el catálogo real que la plataforma
+  ya usa para Athena, monitoreo y chat SQL. La cuenta app es réplica de pruebas.
+- **Acceso cross-account**: mode `assume` reutiliza el rol
+  `gestion-proyectos-cost-reader` del hub (su política `AthenaIngestionControl`
+  incluye `GlueRead` ampliado a `database/*` y `table/*`, 2026-07-15 — ver
+  `docs/permisos_hub.md`); mode `direct` usa el rol de la Lambda.
+- **Namespace por cuenta en DynamoDB**: toda llave del catálogo lleva la cuenta
+  (`CATALOG#<cuenta>#…`, `TABLE#<cuenta>#<db>#<tabla>`, `META#<cuenta>`), ver
+  `docs/04_modelo_dynamodb.md`. La documentación previa a multi-cuenta se migró
+  al namespace del hub (las 11 tablas documentadas de `stage_staging` existen
+  idénticas allí; el índice de uso ya provenía del Athena del hub).
+- Los consumidores internos (`sql_context` para chat/SQL, `athena_monitor`,
+  dashboard de Inicio) usan `CatalogRepository()` sin cuenta = la default (hub).
+- Las stats S3 de la ficha técnica se calculan con el cliente S3 de la cuenta
+  app (bucket policies cross-account donde existan); si un bucket del hub no es
+  accesible, la ficha degrada a "no disponible" sin romper el sync.
+
 ## Información guardada en DynamoDB
 
 Contexto de tabla (item `TABLE#db#tabla / CONTEXT`):
@@ -64,8 +90,8 @@ La visibilidad del catálogo se calcula por usuario a partir de permisos de mód
 
 ### Backend
 
-- `backend/app/repositories/glue.py`: `GlueRepository` lee bases, tablas y detalle de tabla con `boto3.client("glue")` sobre el catálogo de la cuenta local.
-- `backend/app/services/catalog.py`: `CatalogService` con `list_databases`, `list_tables`, `get_table`, `sync_table`, `sync_database`, `start_sync_all`, `run_sync_all`, `save_table_context` y `save_column_context`.
+- `backend/app/repositories/glue.py`: `GlueRepository` lee bases, tablas y detalle de tabla; recibe el cliente Glue de la cuenta activa (directo o vía AssumeRole, ver `services/catalog_accounts.py`).
+- `backend/app/services/catalog.py`: `CatalogService(account)` con `list_databases`, `list_tables`, `get_table`, `sync_table`, `sync_database`, `start_sync_all`, `run_sync_all` (recorre TODAS las cuentas habilitadas), `save_table_context` y `save_column_context`.
 - La metadata sincronizada se guarda como cache en DynamoDB (`CatalogRepository.put_catalog_database/put_catalog_table/put_catalog_sync_meta`); el frontend lee desde el cache, no desde Glue en línea.
 - El sync es **diferencial**: cada tabla de Glue se compara por `UpdateTime` (guardado como `glueUpdatedAt` en el item de caché) y solo se reescriben las tablas nuevas o modificadas — diseñado para data lakes grandes en crecimiento. Las tablas que ya no existen en Glue (**huérfanas**) se eliminan del caché al final del sync de cada base. El contexto funcional vive en items separados (`TABLE#db#tabla / CONTEXT|COLUMN#...`) y mantiene un ciclo de vida administrado por usuarios. Los endpoints de sync devuelven `updated` y `removed` además de `tableCount`.
 - El sync global es asíncrono: `POST /api/catalog/sync` auto-invoca la Lambda con `InvocationType=Event` y payload `{"action": "catalog_sync_all"}`. No hay regla de EventBridge (pendiente acordado); `handler.py` acepta `source == "aws.events"` como entrada futura.
@@ -83,7 +109,10 @@ La visibilidad del catálogo se calcula por usuario a partir de permisos de mód
 | `/api/catalog/{database}/{table}/context` | PUT | Contexto funcional de tabla |
 | `/api/catalog/{database}/{table}/columns/{column}/context` | PUT | Contexto funcional de columna |
 
-Todas requieren el módulo `catalog` habilitado para el usuario.
+Todas requieren el módulo `catalog` habilitado para el usuario. Todas aceptan
+`?account=<cuenta>` (whitelist `CATALOG_ACCOUNTS`); sin el parámetro operan
+sobre la cuenta default (el hub). `GET /api/catalog` devuelve además `account`
+y `accounts` para armar el selector del frontend.
 
 ### Frontend
 
@@ -119,6 +148,18 @@ Arquitectura del render (`renderGraphModal` en `frontend/src/pages/index.astro`)
 - Relaciones heurísticas: FK por sufijo `_id` contra nombres de tabla; columnas compartidas por nombre igual entre tablas. Las columnas de partición se excluyen para no generar relaciones falsas.
 - Al abrir el grafo se precargan los detalles de todas las tablas (misma caché que la búsqueda), así abre completo con las relaciones ya detectadas.
 
-### Visibilidad pendiente (Lake Formation)
+### Visibilidad del hub — resuelta con AssumeRole + grants LF DESCRIBE (2026-07-15)
 
-La Lambda solo ve las bases locales en modo legado `IAM_ALLOWED_PRINCIPALS`. Para ver todas las bases del data lake hub (cuenta `396913696127`) está pendiente: grants `DESCRIBE` del lado hub hacia la cuenta consumidora, resource links por CDK en la cuenta local, y grants `DESCRIBE` sobre los links únicamente al rol de la Lambda. Ver `docs/15_estado_implementacion.md`.
+La vía elegida NO fue resource links de Lake Formation sino **AssumeRole al rol
+del hub** (`gestion-proyectos-cost-reader`, el mismo de Facturación/Athena):
+el selector de cuenta enruta al Glue del hub directamente y la caché DynamoDB
+separa por cuenta. El plan anterior (resource links por CDK) queda descartado
+salvo que aparezca una necesidad de consultar tablas del hub por Athena local.
+
+**OJO Lake Formation:** IAM solo no basta. El primer sync del hub devolvió 6 de
+14 bases — LF **filtra silenciosamente** `GetDatabases`/`GetTables` en las bases
+gobernadas (`data_mart` y otras 7 no aparecían; sin error, solo ausentes). Se
+aplicaron grants LF `DESCRIBE` al rol sobre las 14 bases y sus tablas
+(`TableWildcard`), tras lo cual el sync las trae todas. **Una base NUEVA del hub
+necesita su grant `DESCRIBE` (base + TableWildcard) para aparecer en el
+Catálogo** — comando en `docs/permisos_hub.md` (Mec. 1c).

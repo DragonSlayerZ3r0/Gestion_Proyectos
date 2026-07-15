@@ -3,8 +3,11 @@ from typing import Any
 
 
 class GlueRepository:
-    def __init__(self) -> None:
-        self._client = boto3.client("glue")
+    """Lectura del Glue Data Catalog. Sin `client` usa la cuenta de la Lambda;
+    el servicio inyecta un cliente cross-account para las demás cuentas."""
+
+    def __init__(self, client: Any | None = None) -> None:
+        self._client = client or boto3.client("glue")
 
     def list_databases(self) -> list[dict[str, Any]]:
         databases: list[dict[str, Any]] = []

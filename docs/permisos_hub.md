@@ -70,7 +70,7 @@ Aplicada por `scripts/grant-hub-cost-explorer.sh`. Contenido real (Resource `*`)
 | Sid               | Acciones                                                                                                                                                    | Resource                                                                                                       |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `Athena`          | `athena:StartQueryExecution`, `GetQueryExecution`, `GetQueryResults`, `StopQueryExecution`, `GetWorkGroup`, `BatchGetQueryExecution`, `ListQueryExecutions` | `*`                                                                                                            |
-| `GlueRead`        | `glue:GetTable`, `GetDatabase`, `GetPartitions`, `GetPartition`                                                                                             | `catalog`, `database/stage_staging`, `table/stage_staging/ctl_ingestion_unstructured` (todo en `396913696127`) |
+| `GlueRead`        | `glue:GetDatabases`, `GetDatabase`, `GetTables`, `GetTable`, `GetPartitions`, `GetPartition`                                                                | `catalog`, `database/*`, `table/*` (todo en `396913696127`) — ampliado 2026-07-15 para el selector de cuenta del módulo Catálogo (sync completo del Glue del hub); antes estaba acotado a `stage_staging`/`ctl_ingestion_unstructured` |
 | `LakeFormation`   | `lakeformation:GetDataAccess`                                                                                                                               | `*`                                                                                                            |
 | `S3ControlRead`   | `s3:GetObject`, `s3:ListBucket`, `s3:GetBucketLocation`                                                                                                     | `arc-ingestioncontrol` (+ `/*`) — datos de la tabla de control                                                 |
 | `S3AthenaResults` | `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:GetBucketLocation`                                                                                     | `arc-athena-query-resultsdata` (+ `/*`) — resultados de Athena                                                 |
@@ -79,6 +79,24 @@ Datos clave (constantes del código en `backend/app/services/datalake.py`,
 `athena_monitor.py`): workgroup `primary` (su *OutputLocation* real es
 `s3://arc-athena-query-resultsdata/rendicion_cuentas/`), base `stage_staging`,
 tabla `ctl_ingestion_unstructured`.
+
+**Grants Lake Formation `DESCRIBE` (2026-07-15, para el Catálogo multi-cuenta):**
+IAM solo NO basta para listar el Glue del hub — LF **filtra silenciosamente**
+`GetDatabases`/`GetTables` en bases gobernadas (el primer sync trajo 6 de 14
+bases; `data_mart` no aparecía, sin error). Aplicados a mano (perfil
+`fab-datos-prod-sso`) grants `DESCRIBE` al rol `gestion-proyectos-cost-reader`
+sobre las 14 bases y sus tablas. **Al crear una base nueva en el hub, repetir
+para esa base o no aparecerá en el Catálogo:**
+
+```bash
+ROLE="arn:aws:iam::396913696127:role/gestion-proyectos-cost-reader"
+aws lakeformation grant-permissions --profile fab-datos-prod-sso \
+  --principal DataLakePrincipalIdentifier=$ROLE --permissions DESCRIBE \
+  --resource '{"Database":{"Name":"<base>"}}'
+aws lakeformation grant-permissions --profile fab-datos-prod-sso \
+  --principal DataLakePrincipalIdentifier=$ROLE --permissions DESCRIBE \
+  --resource '{"Table":{"DatabaseName":"<base>","TableWildcard":{}}}'
+```
 
 ### 1d. Inline `BedrockLLMInvoke` — sugerencias LLM (Athena) y chat técnico
 

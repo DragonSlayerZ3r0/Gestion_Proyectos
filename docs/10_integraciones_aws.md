@@ -18,10 +18,11 @@ El perfil operativo validado para iniciar construcción está documentado en `do
 
 ## Glue Catalog
 
-- Uso: metadata técnica de Data Lake.
-- Permisos IAM: `glue:GetDatabases`, `glue:GetTables`, `glue:GetTable`, `glue:GetPartitions` si aplica.
-- Variables: `GLUE_CATALOG_ID` opcional.
-- Consideraciones: Glue guarda metadata técnica; DynamoDB guarda contexto funcional de negocio.
+- Uso: metadata técnica de Data Lake. **Multi-cuenta (2026-07-15)**: el Catálogo lee el Glue de la cuenta seleccionada — default el hub `396913696127` vía AssumeRole al rol `gestion-proyectos-cost-reader`; la cuenta app en modo directo.
+- Permisos IAM: `glue:GetDatabases`, `glue:GetDatabase`, `glue:GetTables`, `glue:GetTable`, `glue:GetPartitions` — en el rol de la Lambda (cuenta app) y en la política `AthenaIngestionControl` del rol hub (`docs/permisos_hub.md` 1c).
+- Lake Formation (hub): grants `DESCRIBE` al rol por base + `TableWildcard` — sin ellos LF filtra bases en silencio (una base nueva necesita su grant para aparecer en el Catálogo).
+- Variables: `CATALOG_ACCOUNTS` (fuente única `catalogAccounts` en CDK; la primera es la default).
+- Consideraciones: Glue guarda metadata técnica; DynamoDB guarda contexto funcional de negocio (llaves con namespace por cuenta, `docs/04`).
 
 ## Athena
 
