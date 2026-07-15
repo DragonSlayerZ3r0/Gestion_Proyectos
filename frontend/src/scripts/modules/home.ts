@@ -363,14 +363,23 @@ export function createHomeModule(ctx) {
         // Las filas SIEMPRE se renderizan (aunque la sección esté colapsada) para
         // que el buscador filtre por DOM sin re-render; el cuerpo se oculta solo
         // cuando está colapsada y no se está buscando (buscar lo fuerza a mostrar).
+        // Servicios que son modelos LLM: su cargo es el MISMO que desglosa la
+        // tabla "Consumo de modelos" (los Mantle facturan como servicio propio
+        // "… (Amazon Bedrock Edition)"; "Amazon Bedrock" agrega TODOS los del
+        // Bedrock clásico — GLM, gpt-oss…). La marca evita leerlo como doble
+        // cobro sin sacarlos de la lista (el total debe cuadrar con CE).
+        const isLlmService = (name) => /\(amazon bedrock edition\)$/i.test(name) || name === "Amazon Bedrock";
         const rows = services.map((s) => {
           const open = state.homeCostDetailService === s.service;
+          const llmTag = isLlmService(s.service)
+            ? `<span class="homeLlmSvcTag" title="Este cargo es el mismo que desglosa la tabla «Consumo de modelos» (abajo)${s.service === "Amazon Bedrock" ? "; agrega todos los modelos del Bedrock clásico (GLM, gpt-oss…)" : ""}">LLM · desglose abajo</span>`
+            : "";
           return `
             <div class="homeSvcRow" data-svc-name="${escapeAttribute(s.service.toLowerCase())}">
               <div class="homeSvcMain">
                 <button type="button" class="homeSvcToggle ${open ? "open" : ""}" data-cost-detail="${escapeAttribute(s.service)}"
                   aria-expanded="${open ? "true" : "false"}" aria-label="Ver detalle de uso de ${escapeAttribute(s.service)}" title="Ver detalle de uso">${chevron}</button>
-                <span class="homeSvcName">${escapeHtml(s.service)}</span>
+                <span class="homeSvcName">${escapeHtml(s.service)}${llmTag}</span>
                 <span class="homeTopMeta homeSvcAmount">$${fmtUsd(s.amount)}</span>
               </div>
               ${open ? `<div class="homeSvcDetail">${serviceDetailBody()}</div>` : ""}
@@ -432,22 +441,27 @@ export function createHomeModule(ctx) {
         if (!models.length) return `<p class="catalogEmpty">Sin consumo de modelos en esta cuenta para el período.</p>`;
         const t = d.totals || {};
         const cell = (v) => `<td class="homeLlmNum">${Number(v || 0).toLocaleString("en-US")}</td>`;
-        // Costo ESTIMADO (≈): tokens medidos × precio público de referencia.
-        // Sin tarifa de referencia → "—" (nunca se inventa). El detalle de la
-        // base del estimado va en la nota bajo la tabla.
-        const estCell = (v) => v
-          ? `<td class="homeLlmNum homeLlmEst">≈ $${fmtUsd(v)}</td>`
-          : `<td class="homeLlmNum homeLlmEst homeLlmNoPrice" title="Modelo sin tarifa de referencia">—</td>`;
-        const estTitle = "Estimado: tokens medidos × precio público de referencia por millón de tokens. No es la factura.";
+        // Costo por modelo: el REAL manda (cargo de uso de Marketplace en Cost
+        // Explorer, antes del crédito que lo netea); si CE aún no lo refleja se
+        // cae al ESTIMADO (≈, tokens × precio de referencia — sobreestima porque
+        // los tokens de entrada incluyen caché). Sin dato → "—".
+        const realTitle = "Cargo real de uso (Cost Explorer · Marketplace), antes del crédito que lo netea a $0 en esta cuenta.";
+        const estTitle = "Estimado: tokens medidos × precio de referencia. Sobreestima (incluye tokens de caché).";
+        const costCell = (real, est) => {
+          if (real) return `<td class="homeLlmNum" title="${escapeAttribute(realTitle)}">$${fmtUsd(real)}</td>`;
+          if (est) return `<td class="homeLlmNum homeLlmEst" title="${escapeAttribute(estTitle)}">≈ $${fmtUsd(est)}</td>`;
+          return `<td class="homeLlmNum homeLlmEst homeLlmNoPrice" title="Sin cargo en Cost Explorer ni tarifa de referencia">—</td>`;
+        };
+        const allReal = models.every((m) => m.realUsd);
         return `
-          <p class="homeCostHint">Invocaciones y tokens por modelo en el período. Fuente: CloudWatch <code>AWS/BedrockMantle</code>.</p>
+          <p class="homeCostHint">Invocaciones y tokens por modelo en el período — Mantle (Claude, GPT) y Bedrock clásico (GLM, gpt-oss…). Fuente: CloudWatch <code>AWS/BedrockMantle</code> y <code>AWS/Bedrock</code> + Cost Explorer (cargos de uso).</p>
           <table class="homeSvcTable homeLlmTable">
             <thead><tr>
               <th>Modelo</th>
               <th class="num">Invocaciones</th>
               <th class="num">Tokens entrada</th>
               <th class="num">Tokens salida</th>
-              <th class="num homeLlmEstTh" title="${escapeAttribute(estTitle)}">Costo estimado <span class="homeLlmEstBadge" aria-label="valor estimado">≈</span></th>
+              <th class="num" title="${escapeAttribute(realTitle)}">Costo (uso)</th>
             </tr></thead>
             <tbody>
               ${models.map((m) => `<tr>
@@ -455,7 +469,7 @@ export function createHomeModule(ctx) {
                 ${cell(m.invocations)}
                 ${cell(m.inputTokens)}
                 ${cell(m.outputTokens)}
-                ${estCell(m.estimatedUsd)}
+                ${costCell(m.realUsd, m.estimatedUsd)}
               </tr>`).join("")}
             </tbody>
             <tfoot><tr>
@@ -463,10 +477,10 @@ export function createHomeModule(ctx) {
               ${cell(t.invocations)}
               ${cell(t.inputTokens)}
               ${cell(t.outputTokens)}
-              ${estCell(t.estimatedUsd)}
+              ${allReal ? costCell(t.realUsd, "") : costCell("", t.estimatedUsd)}
             </tr></tfoot>
           </table>
-          <p class="homeLlmEstNote"><span class="homeLlmEstBadge">≈</span> El costo es una <b>estimación</b>: tokens reales medidos × precio público de referencia de Anthropic en Bedrock por millón de tokens. <b>No es la factura</b>: el cobro real de Mantle se liquida vía AWS Marketplace en la cuenta <b>pagadora</b> de la organización (no visible desde las cuentas miembro — aquí Cost Explorer registra estos servicios en $0.00). Modelos sin tarifa de referencia muestran "—".</p>`;
+          <p class="homeLlmEstNote">El costo es el <b>cargo real de uso</b> por modelo (Cost Explorer): los modelos Mantle facturan como servicios de AWS Marketplace "… Amazon Bedrock Edition" y los del Bedrock clásico dentro del servicio "Amazon Bedrock" (por usage type). En esta cuenta un <b>crédito</b> idéntico lo netea a $0.00 — quien lo liquida es la cuenta <b>pagadora</b> de la organización (vía el partner). Si un modelo aún no refleja cargo, se muestra <span class="homeLlmEstBadge">≈</span> <b>estimado</b> por tokens (sobreestima: la entrada incluye tokens de caché a precio pleno).</p>`;
       }
 
       // Cantidad legible: separador de miles + unidad (p. ej. "210,185,825 Requests").

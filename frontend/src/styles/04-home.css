@@ -151,6 +151,9 @@
   .homeSvcToggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
   .homeSvcToggle.open svg { transform: rotate(90deg); }
   .homeSvcName { font-weight: 500; overflow-wrap: anywhere; flex: 1 1 auto; }
+  /* Marca de "este servicio es un modelo LLM": mismo cargo que la tabla
+     Consumo de modelos; inline junto al nombre, envuelve con él en móvil. */
+  .homeLlmSvcTag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 0.7rem; font-weight: 500; white-space: nowrap; vertical-align: baseline; opacity: 0.85; }
   .homeSvcAmount { flex: 0 0 auto; }
   .homeSvcDetail { margin: 8px 0 4px; padding: 6px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
   .homeSvcTable { width: 100%; border-collapse: collapse; font-size: 0.84rem; }

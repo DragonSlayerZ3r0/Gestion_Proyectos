@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -215,24 +216,34 @@ class HomeService:
         return data
 
     # ── Consumo de modelos LLM (Bedrock / Mantle) ────────────────────────────
-    # A diferencia de los costos (dólares de Cost Explorer), el consumo de los
-    # modelos Claude vía Bedrock Mantle NO se desglosa por modelo en Cost Explorer:
-    # se mide en CloudWatch, namespace AWS/BedrockMantle (métricas Inferences,
-    # TotalInputTokens, TotalOutputTokens; dimensión Model). Es USO (invocaciones +
-    # tokens), no USD. Vive por cuenta: cada cuenta lee SU propio CloudWatch (mismo
-    # rol cross-account que Cost Explorer); las cuentas sin modelos devuelven vacío.
+    # El USO (invocaciones + tokens) se mide en CloudWatch, namespace
+    # AWS/BedrockMantle (métricas Inferences, TotalInputTokens, TotalOutputTokens;
+    # dimensión Model). Vive por cuenta: cada cuenta lee SU propio CloudWatch
+    # (mismo rol cross-account que Cost Explorer); sin modelos devuelve vacío.
     # Hallado en el proyecto hermano Agente_Mantenimiento (docs/01 de ese repo).
+    #
+    # El COSTO REAL por modelo SÍ está en Cost Explorer (hallazgo del usuario
+    # 2026-07-14 en la consola Bills del hub): cada modelo es un servicio de
+    # Marketplace ("Claude Opus 4.7 (Amazon Bedrock Edition)", etc.) con un cargo
+    # RECORD_TYPE=Usage al precio facturado, neteado por un Credit idéntico
+    # ("Banrural Datawarehouse PhaseII") — por eso el costo NETO por servicio da
+    # $0.00 y antes creíamos que no había dato. Filtrando Usage se obtiene la
+    # cifra real; quien la paga de verdad es la cuenta pagadora de la org
+    # (866174429827, vía GBM).
+    #
+    # El Bedrock CLÁSICO (GLM 5, gpt-oss-120b…) factura distinto: un solo
+    # servicio "Amazon Bedrock" (BILLING_ENTITY=AWS), también neteado por
+    # crédito, y el desglose por modelo viene en USAGE_TYPE
+    # ("USE1-zai.glm-5-input-tokens"…). Su uso se mide en CloudWatch
+    # AWS/Bedrock (Invocations, InputTokenCount, OutputTokenCount; dimensión
+    # ModelId). Ambas familias se funden en la misma tabla de consumo.
     _MANTLE_NAMESPACE = "AWS/BedrockMantle"
+    _BEDROCK_NAMESPACE = "AWS/Bedrock"
 
-    # Precios de REFERENCIA por millón de tokens (entrada, salida) en USD, para la
-    # ESTIMACIÓN de costo: tokens reales medidos × precio público de lista de
-    # Anthropic en Bedrock (referencia 2026-07; actualizar aquí si cambian).
-    # La factura REAL de Mantle se liquida vía AWS Marketplace en la cuenta
-    # PAGADORA de la organización (866174429827, gestionada vía GBM) — no visible
-    # desde las cuentas miembro: en su Cost Explorer los servicios "Claude …
-    # (Amazon Bedrock Edition)" registran uso con costo $0.00 (verificado
-    # 2026-07-10 en el proyecto hermano). Modelos sin precio aquí muestran "—"
-    # en la UI (no se inventa tarifa).
+    # Precios de REFERENCIA por millón de tokens (entrada, salida) en USD —
+    # FALLBACK cuando Cost Explorer aún no refleja el cargo real de un modelo.
+    # OJO: sobreestiman, porque TotalInputTokens de CloudWatch incluye tokens de
+    # caché (facturados a ~10% del precio de entrada). El dato bueno es el real.
     _LLM_REF_PRICES_USD_MTOK = {
         "anthropic.claude-haiku-4-5": (1.0, 5.0),
         "anthropic.claude-opus-4-7": (5.0, 25.0),
@@ -260,7 +271,9 @@ class HomeService:
 
         try:
             client = self._client(account, "cloudwatch")
-            data = self._fetch_llm_consumption(client, start, end)
+            real_costs = self._fetch_llm_real_costs(account, start, end)
+            classic_costs = self._fetch_bedrock_real_costs(account, start, end)
+            data = self._fetch_llm_consumption(client, start, end, real_costs, classic_costs)
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
             # El rol de la cuenta aún no tiene el permiso de CloudWatch (grant
@@ -279,7 +292,154 @@ class HomeService:
         data["fetchedAt"] = now
         return data
 
-    def _fetch_llm_consumption(self, client, start: str, end: str) -> dict[str, Any]:
+    @staticmethod
+    def _norm_model_key(name: str) -> str:
+        """Normaliza para casar el servicio de CE ("Claude Opus 4.7 (Amazon
+        Bedrock Edition)") con el modelo de CloudWatch ("anthropic.claude-opus-4-7"):
+        minúsculas y solo alfanuméricos de la parte antes del paréntesis."""
+        base = name.split("(")[0].lower()
+        return "".join(ch for ch in base if ch.isalnum())
+
+    def _fetch_llm_real_costs(self, account: str, start: str, end: str) -> dict[str, float]:
+        """Costo REAL de uso por modelo (Cost Explorer): cargos de Marketplace
+        (BILLING_ENTITY='AWS Marketplace') con RECORD_TYPE='Usage' — la cifra
+        facturada del consumo, ANTES del crédito que la netea a $0 en la cuenta.
+        Best-effort: si CE falla se devuelve vacío y la UI cae al estimado."""
+        try:
+            resp = self._ce_client(account).get_cost_and_usage(
+                TimePeriod={"Start": start, "End": end},
+                Granularity="MONTHLY", Metrics=["UnblendedCost"],
+                GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+                Filter={"And": [
+                    {"Dimensions": {"Key": "BILLING_ENTITY", "Values": ["AWS Marketplace"]}},
+                    {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Usage"]}},
+                ]},
+            )
+        except ClientError:
+            return {}
+        out: dict[str, float] = {}
+        for period in resp.get("ResultsByTime", []):
+            for g in period.get("Groups", []):
+                svc = g.get("Keys", [""])[0]
+                amt = float(g.get("Metrics", {}).get("UnblendedCost", {}).get("Amount", 0) or 0)
+                key = self._norm_model_key(svc)
+                if key:
+                    out[key] = out.get(key, 0.0) + amt
+        return out
+
+    def _fetch_bedrock_real_costs(self, account: str, start: str, end: str) -> dict[str, float]:
+        """Costo REAL de uso por modelo del Bedrock CLÁSICO: el servicio
+        "Amazon Bedrock" con RECORD_TYPE='Usage', desglosado por USAGE_TYPE
+        ("USE1-zai.glm-5-input-tokens"…). Se quita el prefijo de región y el
+        sufijo de tokens y se agregan entrada+salida+caché por modelo.
+        Best-effort: vacío si CE falla (las filas quedan sin realUsd)."""
+        try:
+            resp = self._ce_client(account).get_cost_and_usage(
+                TimePeriod={"Start": start, "End": end},
+                Granularity="MONTHLY", Metrics=["UnblendedCost"],
+                GroupBy=[{"Type": "DIMENSION", "Key": "USAGE_TYPE"}],
+                Filter={"And": [
+                    {"Dimensions": {"Key": "SERVICE", "Values": ["Amazon Bedrock"]}},
+                    {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Usage"]}},
+                ]},
+            )
+        except ClientError:
+            return {}
+        out: dict[str, float] = {}
+        for period in resp.get("ResultsByTime", []):
+            for g in period.get("Groups", []):
+                usage = g.get("Keys", [""])[0]
+                amt = float(g.get("Metrics", {}).get("UnblendedCost", {}).get("Amount", 0) or 0)
+                base = re.sub(r"^[A-Z]{2,5}\d?-", "", usage)          # USE1-, EUW1-…
+                base = re.sub(r"-(input|output|cache[a-z0-9-]*)-tokens$", "", base, flags=re.I)
+                key = self._norm_model_key(base)
+                if key:
+                    out[key] = out.get(key, 0.0) + amt
+        return out
+
+    def _fetch_bedrock_classic_rows(self, client, start_dt, end_dt,
+                                    costs: dict[str, float] | None) -> list[dict[str, Any]]:
+        """Filas de consumo del Bedrock clásico: modelos con métricas en la
+        ventana (AWS/Bedrock, dimensión ModelId) leídos con UNA llamada
+        GetMetricData (son decenas de modelos; llamarlos de a uno no escala).
+        Si CE respondió, todo modelo tiene costo real (ausente = $0 facturado);
+        si CE falló, las filas van sin realUsd y la UI muestra "—"."""
+        metrics = client.list_metrics(
+            Namespace=self._BEDROCK_NAMESPACE, MetricName="Invocations").get("Metrics", [])
+        models = sorted({
+            d["Value"] for m in metrics for d in m.get("Dimensions", [])
+            if d.get("Name") == "ModelId"
+        })
+        if not models:
+            return []
+        names = ("Invocations", "InputTokenCount", "OutputTokenCount")
+        queries = [
+            {"Id": f"m{i}_{j}", "MetricStat": {
+                "Metric": {"Namespace": self._BEDROCK_NAMESPACE, "MetricName": name,
+                           "Dimensions": [{"Name": "ModelId", "Value": model}]},
+                "Period": 86400, "Stat": "Sum"}}
+            for i, model in enumerate(models) for j, name in enumerate(names)
+        ]
+        sums: dict[str, float] = {}
+        for i in range(0, len(queries), 500):    # tope de GetMetricData: 500 queries
+            token = None
+            while True:
+                kwargs = {"MetricDataQueries": queries[i:i + 500],
+                          "StartTime": start_dt, "EndTime": end_dt}
+                if token:
+                    kwargs["NextToken"] = token
+                resp = client.get_metric_data(**kwargs)
+                for r in resp.get("MetricDataResults", []):
+                    sums[r["Id"]] = sums.get(r["Id"], 0.0) + sum(r.get("Values", []))
+                token = resp.get("NextToken")
+                if not token:
+                    break
+        costs = costs or {}
+        rows = []
+        for i, model in enumerate(models):
+            inv, tin, tout = (sums.get(f"m{i}_{j}", 0.0) for j in range(3))
+            if inv == 0 and tin == 0 and tout == 0:
+                continue
+            model_key = self._norm_model_key(model)
+            # Exacto primero (evita que "minimax-m2" capture el cargo de
+            # "minimax-m2.5"); contención como red para nombres divergentes
+            # ("MistralLarge" ↔ "mistral.mistral-large-2402-v1:0").
+            real = costs.get(model_key)
+            if real is None:
+                real = next((v for k, v in costs.items()
+                             if k and (k in model_key or model_key in k)), None)
+            if real is None and costs:
+                real = 0.0
+            rows.append({
+                "model": model,
+                "invocations": str(int(inv)),
+                "inputTokens": str(int(tin)),
+                "outputTokens": str(int(tout)),
+                "estimatedUsd": "",
+                "realUsd": f"{real:.2f}" if real is not None else "",
+                "_real": real, "_tokens": tin + tout,
+            })
+        # El hub acumula decenas de modelos "estrenados" con 1-2 invocaciones de
+        # prueba: colapsarlos en una fila para que no ahoguen el consumo real.
+        keep = [r for r in rows if (r["_real"] or 0) >= 0.01 or r["_tokens"] >= 10_000]
+        rest = [r for r in rows if r not in keep]
+        for r in keep:
+            r.pop("_real"), r.pop("_tokens")
+        if rest:
+            has_costs = bool(costs)
+            keep.append({
+                "model": f"(otros: {len(rest)} modelos con pruebas puntuales)",
+                "invocations": str(sum(int(r["invocations"]) for r in rest)),
+                "inputTokens": str(sum(int(r["inputTokens"]) for r in rest)),
+                "outputTokens": str(sum(int(r["outputTokens"]) for r in rest)),
+                "estimatedUsd": "",
+                "realUsd": f"{sum(r['_real'] or 0 for r in rest):.2f}" if has_costs else "",
+            })
+        return keep
+
+    def _fetch_llm_consumption(self, client, start: str, end: str,
+                               real_costs: dict[str, float] | None = None,
+                               classic_costs: dict[str, float] | None = None) -> dict[str, Any]:
         start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         # Modelos con métricas en la ventana (dimensión Model de la métrica base).
@@ -289,16 +449,27 @@ class HomeService:
             d["Value"] for m in metrics for d in m.get("Dimensions", [])
             if d.get("Name") == "Model"
         })
+        real_costs = real_costs or {}
         rows = []
         tot_inv = tot_in = tot_out = tot_usd = 0.0
+        tot_real = 0.0
         for model in models:
             inv = self._sum_mantle_metric(client, "Inferences", model, start_dt, end_dt)
             tin = self._sum_mantle_metric(client, "TotalInputTokens", model, start_dt, end_dt)
             tout = self._sum_mantle_metric(client, "TotalOutputTokens", model, start_dt, end_dt)
             if inv == 0 and tin == 0 and tout == 0:
                 continue
-            # Estimación: tokens × precio de referencia. Sin precio → "" (la UI
-            # muestra "—"); nunca se inventa una tarifa.
+            # Costo REAL (CE Marketplace Usage) si existe; casa por nombre
+            # normalizado ("claudeopus47" ⊂ "anthropicclaudeopus47").
+            model_key = self._norm_model_key(model.replace(".", " ").replace("-", " "))
+            real = next((v for k, v in real_costs.items()
+                         if k and (k in model_key or model_key in k)), None)
+            real_usd = ""
+            if real is not None:
+                tot_real += real
+                real_usd = f"{real:.2f}"
+            # Estimación (fallback): tokens × precio de referencia. Sin precio →
+            # "" (la UI muestra "—"); nunca se inventa una tarifa.
             price = self._LLM_REF_PRICES_USD_MTOK.get(model)
             usd = ""
             if price:
@@ -312,11 +483,22 @@ class HomeService:
                 "inputTokens": str(int(tin)),
                 "outputTokens": str(int(tout)),
                 "estimatedUsd": usd,
+                "realUsd": real_usd,
             })
             tot_inv += inv
             tot_in += tin
             tot_out += tout
-        rows.sort(key=lambda r: int(r["invocations"]), reverse=True)
+        for row in self._fetch_bedrock_classic_rows(client, start_dt, end_dt, classic_costs):
+            if row["realUsd"]:
+                tot_real += float(row["realUsd"])
+            tot_inv += int(row["invocations"])
+            tot_in += int(row["inputTokens"])
+            tot_out += int(row["outputTokens"])
+            rows.append(row)
+        all_real = bool(rows) and all(r["realUsd"] for r in rows)
+        # El costo manda en el orden (es la vista de facturación); a igual costo,
+        # por invocaciones.
+        rows.sort(key=lambda r: (float(r["realUsd"] or 0), int(r["invocations"])), reverse=True)
         return {
             "available": True,
             "models": rows,
@@ -325,6 +507,7 @@ class HomeService:
                 "inputTokens": str(int(tot_in)),
                 "outputTokens": str(int(tot_out)),
                 "estimatedUsd": f"{tot_usd:.2f}",
+                "realUsd": f"{tot_real:.2f}" if all_real else "",
             },
         }
 
@@ -618,8 +801,12 @@ class HomeService:
             "concepts": concepts,
             "net": self._fmt(net),
             "gross": self._fmt(gross_total),
-            "byService": by_service[:10],
-            "grossByService": gross_by_service[:10],
+            # Lista COMPLETA (antes top-10): el "Detalle por servicio" debe
+            # espejear Cost Explorer — con el corte, servicios reales (GPT-5.5,
+            # Amazon Bedrock) eran invisibles y el buscador no los encontraba
+            # (solo filtra filas renderizadas). Duda del usuario 2026-07-14.
+            "byService": by_service,
+            "grossByService": gross_by_service,
             "daily": daily,
             "dailyGross": daily_gross,
             "creditsByService": credits_by_service,
