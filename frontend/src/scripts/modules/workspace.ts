@@ -166,15 +166,21 @@ export function createWorkspaceModule(ctx) {
                 <button class="primaryButton" type="submit">Nuevo</button>
               </form>`}
               <div class="workspaceControls">
-                <input id="projectSearch" class="searchInput" type="search" placeholder="Buscar por nombre, descripción, persona…" value="${escapeAttribute(state.projectSearch)}" />
-                <div class="searchScopeGroup">
+                <div class="wsSearchRow">
+                  <input id="projectSearch" class="searchInput" type="search" placeholder="${state.projectAdvanced ? "Escribe una idea y presiona Enter…" : "Buscar por nombre, descripción, persona…"}" value="${escapeAttribute(state.projectSearch)}" />
+                  ${state.projectAdvanced ? `<button type="button" id="projectSemGoBtn" class="wsSemGoBtn" title="Buscar por significado (Enter)"><span aria-hidden="true">≈</span> Buscar</button>` : ""}
+                  <button type="button" id="projectAdvancedToggle" class="wsAdvancedToggle${state.projectAdvanced ? " active" : ""}" title="Búsqueda avanzada: por significado, incluye lo escrito en los seguimientos (encuentra aunque la palabra no sea exacta)"><span aria-hidden="true">≈</span> Avanzada</button>
+                </div>
+                ${state.projectAdvanced
+                  ? `<p class="wsAdvancedHint">Pregunta en lenguaje natural y presiona <b>Enter</b> (o «Buscar»): entiende <b>condiciones</b> (responsable, estado, área) y busca por <b>significado</b> en solicitudes y sus <b>seguimientos</b>. Ej.: «solicitudes del responsable Diego», «lo que se habló de las APIs», «activas sobre cartera vencida».</p>`
+                  : `<div class="searchScopeGroup">
                   <span class="searchScopeLabel">Buscar en:</span>
                   <div class="searchScope segmented" role="group" aria-label="Buscar en">
                     ${renderProjectSearchScopeButton("all", "Todo")}
                     ${renderProjectSearchScopeButton("projects", "Solicitudes")}
                     ${renderProjectSearchScopeButton("tasks", "Tareas")}
                   </div>
-                </div>
+                </div>`}
               </div>
             </section>
 
@@ -191,7 +197,7 @@ export function createWorkspaceModule(ctx) {
                   <span class="countPill">${projectCountText}</span>
                 </div>
               </div>
-              ${renderProgressBoard(visibleProjects, peopleById)}
+              <div class="projectBoardWrap">${renderProgressBoard(visibleProjects, peopleById)}</div>
             </section>` : `
             ${workspace.projects.length === 0 ? `
             <section class="panel projectsEmptyCta">
@@ -216,7 +222,7 @@ export function createWorkspaceModule(ctx) {
                 </div>
               </div>
               <div class="projectTableWrap">
-                ${renderProjectTable(visibleProjects, activeProject, peopleById)}
+                ${projectTableContent(visibleProjects, activeProject, peopleById)}
               </div>
             </section>
 
@@ -298,6 +304,22 @@ export function createWorkspaceModule(ctx) {
             if (!isOwner && !isMember) {
               return false;
             }
+          }
+          // Búsqueda AVANZADA (planificador): aplica los filtros EXACTOS que
+          // entendió (responsable/estado/área/tipo) + el concepto semántico. Así
+          // "responsable Diego" filtra exacto por Diego; "tema fraude" ranquea por
+          // significado; "de Diego sobre APIs" hace ambas. Se combina además con
+          // los filtros manuales de arriba.
+          if (state.projectAdvanced && (state.projectSemQuery || "").trim()) {
+            const f = state.projectSemFilters || {};
+            if (f.status && project.status !== f.status) return false;
+            if (f.ownerPersonId && project.ownerPersonId !== f.ownerPersonId) return false;
+            if (f.requestingAreaId && project.requestingAreaId !== f.requestingAreaId) return false;
+            if (f.requestType && (project.requestType || "") !== f.requestType) return false;
+            // Con concepto semántico → solo las que casaron por significado; sin
+            // concepto (consulta de puro filtro) → todas las que pasan los filtros.
+            if ((state.projectSemConcept || "").trim()) return !!state.projectSemResults[project.id];
+            return true;
           }
           const tokens = searchTokens(state.projectSearch);
           if (!tokens.length) {
@@ -610,6 +632,12 @@ export function createWorkspaceModule(ctx) {
       // elegido se mantiene el del backend (última solicitud actualizada primero).
       function sortProjectsForTable(projects, peopleById) {
         const s = state.projectSort;
+        // Avanzada CON concepto semántico y sin orden de columna → por RELEVANCIA.
+        // (Consulta de puro filtro, sin concepto → orden por defecto del backend.)
+        if (!s && state.projectAdvanced && (state.projectSemConcept || "").trim()) {
+          const scoreOf = (p) => state.projectSemResults[p.id]?.score ?? -1;
+          return [...projects].sort((a, b) => scoreOf(b) - scoreOf(a));
+        }
         if (!s) return projects;
         const val = (p) => {
           switch (s.key) {
@@ -687,7 +715,16 @@ export function createWorkspaceModule(ctx) {
             // izquierda del identificador. Fijo a la derecha, los clips forman su
             // propio riel vertical escaneable (patrón correo).
             const clip = attCount ? `<span class="projClip" title="${attCount} adjunto${attCount === 1 ? "" : "s"}" aria-label="${attCount} adjunto${attCount === 1 ? "" : "s"}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16.5 6.5v9a4.5 4.5 0 0 1-9 0v-10a3 3 0 0 1 6 0v9.5a1.5 1.5 0 0 1-3 0V7.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>` : "";
-            return `<td class="projName"><span class="projNameText">${escapeHtml(project.name)}</span>${clip}</td>`;
+            // En búsqueda avanzada, si la coincidencia vino de un SEGUIMIENTO,
+            // un chip discreto con el fragmento (el keyword no busca ahí).
+            const hit = state.projectAdvanced ? state.projectSemResults[project.id] : null;
+            let semChip = "";
+            if (hit && hit.via === "seguimiento") {
+              const upd = (project.updates || []).find((u) => u.id === hit.updateId);
+              const snippet = (upd?.text || "").slice(0, 90);
+              semChip = `<span class="projSemHit" title="${escapeAttribute(snippet || "Coincide en un seguimiento")}">≈ seguimiento</span>`;
+            }
+            return `<td class="projName"><span class="projNameText">${escapeHtml(project.name)}</span>${semChip}${clip}</td>`;
           }
           case "type":
             return `<td>${requestTypeLabel(project.requestType) || `<span class="emptyText">—</span>`}</td>`;
@@ -713,6 +750,29 @@ export function createWorkspaceModule(ctx) {
           }
         }
         return `<td></td>`;
+      }
+
+      // Muestra QUÉ entendió el planificador (filtros exactos + concepto), para que
+      // el usuario sepa por qué se filtró/ordenó así.
+      function interpretationBanner() {
+        const interp = (state.projectSemInterpretation || "").trim();
+        if (!interp) return "";
+        return `<p class="wsSemInterp"><span class="wsSemInterpIcon" aria-hidden="true">≈</span> Entendí: ${escapeHtml(interp)}</p>`;
+      }
+
+      // Contenido del contenedor de la tabla, contemplando los estados de la
+      // búsqueda avanzada (cargando / error / sin consulta / sin coincidencias).
+      function projectTableContent(projects, activeProject, peopleById) {
+        if (state.projectAdvanced) {
+          if (state.projectSemLoading) return `<p class="emptyText projectTableEmpty">Interpretando y buscando…</p>`;
+          if (state.projectSemError) return `<p class="emptyText projectTableEmpty">${escapeHtml(state.projectSemError)}</p>`;
+          const q = (state.projectSemQuery || "").trim();
+          if (!q) return `<p class="emptyText projectTableEmpty">Escribe una idea o una condición y presiona <b>Enter</b> (o «Buscar»). Ej.: «solicitudes del responsable Diego», «lo que se habló de las APIs», «activas sobre fraude».</p>`;
+          const banner = interpretationBanner();
+          if (!projects.length) return banner + `<p class="emptyText projectTableEmpty">Sin coincidencias para «${escapeHtml(q)}». Ajusta la consulta o revisa los filtros activos.</p>`;
+          return banner + renderProjectTable(projects, activeProject, peopleById);
+        }
+        return renderProjectTable(projects, activeProject, peopleById);
       }
 
       function renderProjectTable(projects, activeProject, peopleById) {
@@ -1493,6 +1553,112 @@ export function createWorkspaceModule(ctx) {
         return `priority-${priority || "none"}`;
       }
 
+      // Handlers de la LISTA de solicitudes (tabla Gestión + tablero) acotados a un
+      // `scope`. Se usan en el bind completo (scope=document) y en el re-render
+      // parcial de la búsqueda (scope = solo el contenedor de la lista): así el
+      // buscador NO destruye su propio input al filtrar (en móvil eso cerraba el
+      // teclado en cada tecla). Al acotar el scope no se duplican listeners.
+      function bindProjectListHandlers(scope) {
+        for (const th of scope.querySelectorAll("[data-proj-sort]")) {
+          th.addEventListener("click", () => {
+            const key = th.dataset.projSort;
+            state.projectSort = (state.projectSort?.key === key)
+              ? { key, dir: state.projectSort.dir * -1 }
+              : { key, dir: 1 };
+            renderWorkspace();
+          });
+        }
+        // Fila de la tabla → selecciona y muestra el detalle abajo. Clic normal =
+        // seleccionar + peek; clic en el chevron › = ir de lleno al detalle.
+        for (const row of scope.querySelectorAll("[data-project-row]")) {
+          row.addEventListener("click", (event) => {
+            const full = Boolean(event.target.closest?.(".projChevron"));
+            if (state.activeProjectId === row.dataset.projectRow) {
+              revealProjectDetail(full);
+              return;
+            }
+            state.activeProjectId = row.dataset.projectRow;
+            state.saveNotice = null;
+            renderWorkspace();
+            revealProjectDetail(full);
+          });
+        }
+        // Tablero de avance: fila expande "¿Qué falta? / ¿Cuándo?".
+        for (const row of scope.querySelectorAll("[data-board-toggle]")) {
+          row.addEventListener("click", () => {
+            const id = row.dataset.boardToggle;
+            state.boardExpanded = state.boardExpanded === id ? null : id;
+            renderWorkspace();
+          });
+        }
+        // Soltar una persona sobre una solicitud (drag & drop, atajo).
+        for (const project of scope.querySelectorAll("[data-project-id]")) {
+          project.addEventListener("dragover", allowDrop);
+          project.addEventListener("drop", dropOnProject);
+        }
+      }
+
+      // Re-render SOLO de la lista + contador (sin tocar el buscador → el input
+      // sobrevive y en móvil el teclado no se cierra). Mismo patrón que Catálogo/
+      // Facturación/Athena (docs/06; regla "filtrar sin re-render para no perder foco").
+      function applyProjectSearch() {
+        const workspace = state.workspace;
+        if (!workspace) return;
+        const panel = elements.contentPanel;
+        const listWrap = panel.querySelector(".projectTableWrap") || panel.querySelector(".projectBoardWrap");
+        if (!listWrap) { renderWorkspace(); return; }  // vista sin lista → render normal
+        const peopleById = Object.fromEntries(workspace.people.map((p) => [p.id, p]));
+        const visibleProjects = getVisibleProjects(workspace.projects, peopleById);
+        const isBoard = (state.workspaceView || "manage") === "board";
+        // El activo NO se reasigna al teclear (evita que el detalle salte); solo
+        // se usa para resaltar la fila si sigue visible.
+        const activeProject = visibleProjects.find((p) => p.id === state.activeProjectId)
+          || workspace.projects.find((p) => p.id === state.activeProjectId) || null;
+        listWrap.innerHTML = isBoard
+          ? renderProgressBoard(visibleProjects, peopleById)
+          : projectTableContent(visibleProjects, activeProject, peopleById);
+        const pill = panel.querySelector(".projectTableHead .countPill");
+        if (pill) pill.textContent = `${visibleProjects.length} de ${workspace.projects.length} solicitudes`;
+        bindProjectListHandlers(listWrap);
+      }
+
+      // Búsqueda AVANZADA (semántica) de solicitudes: por ENVÍO. Llama al backend
+      // (embebe la consulta con Titan, híbrida sobre solicitud + seguimiento),
+      // guarda projectId → {score, via, updateId} y re-renderiza: la MISMA tabla se
+      // reordena por relevancia y se filtra a las coincidencias (combinando con los
+      // filtros de estado/área). Es un envío discreto (no por tecla), así que un
+      // renderWorkspace() completo aquí no tiene el problema de foco del keyword.
+      function resetProjectSem() {
+        state.projectSemResults = {}; state.projectSemQuery = "";
+        state.projectSemFilters = {}; state.projectSemConcept = "";
+        state.projectSemInterpretation = ""; state.projectSemError = "";
+      }
+
+      async function runProjectSemanticSearch() {
+        const q = (state.projectSearch || "").trim();
+        if (!q) { resetProjectSem(); renderWorkspace(); return; }
+        state.projectSemLoading = true; state.projectSemError = "";
+        renderWorkspace();
+        try {
+          const payload = await apiRequest(`api/workspace/search?q=${encodeURIComponent(q)}`);
+          const d = payload.data || {};
+          const map = {};
+          for (const r of (d.results || [])) map[r.projectId] = r;
+          state.projectSemResults = map;
+          state.projectSemFilters = d.filters || {};
+          state.projectSemConcept = d.semantic || "";
+          state.projectSemInterpretation = d.interpretation || "";
+          state.projectSemQuery = q;
+          state.projectSemError = "";
+        } catch (err) {
+          state.projectSemResults = {}; state.projectSemFilters = {}; state.projectSemConcept = "";
+          state.projectSemInterpretation = ""; state.projectSemQuery = q;
+          state.projectSemError = err?.message || "No se pudo completar la búsqueda.";
+        }
+        state.projectSemLoading = false;
+        renderWorkspace();
+      }
+
       function bindWorkspaceEvents() {
         const personForm = document.querySelector("#personQuickForm");
         const projectForm = document.querySelector("#projectQuickForm");
@@ -1521,14 +1687,28 @@ export function createWorkspaceModule(ctx) {
 
         personForm?.addEventListener("submit", submitPersonForm);
         projectForm?.addEventListener("submit", submitProjectForm);
+        // Keyword: filtra SIN re-render del módulo (solo lista + contador, dejando
+        // vivo el input → en móvil el teclado no se cierra; regla docs/06).
+        // Avanzada (semántica): por ENVÍO explícito (Enter/botón), NO en cada tecla
+        // — se escribe la idea completa; buscar con frases a medias confunde.
         projectSearch?.addEventListener("input", (event) => {
           state.projectSearch = event.target.value;
+          if (state.projectAdvanced) {
+            if (!(state.projectSearch || "").trim()) { resetProjectSem(); renderWorkspace(); }
+          } else {
+            applyProjectSearch();
+          }
+        });
+        projectSearch?.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && state.projectAdvanced) { event.preventDefault(); runProjectSemanticSearch(); }
+        });
+        document.querySelector("#projectSemGoBtn")?.addEventListener("click", runProjectSemanticSearch);
+        document.querySelector("#projectAdvancedToggle")?.addEventListener("click", () => {
+          state.projectAdvanced = !state.projectAdvanced;
+          state.projectSemError = "";
+          if (!state.projectAdvanced) resetProjectSem();
           renderWorkspace();
-          requestAnimationFrame(() => {
-            const input = document.querySelector("#projectSearch");
-            input?.focus();
-            input?.setSelectionRange(state.projectSearch.length, state.projectSearch.length);
-          });
+          if (state.projectAdvanced && (state.projectSearch || "").trim()) runProjectSemanticSearch();
         });
         personSearch?.addEventListener("input", (event) => {
           state.personSearch = event.target.value;
@@ -1698,13 +1878,9 @@ export function createWorkspaceModule(ctx) {
         const reportBtn = document.querySelector("#wsReportBtn");
         if (reportBtn) reportBtn.addEventListener("click", openReportModal);
         // Tablero: expandir/colapsar el "¿Qué falta? / ¿Cuándo?" de una solicitud.
-        for (const row of document.querySelectorAll("[data-board-toggle]")) {
-          row.addEventListener("click", () => {
-            const id = row.dataset.boardToggle;
-            state.boardExpanded = state.boardExpanded === id ? null : id;
-            renderWorkspace();
-          });
-        }
+        // Handlers de la lista (tabla + tablero + drop en solicitud), en un solo
+        // lugar reutilizado por la búsqueda parcial.
+        bindProjectListHandlers(document);
 
         // Dropdowns de filtro (Tipo/Área/Responsable/Involucra a).
         for (const sel of document.querySelectorAll("[data-filter]")) {
@@ -1833,32 +2009,7 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
-        for (const th of document.querySelectorAll("[data-proj-sort]")) {
-          th.addEventListener("click", () => {
-            const key = th.dataset.projSort;
-            state.projectSort = (state.projectSort?.key === key)
-              ? { key, dir: state.projectSort.dir * -1 }
-              : { key, dir: 1 };
-            renderWorkspace();
-          });
-        }
-
-        // Fila de la tabla de proyectos → selecciona y muestra el detalle abajo.
-        // Clic normal = seleccionar + peek (el listado no se pierde de vista);
-        // clic en el chevron › = ir de lleno al detalle.
-        for (const row of document.querySelectorAll("[data-project-row]")) {
-          row.addEventListener("click", (event) => {
-            const full = Boolean(event.target.closest?.(".projChevron"));
-            if (state.activeProjectId === row.dataset.projectRow) {
-              revealProjectDetail(full);
-              return;
-            }
-            state.activeProjectId = row.dataset.projectRow;
-            state.saveNotice = null;
-            renderWorkspace();
-            revealProjectDetail(full);
-          });
-        }
+        // (orden de columnas y clic de fila → bindProjectListHandlers, arriba)
 
         // Área solicitante: catálogo vivo desde el propio selector — "+ Agregar
         // área nueva…" la crea y "Corregir nombre" arregla una mal escrita (se
@@ -2126,10 +2277,7 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
-        for (const project of document.querySelectorAll("[data-project-id]")) {
-          project.addEventListener("dragover", allowDrop);
-          project.addEventListener("drop", dropOnProject);
-        }
+        // (drop de persona en solicitud → bindProjectListHandlers, arriba)
 
         for (const dropZone of document.querySelectorAll("[data-people-drop-zone]")) {
           dropZone.addEventListener("dragover", allowDrop);

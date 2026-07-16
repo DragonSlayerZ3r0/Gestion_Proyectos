@@ -579,6 +579,52 @@ class WorkspaceService:
             raise ValidationError("La fecha del seguimiento no es válida.")
         return value
 
+    # ── Búsqueda avanzada: planificador (NL → filtros + semántica) ────────────
+    def search_advanced(self, query: str) -> dict[str, Any]:
+        """Convierte la consulta en lenguaje natural en filtros estructurados
+        (responsable/estado/área/tipo, exactos) + un concepto semántico, usando el
+        planificador genérico (`core/query_planner`). Los atributos exactos los
+        aplica el frontend (tiene los datos); aquí se devuelven resueltos a id, más
+        el ranking semántico del concepto y la interpretación para mostrar."""
+        query = (query or "").strip()
+        empty = {"query": "", "interpretation": "", "filters": {}, "semantic": "", "results": []}
+        if not query:
+            return empty
+
+        statuses = [{"id": s["id"], "label": s["label"]} for s in self.list_project_statuses()]
+        people = [{"id": p["id"], "label": p["fullName"]}
+                  for p in (self._normalize_person(i) for i in self._repository.list_people())
+                  if p.get("fullName")]
+        areas = [{"id": a["id"], "label": a["name"]}
+                 for a in (self._normalize_area(i) for i in self._repository.list_areas())
+                 if a.get("name")]
+        types = [{"id": t["key"], "label": t["label"]} for t in REQUEST_TYPES_CATALOG]
+
+        from core.query_planner import FilterField, plan_query
+        fields = [
+            FilterField("status", "estado", "Estado de la solicitud", statuses),
+            FilterField("ownerPersonId", "responsable", "Persona responsable de la solicitud", people),
+            FilterField("requestingAreaId", "área", "Área que solicita", areas),
+            FilterField("requestType", "tipo", "Tipo de la solicitud", types),
+        ]
+
+        from services.llm import LlmService
+
+        def _complete(prompt: str, system: str) -> str:
+            return LlmService().complete(prompt, system=system, max_tokens=400, thinking=False)["text"]
+
+        plan = plan_query(query, fields, _complete)
+
+        from services.embedding_index import workspace_semantic_search
+        results = workspace_semantic_search(plan.semantic) if plan.semantic else []
+        return {
+            "query": query,
+            "interpretation": plan.interpretation,
+            "filters": plan.filters,
+            "semantic": plan.semantic,
+            "results": results,
+        }
+
     def create_project_update(self, project_id: str, payload: dict[str, Any],
                               identity: dict[str, str]) -> dict[str, Any]:
         """Nueva entrada de seguimiento. La fecha se asigna sola (HOY en hora de

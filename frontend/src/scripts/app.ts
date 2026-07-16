@@ -181,6 +181,15 @@
         ingestOpenDayArea: null,
         ingestOpenFiles: {},
         catalogSelectedTable: null,
+        // Búsqueda avanzada (planificador: filtros + semántica) de Solicitudes — 2026-07-15
+        projectAdvanced: false,
+        projectSemResults: {},   // projectId → {score, via, updateId} (ranking semántico)
+        projectSemQuery: "",     // la consulta ya ENVIADA (submit), no la que se teclea
+        projectSemFilters: {},   // filtros estructurados que entendió el planificador (exactos)
+        projectSemConcept: "",   // la parte semántica (concepto); "" si es puro filtro
+        projectSemInterpretation: "",  // qué entendió (para mostrar al usuario)
+        projectSemLoading: false,
+        projectSemError: "",
         catalogSearch: "",
         catalogSearchScope: ["table"],
         // Búsqueda avanzada (semántica, toda la cuenta) — 2026-07-15

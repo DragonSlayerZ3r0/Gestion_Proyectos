@@ -1039,6 +1039,82 @@
     flex: 1 1 320px;
   }
 
+  /* Búsqueda avanzada (semántica) de Solicitudes: toggle ≈ + botón Buscar
+     (envío explícito). Mismo lenguaje que el Catálogo. */
+  .wsSearchRow {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    width: 100%;
+  }
+  .wsSearchRow .searchInput { flex: 1 1 auto; min-width: 0; }
+  .wsAdvancedToggle {
+    flex: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.78rem; font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.12s;
+  }
+  .wsAdvancedToggle span, .wsSemGoBtn span { font-size: 0.95rem; line-height: 1; }
+  .wsAdvancedToggle:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .wsAdvancedToggle.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+  .wsSemGoBtn {
+    flex: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 0.78rem; font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.12s;
+  }
+  .wsSemGoBtn:hover { filter: brightness(1.06); }
+  .wsAdvancedHint {
+    margin: 7px 0 0;
+    font-size: 0.74rem;
+    color: var(--muted);
+  }
+  .wsAdvancedHint b { color: var(--text-soft); }
+  /* Banner "Entendí: …": qué extrajo el planificador (filtros + concepto). */
+  .wsSemInterp {
+    margin: 0 0 10px;
+    padding: 7px 12px;
+    font-size: 0.8rem;
+    color: var(--text-soft);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .wsSemInterpIcon {
+    flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); color: var(--on-accent);
+    font-size: 0.8rem; font-weight: 700;
+  }
+  /* Chip "≈ seguimiento": la coincidencia vino de la bitácora (metadato tenue). */
+  .projSemHit {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.68rem; font-weight: 600;
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+    border-radius: 999px;
+    padding: 1px 7px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
   /* Alcance de la búsqueda: rótulo "Buscar en:" + control SEGMENTADO de una sola
      opción (Todo/Solicitudes/Tareas). Se lee como un selector/filtro, no como
      botones de acción — antes se confundían con botones. */

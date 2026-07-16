@@ -26,12 +26,20 @@ services/embedding_index.py   CABLEADO del dominio — Titan vía hub, namespace
         ▲
 services/exec_report.py       CONSUMIDOR 1 — búsqueda de dos pasos del reporte
 services/catalog.py           CONSUMIDOR 2 — búsqueda avanzada de tablas (§9)
+workspace_routes.py           CONSUMIDOR 3 — búsqueda avanzada de solicitudes (§11)
 ```
 
 **Regla de reuso:** `core/embeddings.py` no conoce solicitudes, hubs ni dominios —
 solo `(docId, texto, meta)`. Se copia tal cual a plataformas hermanas
 (Plataforma_Inteligencia, Agente_Mantenimiento). Un módulo nuevo con búsqueda
 semántica es otra instancia de `EmbeddingIndex` con su propio `namespace`.
+
+**Segundo core genérico — `core/query_planner.py` (§12):** convierte una consulta en
+lenguaje natural en **filtros estructurados exactos + concepto semántico**. También
+es genérico (cero imports del proyecto, LLM inyectado): cada módulo solo **declara sus
+campos filtrables** (`FilterField`), que son por definición específicos de su dominio;
+el "cerebro" (prompt + parseo) es compartido. Resuelve el caso que la semántica pura
+NO puede: "solicitudes donde el responsable sea Diego" (filtro exacto, no un tema).
 
 ---
 
@@ -314,10 +322,15 @@ sin infra nueva.
   literales). `min_score` 0.2, top_k 40.
 - **UX ("Búsqueda avanzada"):** un toggle `≈ Avanzada` junto al buscador
   (`catalog.ts`). Apagado = búsqueda instantánea actual (keyword, dentro de la base
-  seleccionada) sin cambios. Encendido = consulta semántica (debounce 350 ms, o Enter)
-  a **toda la cuenta**, lista plana ranqueada con badge "≈ significado"/"coincidencia";
-  al hacer clic navega a esa base + abre la tabla. El índice es por cuenta: cambiar de
-  cuenta limpia los resultados.
+  seleccionada, filtra **en vivo** cada letra) sin cambios. Encendido = consulta
+  semántica **por envío explícito** — se escribe la idea completa y se busca con
+  **Enter** o el botón **«Buscar»** (aparece un botón junto al input); NO busca en
+  cada tecla. Motivo (feedback del usuario): la semántica se escribe como una frase/
+  idea, y buscar con frases a medias hacía saltar resultados irrelevantes y confundía
+  (distinto del keyword, donde teclear en vivo sí acota). Resultado: lista plana
+  ranqueada a **toda la cuenta**, badge "≈ significado"/"coincidencia"; al hacer clic
+  navega a esa base + abre la tabla. Vaciar el campo limpia resultados; el índice es
+  por cuenta (cambiar de cuenta limpia resultados).
 - **Optimización compartida:** `_hub_session()` cachea la sesión STS del hub entre
   invocaciones calientes (antes: un assume-role por vector) — hace viable el backfill
   de cientos/miles de tablas. Beneficia también a Solicitudes.
@@ -341,6 +354,80 @@ exacta (modo normal) sigue disponible para búsquedas literales.
   `apertura_cuentas`, `cuentas`, `clientes` (0.60+) en `stage_staging`/`data_mart` —
   coincidencia por significado, no por palabra.
 
-Ver también: `docs/01` (arquitectura), `docs/02` (Reporte ejecutivo + Catálogo), `docs/04`
-(ítem EMBEDDING), `docs/07` (Catálogo), `docs/permisos_hub.md` 1d (ARN Titan), `docs/22`
-(bitácora).
+---
+
+## 11. Tercer consumidor — Búsqueda avanzada de Solicitudes (2026-07-15)
+
+Mismo `core/embeddings.py`, aplicado al buscador del módulo Solicitudes. **No indexa
+nada nuevo**: reutiliza los vectores `solicitud` + `seguimiento` que ya existían (del
+Reporte ejecutivo, frescos por on-write). Distinto del Catálogo: allí el valor era
+"todas las bases a la vez"; aquí todas las solicitudes ya están en memoria y el keyword
+es instantáneo, así que el valor es (a) **por concepto** y (b) **por el contenido de los
+seguimientos**, que el keyword de la lista **no busca** (solo nombre + descripción + área
++ responsable + miembros; ver `getVisibleProjects`/`projectSearchText`).
+
+- **Endpoint:** `GET /api/workspace/search?q=` → `WorkspaceService.search_advanced()`.
+  Desde 2026-07-15 usa el **planificador** (§12): la consulta pasa por
+  `plan_query()` con los campos declarados del módulo (estado, responsable, área,
+  tipo) → `{filtros exactos, concepto semántico, interpretación}`. El concepto (si lo
+  hay) se ranquea con `workspace_semantic_search()` — **híbrida sobre DOS namespaces**
+  (`solicitud` + `seguimiento`), mapeando cada acierto a su solicitud padre. Devuelve
+  `{query, interpretation, filters, semantic, results:[{projectId, score, via, updateId}]}`.
+  `min_score` 0.2. Sin colisión de ruta: `/api/workspace/search` (3 segmentos) ≠
+  `/api/workspace` (2).
+- **UX ("≈ Avanzada"):** toggle junto al buscador (`workspace.ts`), **por envío explícito**
+  (Enter/«Buscar»), idéntico al Catálogo. Apagado = keyword en vivo (sin cambios).
+- **Presentación (decisión del usuario): reordenar la tabla existente**, NO una lista
+  aparte. El frontend aplica los **filtros exactos del planificador** (`projectSemFilters`:
+  responsable/estado/área/tipo) en `getVisibleProjects`, **combinándolos con los filtros
+  manuales** (chips/dropdowns); si hay concepto semántico, además filtra a las coincidencias
+  y **reordena por relevancia** (`sortProjectsForTable` usa el score). Consulta de PURO
+  filtro (sin concepto, p. ej. "responsable Diego") → muestra TODAS las que cumplen, sin
+  ranking. Se conservan columnas, filtros y el detalle al hacer clic. Las filas que
+  coincidieron por un seguimiento muestran un chip **"≈ seguimiento"** con el fragmento.
+  Un banner **"Entendí: …"** (`interpretationBanner`) muestra qué extrajo el planificador,
+  para que el usuario sepa por qué se filtró/ordenó así.
+- **Envío discreto → render completo:** como es por envío (no por tecla), `runProjectSemanticSearch`
+  hace un `renderWorkspace()` completo sin el problema de foco del keyword (ese sí filtra
+  sin re-render, `applyProjectSearch`; ver §incidente en `docs/22` y regla en `docs/06`).
+
+**Verificación E2E (2026-07-15):** "integracion de datos de redes sociales" → #1 la
+solicitud "Data redes sociales APi" (0.65); "se revisaron las apis y las necesidades" →
+#1 el seguimiento real del 15-jul (0.92) de esa misma solicitud — es decir, buscar por el
+**contenido de un seguimiento** encuentra su solicitud, algo imposible con el keyword.
+
+---
+
+## 12. Planificador de consultas — `core/query_planner.py` (2do core genérico)
+
+**Por qué:** la búsqueda semántica pura NO filtra por atributos exactos. "solicitudes
+donde el responsable sea Diego" embebe como un tema, y como todas las solicitudes son
+temáticamente parecidas, casi todas superan el umbral → devolvía 34 de 43, sin filtrar
+por Diego (bug reportado por el usuario). El planificador separa lo **exacto** de lo
+**conceptual**, como el del Reporte ejecutivo, pero **generalizado y reutilizable**.
+
+**Genérico (el "cerebro"):** `plan_query(query, fields, complete_fn) -> QueryPlan`.
+Cero imports del proyecto; el LLM se inyecta como callable `complete(prompt, system)`.
+Devuelve `{filters: {campo: id}, semantic: str, interpretation: str}`. El prompt lista
+los campos y, para los enumerables, sus valores como `id=label` — el LLM devuelve el
+`id` (resuelve parciales: "Diego" → id de "Diego Sosa"). Parseo defensivo: descarta
+campos no declarados e ids fuera de los valores. **Fallback:** ante cualquier fallo,
+degrada a "todo semántico" (`semantic = query`, sin filtros) → la búsqueda no se rompe.
+
+**Por módulo (los "campos", específicos por definición):** cada consumidor declara sus
+`FilterField(key, label, description, values=[{id,label}]|None)`. Solicitudes declara
+estado/responsable/área/tipo (`WorkspaceService.search_advanced`). Es SOLO declarar una
+lista — la lógica de planificación es compartida. **Reuso en Catálogo:** listo para
+enchufarse declarando sus campos (p. ej. `database`, `tableType`); "tablas de data_mart
+sobre clientes" → filtro `database=data_mart` + concepto "clientes". Cuando se mejore
+`query_planner`, mejora para todos los consumidores.
+
+**Verificado E2E contra GLM real (2026-07-15):**
+- "solicitudes donde el responsable sea diego" → `{ownerPersonId: Diego Sosa}`, semantica="" (puro filtro).
+- "lo que se habló de las apis" → `{}`, semantica="apis" (puro concepto).
+- "solicitudes activas de diego sobre tableau" → `{status: active, ownerPersonId: Diego Sosa}`, semantica="tableau" (mixto).
+- "requerimientos en desarrollo" → `{requestType: requirement, status: En Desarrollo}` (resuelve etiqueta→id, puro filtro).
+
+Ver también: `docs/01` (arquitectura), `docs/02` (Reporte ejecutivo + Catálogo + Solicitudes),
+`docs/04` (ítem EMBEDDING), `docs/07` (Catálogo), `docs/permisos_hub.md` 1d (ARN Titan),
+`docs/22` (bitácora).

@@ -163,6 +163,43 @@ def backfill_all() -> dict[str, int]:
     return stats
 
 
+# ── Solicitudes (búsqueda avanzada: híbrida sobre solicitud + seguimiento) ───
+# Devuelve solicitudes ranqueadas por relevancia. Busca en DOS namespaces y mapea
+# cada acierto a su solicitud: un match en un SEGUIMIENTO surface su solicitud
+# padre (lo que el keyword no cubre hoy — no busca en la bitácora). Marca "via"
+# (solicitud|seguimiento) y, si fue por seguimiento, el updateId para que el
+# frontend muestre el fragmento (ya tiene el texto de los seguimientos en memoria).
+def workspace_semantic_search(query: str, top_k: int = 60,
+                              min_score: float = 0.2) -> list[dict[str, Any]]:
+    query = (query or "").strip()
+    if not query:
+        return []
+    hits: dict[str, dict[str, Any]] = {}
+    try:
+        sidx = solicitud_index()
+        uidx = seguimiento_index()
+        for h in sidx.search(query, top_k=top_k, min_score=min_score):
+            pid = (h.get("meta") or {}).get("projectId") or h.get("docId", "")
+            if pid and h["score"] > hits.get(pid, {}).get("score", -1):
+                hits[pid] = {"projectId": pid, "score": h["score"], "via": "solicitud", "updateId": ""}
+        for h in uidx.search(query, top_k=top_k, min_score=min_score):
+            meta = h.get("meta") or {}
+            pid = meta.get("projectId", "")
+            if not pid:
+                continue
+            if h["score"] > hits.get(pid, {}).get("score", -1):
+                hits[pid] = {"projectId": pid, "score": h["score"], "via": "seguimiento",
+                             "updateId": meta.get("updateId", "")}
+    except Exception:                       # noqa: BLE001
+        logger.warning("Búsqueda semántica de solicitudes falló", exc_info=True)
+        return []
+    ranked = list(hits.values())
+    for r in ranked:
+        r["score"] = round(float(r["score"]), 3)
+    ranked.sort(key=lambda r: r["score"], reverse=True)
+    return ranked[:top_k]
+
+
 # ── Catálogo (búsqueda semántica de tablas, namespace por cuenta) ────────────
 # El namespace lleva la cuenta (`catalog:<cuenta>`) para que el barrido de coseno
 # quede acotado a esa cuenta y no mezcle catálogos de cuentas distintas. docId =

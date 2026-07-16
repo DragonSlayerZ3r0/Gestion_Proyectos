@@ -9,6 +9,15 @@ def _get_workspace(req: Request):
     return success(WorkspaceService().get_workspace())
 
 
+def _search(req: Request):
+    # Búsqueda AVANZADA de solicitudes: planificador (lenguaje natural → filtros
+    # estructurados exactos + concepto semántico) + ranking híbrido sobre solicitud
+    # + seguimiento. Devuelve {filters, semantic, results, interpretation}; el
+    # frontend aplica los filtros exactos, reordena por relevancia y muestra qué
+    # entendió.
+    return success(WorkspaceService().search_advanced(req.query.get("q") or ""))
+
+
 def _create_area(req: Request):
     return success(WorkspaceService().create_area(req.body(), req.identity), 201)
 
@@ -135,6 +144,8 @@ def register(router: Router) -> None:
     T = ["tasks"]
     router.add(["GET"], "/api/workspace", _get_workspace, modules=["projects", "tasks"],
                error_msg="Error inesperado al cargar el espacio de trabajo.")
+    router.add(["GET"], "/api/workspace/search", _search, modules=["projects", "tasks"],
+               error_msg="Error inesperado en la búsqueda.")
     router.add(["POST"], "/api/areas", _create_area, modules=P,
                error_msg="Error inesperado al crear el área solicitante.")
     router.add(["PATCH", "DELETE"], "/api/areas/{areaId}", _area_update, modules=P,

@@ -270,6 +270,23 @@
     border-color: var(--accent);
     color: var(--accent-strong);
   }
+  /* Botón "Buscar" del modo semántico (envío explícito: la semántica busca al
+     presionar Enter/botón, no en cada tecla). */
+  .catalogSemGoBtn {
+    flex: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 0.78rem; font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.12s;
+  }
+  .catalogSemGoBtn:hover { filter: brightness(1.06); }
+  .catalogSemGoBtn span { font-size: 0.95rem; line-height: 1; }
   .catalogAdvancedHint {
     margin: 0;
     font-size: 0.74rem;

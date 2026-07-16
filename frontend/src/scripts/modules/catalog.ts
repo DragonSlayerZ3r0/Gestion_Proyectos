@@ -328,7 +328,7 @@ export function createCatalogModule(ctx) {
         if (state.catalogSemLoading) return `<p class="catalogEmpty">Buscando por significado…</p>`;
         if (state.catalogSemError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.catalogSemError)}</p>`;
         const q = (state.catalogSearch || "").trim();
-        if (!q) return `<p class="catalogEmpty">Escribe qué buscas: la búsqueda avanzada encuentra tablas por significado en todas las bases de la cuenta, aunque la palabra exacta no aparezca.</p>`;
+        if (!q) return `<p class="catalogEmpty">Escribe una idea y presiona <b>Enter</b> (o «Buscar»): la búsqueda avanzada encuentra tablas por significado en todas las bases de la cuenta, aunque la palabra exacta no aparezca.</p>`;
         const results = state.catalogSemResults || [];
         if (!results.length) return `<p class="catalogEmpty">Sin resultados para "${escapeHtml(q)}". El diccionario semántico se llena con la descripción y columnas de cada tabla — si faltan, agrega contexto y vuelve a intentar.</p>`;
         return `<p class="catSemCount">${results.length} tabla${results.length === 1 ? "" : "s"} por relevancia (todas las bases)</p>` + results.map(semResultCardHtml).join("");
@@ -344,7 +344,6 @@ export function createCatalogModule(ctx) {
         });
       }
 
-      let semTimer = null;
       async function runSemanticSearch() {
         const q = (state.catalogSearch || "").trim();
         if (!q) { state.catalogSemResults = []; state.catalogSemError = ""; renderSemList(); return; }
@@ -491,11 +490,12 @@ export function createCatalogModule(ctx) {
               ${!noCache ? `
               <div class="catalogSearchBar">
                 <div class="catalogSearchRow">
-                  <input class="searchInput catalogSearchInput" type="search" placeholder="${state.catalogAdvanced ? "Buscar por significado en toda la cuenta…" : "Buscar…"}" value="${escapeAttribute(catalogSearch)}" />
+                  <input class="searchInput catalogSearchInput" type="search" placeholder="${state.catalogAdvanced ? "Escribe una idea y presiona Enter…" : "Buscar…"}" value="${escapeAttribute(catalogSearch)}" />
+                  ${state.catalogAdvanced ? `<button class="catalogSemGoBtn" type="button" title="Buscar por significado (Enter)"><span aria-hidden="true">≈</span> Buscar</button>` : ""}
                   <button class="catalogAdvancedToggle${state.catalogAdvanced ? " active" : ""}" type="button" title="Búsqueda avanzada: por significado, en TODAS las bases de la cuenta (encuentra aunque la palabra no sea exacta)"><span aria-hidden="true">≈</span> Avanzada</button>
                 </div>
                 ${state.catalogAdvanced
-                  ? `<p class="catalogAdvancedHint">Busca por <b>significado</b> en todo el catálogo de la cuenta (todas las bases). Ej.: «fecha de corte» encuentra tablas que hablan de «cutoff».</p>`
+                  ? `<p class="catalogAdvancedHint">Escribe tu idea <b>completa</b> y presiona <b>Enter</b> (o «Buscar»): busca por <b>significado</b> en todo el catálogo de la cuenta. Ej.: «fecha de corte» encuentra tablas que hablan de «cutoff».</p>`
                   : `<div class="catalogScopeChips">
                   ${[
                     { key: "table",   label: "Tabla" },
@@ -837,17 +837,21 @@ export function createCatalogModule(ctx) {
           searchInput.oninput = (e) => {
             state.catalogSearch = e.target.value;
             if (state.catalogAdvanced) {
-              // Debounce: la búsqueda semántica llama al backend (Titan) — no en cada tecla.
-              if (semTimer) clearTimeout(semTimer);
-              semTimer = setTimeout(runSemanticSearch, 350);
+              // Semántica = por ENVÍO explícito (Enter/botón): se escribe la idea
+              // completa y luego se busca. Buscar en cada tecla, con frases a
+              // medias, hacía saltar resultados irrelevantes y confundía. Al
+              // vaciar el campo se limpian los resultados.
+              if (!(state.catalogSearch || "").trim()) { state.catalogSemResults = []; state.catalogSemError = ""; renderSemList(); }
             } else {
-              applySearch();
+              applySearch();          // keyword: filtra en vivo (cada letra acota)
             }
           };
-          // Enter en modo avanzado dispara la búsqueda ya (sin esperar el debounce).
+          // Enter dispara la búsqueda semántica (en el input de tipo search, el
+          // botón "Buscar/Ir" del teclado móvil también cae aquí).
           searchInput.onkeydown = (e) => {
-            if (e.key === "Enter" && state.catalogAdvanced) { if (semTimer) clearTimeout(semTimer); runSemanticSearch(); }
+            if (e.key === "Enter" && state.catalogAdvanced) { e.preventDefault(); runSemanticSearch(); }
           };
+          panel.querySelector(".catalogSemGoBtn")?.addEventListener("click", runSemanticSearch);
 
           panel.querySelectorAll(".catalogScopeChip").forEach(chip => {
             chip.onclick = () => {
