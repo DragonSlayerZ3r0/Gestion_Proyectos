@@ -29,6 +29,12 @@ def _database_tables(req: Request):
     return success(_svc(req).list_tables(database))
 
 
+def _search(req: Request):
+    # Búsqueda AVANZADA (semántica) sobre TODO el catálogo de la cuenta.
+    return success(_svc(req).search_semantic(req.query.get("q") or "",
+                                             limit=int(req.query.get("limit") or 40)))
+
+
 def _sync_database(req: Request):
     return success(_svc(req).sync_database(req.params.get("database") or ""))
 
@@ -67,6 +73,10 @@ def register(router: Router) -> None:
     router.add(["GET"], "/api/catalog", _list_databases, modules=C,
                error_msg="Error inesperado al listar bases de datos.")
     router.add(["POST"], "/api/catalog/sync", _sync_all, modules=C, error_msg=SYNC_ERR)
+    # Ruta literal ANTES de {database}: el router prioriza literales, así "search"
+    # no se confunde con un nombre de base de datos.
+    router.add(["GET"], "/api/catalog/search", _search, modules=C,
+               error_msg="Error inesperado en la búsqueda.")
     router.add(["GET"], "/api/catalog/{database}", _database_tables, modules=C,
                error_msg="Error inesperado al listar tablas.")
     router.add(["POST"], "/api/catalog/{database}/sync", _sync_database, modules=C, error_msg=SYNC_ERR)

@@ -247,6 +247,71 @@
     color: var(--on-accent);
   }
 
+  /* Búsqueda avanzada (semántica, toda la cuenta) ───────────────────────── */
+  .catalogSearchRow { display: flex; gap: 8px; align-items: stretch; }
+  .catalogSearchRow .catalogSearchInput { flex: 1 1 auto; min-width: 0; }
+  .catalogAdvancedToggle {
+    flex: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.78rem; font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+    white-space: nowrap;
+  }
+  .catalogAdvancedToggle span { font-size: 0.95rem; line-height: 1; }
+  .catalogAdvancedToggle:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .catalogAdvancedToggle.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+  .catalogAdvancedHint {
+    margin: 0;
+    font-size: 0.74rem;
+    color: var(--muted);
+  }
+  .catalogAdvancedHint b { color: var(--text-soft); }
+
+  /* Resultados semánticos (lista plana, todas las bases) */
+  .catSemCount {
+    margin: 0 0 8px;
+    font-size: 0.74rem; font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .catSemCard { display: block; }
+  .catSemHead {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  }
+  .catSemTable { font-weight: 600; color: var(--text); }
+  .catSemDb {
+    font-size: 0.72rem; color: var(--muted);
+    background: var(--surface-muted);
+    border-radius: 6px; padding: 1px 7px;
+  }
+  .catSemBadge {
+    margin-left: auto;
+    font-size: 0.68rem; font-weight: 600;
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+    border-radius: 999px; padding: 1px 8px;
+  }
+  .catSemBadge.lit {
+    color: var(--text-soft);
+    background: var(--surface-muted);
+  }
+  .catSemSnippet {
+    margin: 5px 0 0;
+    font-size: 0.78rem; color: var(--text-soft);
+    overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+
   .syncAllBtn svg {
     display: block;
   }

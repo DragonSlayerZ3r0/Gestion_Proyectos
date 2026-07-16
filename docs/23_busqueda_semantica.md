@@ -24,7 +24,8 @@ services/embedding_index.py   CABLEADO del dominio — Titan vía hub, namespace
   ├─ solicitud_index()          solicitud/seguimiento, helpers best-effort,
   └─ seguimiento_index()        backfill_all()
         ▲
-services/exec_report.py       CONSUMIDOR — búsqueda de dos pasos del reporte
+services/exec_report.py       CONSUMIDOR 1 — búsqueda de dos pasos del reporte
+services/catalog.py           CONSUMIDOR 2 — búsqueda avanzada de tablas (§9)
 ```
 
 **Regla de reuso:** `core/embeddings.py` no conoce solicitudes, hubs ni dominios —
@@ -115,8 +116,9 @@ tocan.
   (no pasa por Marketplace, on-demand en us-east-1). ~$0.02/millón tokens. Se invoca
   asumiendo el rol del hub (mismo patrón que `LlmService`). Permiso: ARN de Titan en
   la inline `BedrockLLMInvoke` del hub (`permisos_hub.md` 1d).
-- **Namespaces:** `solicitud` (nombre + descripción; `docId = projectId`) y
-  `seguimiento` (texto de la bitácora; `docId = updateId`).
+- **Namespaces:** `solicitud` (nombre + descripción; `docId = projectId`),
+  `seguimiento` (texto de la bitácora; `docId = updateId`) y `catalog:<cuenta>`
+  (tablas del Catálogo; `docId = <db>#<tabla>` — ver §9).
 - **Indexado on-write BEST-EFFORT.** Los helpers `safe_index_*` / `safe_delete`
   envuelven todo en try/except: **si Titan o el hub fallan, el guardado del dato NO
   se rompe** (se registra en el log y el vector queda pendiente — ver "Recuperación"
@@ -278,5 +280,67 @@ fecha son filtro exacto (estructurado); concepto es vector (semántico).
 - Búsqueda semántica E2E: "despliegue de modelos en sagemaker" → #1 la solicitud
   real de Sagemaker (coseno 0.52), seguida de items de infraestructura AWS/Tableau.
 
-Ver también: `docs/01` (arquitectura), `docs/02` (Reporte ejecutivo), `docs/04`
-(ítem EMBEDDING), `docs/permisos_hub.md` 1d (ARN Titan), `docs/22` (bitácora).
+---
+
+## 9. Segundo consumidor — Búsqueda avanzada de tablas del Catálogo (2026-07-15)
+
+El mismo `core/embeddings.py`, aplicado al Catálogo Data Lake para que "fecha de
+corte" encuentre la tabla cuya columna se llama/describe "cutoff" — el caso que
+`docs/02` tenía anotado como pendiente. Demuestra el reuso: es **un namespace más**,
+sin infra nueva.
+
+- **Namespace por cuenta:** `catalog:<cuenta>`. El barrido de coseno queda acotado a
+  esa cuenta (los catálogos de cuentas distintas no se mezclan). docId =
+  `<db>#<tabla>`; meta = `{account, database, table, snippet}`.
+- **Documento vectorizado (un vector por tabla):** nombre + descripción de Glue +
+  contexto funcional (uso principal, dominio, notas) + **nombres y comentarios de
+  columnas** + **descripción humana de columnas**. Así una consulta encuentra la
+  tabla aunque el término viva en una columna o en el contexto, no en el nombre.
+  Constructor: `catalog_table_text()` en `services/embedding_index.py`.
+- **Indexado on-write best-effort** (`services/catalog.py`): al **guardar contexto**
+  de tabla/columna (`save_table_context`/`save_column_context` — donde vive el
+  significado), al **sincronizar una tabla** (`sync_table`), y **borrado** del vector
+  cuando el sync detecta una tabla huérfana. Idempotente por hash. El diccionario
+  semántico se llena solo conforme se documentan las tablas.
+- **Backfill:** acción `catalog_embeddings_backfill` (`aws lambda invoke` con
+  `{"action":"catalog_embeddings_backfill","account":"<id>"}`; sin account = hub).
+  Paraleliza `get_table`+embed (8 hilos) para caber en el timeout con miles de tablas.
+- **Búsqueda (endpoint):** `GET /api/catalog/search?q=&account=` →
+  `CatalogService.search_semantic()`. Es **híbrida**: ranquea por coseno sobre TODAS
+  las bases de la cuenta y **realza** los que además casan literal en nombre/base/
+  snippet (orden: literal primero, luego coseno). Devuelve `[{database, table,
+  snippet, score, literal}]` listo para pintar sin abrir cada tabla. La ruta literal
+  `/api/catalog/search` se registra ANTES de `/{database}` (el router prioriza
+  literales). `min_score` 0.2, top_k 40.
+- **UX ("Búsqueda avanzada"):** un toggle `≈ Avanzada` junto al buscador
+  (`catalog.ts`). Apagado = búsqueda instantánea actual (keyword, dentro de la base
+  seleccionada) sin cambios. Encendido = consulta semántica (debounce 350 ms, o Enter)
+  a **toda la cuenta**, lista plana ranqueada con badge "≈ significado"/"coincidencia";
+  al hacer clic navega a esa base + abre la tabla. El índice es por cuenta: cambiar de
+  cuenta limpia los resultados.
+- **Optimización compartida:** `_hub_session()` cachea la sesión STS del hub entre
+  invocaciones calientes (antes: un assume-role por vector) — hace viable el backfill
+  de cientos/miles de tablas. Beneficia también a Solicitudes.
+- **Sesgo de cuenta:** solo se indexa la cuenta que se sincroniza/edita/backfillea.
+  El backfill corrió sobre el **hub (prod)**, la cuenta real; las demás (réplicas de
+  prueba) se llenan si se usan.
+
+**Fronteras (dichas al usuario):** semántica pura (no cubre preguntas encadenadas de
+varios saltos); una tabla sin descripción/columnas documentadas rinde menos (su
+diccionario semántico es pobre) — se enriquece agregando contexto. La vía **keyword**
+exacta (modo normal) sigue disponible para búsquedas literales.
+
+---
+
+## 10. Verificación del Catálogo (2026-07-15)
+
+- Backfill del hub: **595 tablas** indexadas en `catalog:396913696127` (0 errores),
+  todas las bases.
+- E2E: "fecha de corte" → #1-3 las tablas `*_fecha_corte` reales de `ds_sandbox`
+  (0.49), cruzando bases; "informacion de clientes y cuentas" → `info_clientes`,
+  `apertura_cuentas`, `cuentas`, `clientes` (0.60+) en `stage_staging`/`data_mart` —
+  coincidencia por significado, no por palabra.
+
+Ver también: `docs/01` (arquitectura), `docs/02` (Reporte ejecutivo + Catálogo), `docs/04`
+(ítem EMBEDDING), `docs/07` (Catálogo), `docs/permisos_hub.md` 1d (ARN Titan), `docs/22`
+(bitácora).

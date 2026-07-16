@@ -1,5 +1,6 @@
 import json
 import os
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -47,6 +48,34 @@ class CatalogService:
         for t in formatted:
             t["context"] = _format_table_context(ctx_map.get(t["name"]))
         return sorted(formatted, key=lambda t: t["name"])
+
+    def search_semantic(self, query: str, limit: int = 40) -> dict[str, Any]:
+        """Búsqueda AVANZADA: por significado sobre TODO el catálogo de la cuenta
+        (todas las bases), no solo la seleccionada. Embebe la consulta y ranquea las
+        tablas por coseno (índice de embeddings), con un realce cuando además hay
+        coincidencia literal en el nombre/base/snippet. Devuelve resultados planos
+        listos para pintar (db · tabla · por qué · fragmento) sin abrir cada tabla."""
+        query = (query or "").strip()
+        if not query:
+            return {"query": "", "results": [], "account": self._account, "count": 0}
+        from services.embedding_index import catalog_search
+        hits = catalog_search(self._account, query, top_k=min(max(int(limit or 40), 1), 100))
+        nq = _norm(query)
+        results: list[dict[str, Any]] = []
+        for h in hits:
+            meta = h.get("meta") or {}
+            doc = str(h.get("docId", ""))
+            database = meta.get("database") or (doc.split("#", 1)[0] if "#" in doc else "")
+            table = meta.get("table") or (doc.split("#", 1)[1] if "#" in doc else doc)
+            snippet = meta.get("snippet", "")
+            literal = bool(nq) and (nq in _norm(table) or nq in _norm(database) or nq in _norm(snippet))
+            results.append({
+                "database": database, "table": table, "snippet": snippet,
+                "score": round(float(h.get("score", 0)), 3), "literal": literal,
+            })
+        # Realce literal primero, luego por cercanía semántica.
+        results.sort(key=lambda r: (r["literal"], r["score"]), reverse=True)
+        return {"query": query, "results": results, "account": self._account, "count": len(results)}
 
     def get_table(self, database: str, table_name: str, include_stats: bool = False) -> dict[str, Any]:
         item = self._db.get_catalog_table(database, table_name)
@@ -230,6 +259,7 @@ class CatalogService:
         # Actualizar conteo en el meta de la BD
         existing_tables = self._db.list_catalog_tables(database)
         self._db.put_catalog_database(database, len(existing_tables), now)
+        self._index_catalog_table(database, table_name)
         return _format_table_cache(item)
 
     # ── Sync de una base de datos completa (síncrono) ─────────────────────────
@@ -271,6 +301,7 @@ class CatalogService:
         for orphan_name in cached_by_name:
             if orphan_name:
                 self._db.delete_catalog_table(database, orphan_name)
+                self._deindex_catalog_table(database, orphan_name)
         # Stats S3 (tamaño/archivos/frescura): una listada por bucket, atribuida a
         # cada tabla. Se guardan en cada item (sin reescribir su metadata Glue) y el
         # agregado en el item de la BD. Falla suave para no romper el sync.
@@ -322,6 +353,25 @@ class CatalogService:
             except Exception:
                 service._db.put_catalog_sync_meta(now, "error")
 
+    # ── Indexado semántico (best-effort, no rompe el guardado) ────────────────
+    def _index_catalog_table(self, database: str, table_name: str) -> None:
+        """Re-indexa el vector de la tabla con su documento COMPLETO (nombre + Glue
+        + contexto funcional + columnas + contexto de columna). Idempotente por hash:
+        si el texto no cambió, no llama a Titan."""
+        try:
+            detail = self.get_table(database, table_name)
+            from services.embedding_index import safe_index_catalog_table
+            safe_index_catalog_table(self._account, detail)
+        except Exception:                   # noqa: BLE001
+            pass
+
+    def _deindex_catalog_table(self, database: str, table_name: str) -> None:
+        try:
+            from services.embedding_index import safe_delete_catalog
+            safe_delete_catalog(self._account, database, table_name)
+        except Exception:                   # noqa: BLE001
+            pass
+
     # ── Contexto funcional (escrito por usuarios) ─────────────────────────────
 
     def save_table_context(self, database: str, table_name: str, body: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
@@ -343,6 +393,8 @@ class CatalogService:
             "createdBy": existing.get("createdBy", identity["userId"]) if existing else identity["userId"],
         }
         self._db.put_context(item)
+        # El contexto es el contenido más semántico: re-indexa el vector de la tabla.
+        self._index_catalog_table(database, table_name)
         return _format_table_context(item)
 
     def save_column_context(self, database: str, table_name: str, column_name: str, body: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
@@ -361,10 +413,17 @@ class CatalogService:
             "createdBy": existing.get("createdBy", identity["userId"]) if existing else identity["userId"],
         }
         self._db.put_context(item)
+        self._index_catalog_table(database, table_name)
         return _format_column_context(item)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _norm(text: Any) -> str:
+    """Minúsculas + sin acentos, para el realce literal de la búsqueda avanzada."""
+    s = unicodedata.normalize("NFD", str(text or "").lower())
+    return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
 
 def _glue_iso(value: Any) -> str:
     """Convierte un datetime/valor de Glue a ISO string (o vacío)."""

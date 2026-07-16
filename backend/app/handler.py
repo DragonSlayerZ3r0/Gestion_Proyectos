@@ -57,6 +57,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         from services.embedding_index import backfill_all
         return {"ok": True, "stats": backfill_all()}
 
+    # Backfill del CATÁLOGO (tablas → vectores) de una cuenta. One-shot idempotente.
+    # aws lambda invoke con {"action":"catalog_embeddings_backfill","account":"<id>"}
+    # (sin account = cuenta default = hub).
+    if event.get("action") == "catalog_embeddings_backfill":
+        from services.embedding_index import catalog_backfill
+        return {"ok": True, "stats": catalog_backfill(event.get("account") or "")}
+
     # Conteo de filas por área/tabla (tabla de control vía Athena), acotado a un rango.
     if event.get("action") == "datalake_records_scan":
         from services.datalake import DatalakeService

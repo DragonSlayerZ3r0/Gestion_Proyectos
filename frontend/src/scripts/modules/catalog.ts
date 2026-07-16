@@ -144,6 +144,9 @@ export function createCatalogModule(ctx) {
         state.catalogTablesLoading = false;
         state.catalogTablesError = "";
         state.catalogSearch = "";
+        state.catalogSemResults = [];       // el índice semántico es por cuenta
+        state.catalogSemError = "";
+        state.catalogSemLoading = false;
         state.catalogSyncedAt = null;
         state.catalogSyncStatus = null;
         state.catalogTableCache = {};
@@ -302,6 +305,71 @@ export function createCatalogModule(ctx) {
         }
       }
 
+      // ── Búsqueda avanzada (semántica, toda la cuenta) ─────────────────────
+      // Tarjeta de un resultado semántico: db · tabla + por qué + fragmento.
+      function semResultCardHtml(r) {
+        const selected = state.catalogSelectedTable
+          && state.catalogSelectedTable.name === r.table && state.catalogSelectedTable.database === r.database;
+        // "coincidencia" cuando además casó literal; "≈ significado" cuando solo por concepto.
+        const badge = r.literal
+          ? `<span class="catSemBadge lit">coincidencia</span>`
+          : `<span class="catSemBadge">≈ significado</span>`;
+        return `<button class="catalogTableCard catSemCard${selected ? " active" : ""}" data-db="${escapeAttribute(r.database)}" data-table="${escapeAttribute(r.table)}" type="button">
+          <div class="catSemHead">
+            <span class="catSemTable">${escapeHtml(r.table)}</span>
+            <span class="catSemDb">${escapeHtml(r.database)}</span>
+            ${badge}
+          </div>
+          ${r.snippet ? `<p class="catSemSnippet">${escapeHtml(r.snippet)}</p>` : ""}
+        </button>`;
+      }
+
+      function semListHtml() {
+        if (state.catalogSemLoading) return `<p class="catalogEmpty">Buscando por significado…</p>`;
+        if (state.catalogSemError) return `<p class="catalogEmpty catalogEmptyError">${escapeHtml(state.catalogSemError)}</p>`;
+        const q = (state.catalogSearch || "").trim();
+        if (!q) return `<p class="catalogEmpty">Escribe qué buscas: la búsqueda avanzada encuentra tablas por significado en todas las bases de la cuenta, aunque la palabra exacta no aparezca.</p>`;
+        const results = state.catalogSemResults || [];
+        if (!results.length) return `<p class="catalogEmpty">Sin resultados para "${escapeHtml(q)}". El diccionario semántico se llena con la descripción y columnas de cada tabla — si faltan, agrega contexto y vuelve a intentar.</p>`;
+        return `<p class="catSemCount">${results.length} tabla${results.length === 1 ? "" : "s"} por relevancia (todas las bases)</p>` + results.map(semResultCardHtml).join("");
+      }
+
+      // Renderiza SOLO la lista (sin repintar todo el panel → no pierde el foco del input).
+      function renderSemList() {
+        const list = elements.contentPanel.querySelector(".catalogTableList");
+        if (!list) return;
+        list.innerHTML = semListHtml();
+        list.querySelectorAll(".catSemCard").forEach(btn => {
+          btn.onclick = () => openSemResult(btn.dataset.db, btn.dataset.table);
+        });
+      }
+
+      let semTimer = null;
+      async function runSemanticSearch() {
+        const q = (state.catalogSearch || "").trim();
+        if (!q) { state.catalogSemResults = []; state.catalogSemError = ""; renderSemList(); return; }
+        state.catalogSemLoading = true; renderSemList();
+        try {
+          const p = await apiRequest(withAcct(`api/catalog/search?q=${encodeURIComponent(q)}`));
+          state.catalogSemResults = (p.data && p.data.results) || [];
+          state.catalogSemError = "";
+        } catch (err) {
+          state.catalogSemResults = [];
+          state.catalogSemError = err?.message || "No se pudo completar la búsqueda.";
+        }
+        state.catalogSemLoading = false;
+        renderSemList();
+      }
+
+      // Abrir un resultado: llevar a esa base + abrir la tabla, volviendo a la vista normal.
+      async function openSemResult(db, table) {
+        state.catalogAdvanced = false;
+        if (state.catalogSelectedDb !== db) {
+          await selectCatalogDb(db);          // carga las tablas de esa base y repinta
+        }
+        await selectCatalogTable(db, table);  // abre el detalle
+      }
+
       function paintCatalog() {
         // Guard anti "pintar encima": el poller de sincronización sigue vivo si
         // el usuario cambia de módulo; sin esto re-renderizaría el catálogo
@@ -352,6 +420,8 @@ export function createCatalogModule(ctx) {
 
         const tableListHtml = noCache
           ? `<div class="catalogNoCacheMsg"><p>El catálogo no tiene datos aún.</p><p>Usa el botón de sincronización para importar todas las bases de datos y tablas desde AWS Glue.</p></div>`
+          : state.catalogAdvanced
+          ? semListHtml()
           : !catalogSelectedDb
           ? `<p class="catalogEmpty">Selecciona una base de datos.</p>`
           : state.catalogTablesLoading
@@ -420,15 +490,20 @@ export function createCatalogModule(ctx) {
               </div>
               ${!noCache ? `
               <div class="catalogSearchBar">
-                <input class="searchInput catalogSearchInput" type="search" placeholder="Buscar…" value="${escapeAttribute(catalogSearch)}" />
-                <div class="catalogScopeChips">
+                <div class="catalogSearchRow">
+                  <input class="searchInput catalogSearchInput" type="search" placeholder="${state.catalogAdvanced ? "Buscar por significado en toda la cuenta…" : "Buscar…"}" value="${escapeAttribute(catalogSearch)}" />
+                  <button class="catalogAdvancedToggle${state.catalogAdvanced ? " active" : ""}" type="button" title="Búsqueda avanzada: por significado, en TODAS las bases de la cuenta (encuentra aunque la palabra no sea exacta)"><span aria-hidden="true">≈</span> Avanzada</button>
+                </div>
+                ${state.catalogAdvanced
+                  ? `<p class="catalogAdvancedHint">Busca por <b>significado</b> en todo el catálogo de la cuenta (todas las bases). Ej.: «fecha de corte» encuentra tablas que hablan de «cutoff».</p>`
+                  : `<div class="catalogScopeChips">
                   ${[
                     { key: "table",   label: "Tabla" },
                     { key: "context", label: "Contexto" },
                     { key: "column",  label: "Columna" },
                     { key: "colDesc", label: "Desc. columna" },
                   ].map(s => `<button class="catalogScopeChip${catalogSearchScope.includes(s.key) ? " active" : ""}" data-scope="${s.key}" type="button">${s.label}</button>`).join("")}
-                </div>
+                </div>`}
               </div>` : ""}
             </div>
             <div class="catalogTableList">${tableListHtml}</div>
@@ -716,6 +791,19 @@ export function createCatalogModule(ctx) {
         panel.querySelectorAll(".catalogTableCard").forEach(btn => {
           btn.onclick = () => selectCatalogTable(btn.dataset.db, btn.dataset.table);
         });
+        // Resultados semánticos: navegan a la base+tabla (sobrescribe el binding
+        // genérico de arriba porque comparten la clase .catalogTableCard).
+        panel.querySelectorAll(".catSemCard").forEach(btn => {
+          btn.onclick = () => openSemResult(btn.dataset.db, btn.dataset.table);
+        });
+
+        // Toggle de búsqueda avanzada (semántica, toda la cuenta).
+        panel.querySelector(".catalogAdvancedToggle")?.addEventListener("click", () => {
+          state.catalogAdvanced = !state.catalogAdvanced;
+          state.catalogSemError = "";
+          paintCatalog();
+          if (state.catalogAdvanced && (state.catalogSearch || "").trim()) runSemanticSearch();
+        });
 
         const searchInput = panel.querySelector(".catalogSearchInput");
         if (searchInput) {
@@ -746,7 +834,20 @@ export function createCatalogModule(ctx) {
             });
           };
 
-          searchInput.oninput = (e) => { state.catalogSearch = e.target.value; applySearch(); };
+          searchInput.oninput = (e) => {
+            state.catalogSearch = e.target.value;
+            if (state.catalogAdvanced) {
+              // Debounce: la búsqueda semántica llama al backend (Titan) — no en cada tecla.
+              if (semTimer) clearTimeout(semTimer);
+              semTimer = setTimeout(runSemanticSearch, 350);
+            } else {
+              applySearch();
+            }
+          };
+          // Enter en modo avanzado dispara la búsqueda ya (sin esperar el debounce).
+          searchInput.onkeydown = (e) => {
+            if (e.key === "Enter" && state.catalogAdvanced) { if (semTimer) clearTimeout(semTimer); runSemanticSearch(); }
+          };
 
           panel.querySelectorAll(".catalogScopeChip").forEach(chip => {
             chip.onclick = () => {

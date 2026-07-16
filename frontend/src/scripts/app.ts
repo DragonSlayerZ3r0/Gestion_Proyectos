@@ -183,6 +183,11 @@
         catalogSelectedTable: null,
         catalogSearch: "",
         catalogSearchScope: ["table"],
+        // Búsqueda avanzada (semántica, toda la cuenta) — 2026-07-15
+        catalogAdvanced: false,
+        catalogSemResults: [],
+        catalogSemLoading: false,
+        catalogSemError: "",
         catalogLoading: false,
         catalogSaving: false,
         catalogSyncedAt: null,
