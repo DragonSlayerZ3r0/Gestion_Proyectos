@@ -68,9 +68,12 @@ class CatalogService:
             database = meta.get("database") or (doc.split("#", 1)[0] if "#" in doc else "")
             table = meta.get("table") or (doc.split("#", 1)[1] if "#" in doc else doc)
             snippet = meta.get("snippet", "")
-            literal = bool(nq) and (nq in _norm(table) or nq in _norm(database) or nq in _norm(snippet))
+            column = meta.get("column", "")     # nivel 2: la coincidencia vino de esta columna
+            literal = bool(nq) and (nq in _norm(table) or nq in _norm(database)
+                                    or nq in _norm(snippet) or nq in _norm(column))
             results.append({
                 "database": database, "table": table, "snippet": snippet,
+                "column": column,
                 "score": round(float(h.get("score", 0)), 3), "literal": literal,
             })
         # Realce literal primero, luego por cercanía semántica.
@@ -297,11 +300,14 @@ class CatalogService:
                 continue  # sin cambios en Glue: no se reescribe
             self._db.put_catalog_table(self._build_table_cache_item(database, raw, now))
             updated += 1
-        # Lo que quedó en cached_by_name ya no existe en Glue: huérfanas
-        for orphan_name in cached_by_name:
+        # Lo que quedó en cached_by_name ya no existe en Glue: huérfanas (se
+        # borra su vector de tabla y los de sus columnas, cuyos nombres aún
+        # están en el item cacheado).
+        for orphan_name, orphan_item in cached_by_name.items():
             if orphan_name:
+                col_names = [c.get("name", "") for c in (orphan_item.get("columns") or [])]
                 self._db.delete_catalog_table(database, orphan_name)
-                self._deindex_catalog_table(database, orphan_name)
+                self._deindex_catalog_table(database, orphan_name, col_names)
         # Stats S3 (tamaño/archivos/frescura): una listada por bucket, atribuida a
         # cada tabla. Se guardan en cada item (sin reescribir su metadata Glue) y el
         # agregado en el item de la BD. Falla suave para no romper el sync.
@@ -354,21 +360,42 @@ class CatalogService:
                 service._db.put_catalog_sync_meta(now, "error")
 
     # ── Indexado semántico (best-effort, no rompe el guardado) ────────────────
-    def _index_catalog_table(self, database: str, table_name: str) -> None:
-        """Re-indexa el vector de la tabla con su documento COMPLETO (nombre + Glue
-        + contexto funcional + columnas + contexto de columna). Idempotente por hash:
-        si el texto no cambió, no llama a Titan."""
+    def _index_catalog_table(self, database: str, table_name: str,
+                             include_columns: bool = True) -> None:
+        """Re-indexa el vector de la tabla (y, si `include_columns`, los de sus
+        columnas documentadas — nivel 2). Idempotente por hash: lo que no cambió
+        no llama a Titan."""
         try:
             detail = self.get_table(database, table_name)
             from services.embedding_index import safe_index_catalog_table
-            safe_index_catalog_table(self._account, detail)
+            safe_index_catalog_table(self._account, detail, include_columns=include_columns)
         except Exception:                   # noqa: BLE001
             pass
 
-    def _deindex_catalog_table(self, database: str, table_name: str) -> None:
+    def _index_catalog_column(self, database: str, table_name: str, column_name: str,
+                              ctx_item: dict[str, Any]) -> None:
+        """Re-indexa SOLO el vector de la columna editada (no recorre las demás:
+        en tablas de 190 columnas eso añadiría segundos al guardado). El documento
+        de la TABLA no cambia al editar una columna (nivel 1 no lleva descripciones
+        de columnas), así que no se re-embebe."""
+        try:
+            cached = self._db.get_catalog_table(database, table_name) or {}
+            comment = next((c.get("comment", "") for c in (cached.get("columns") or [])
+                            if c.get("name") == column_name), "")
+            from services.embedding_index import safe_index_catalog_column
+            safe_index_catalog_column(self._account, database, table_name, {
+                "name": column_name, "comment": comment,
+                "context": {"description": ctx_item.get("description", ""),
+                            "notes": ctx_item.get("notes", "")},
+            })
+        except Exception:                   # noqa: BLE001
+            pass
+
+    def _deindex_catalog_table(self, database: str, table_name: str,
+                               columns: list[str] | None = None) -> None:
         try:
             from services.embedding_index import safe_delete_catalog
-            safe_delete_catalog(self._account, database, table_name)
+            safe_delete_catalog(self._account, database, table_name, columns)
         except Exception:                   # noqa: BLE001
             pass
 
@@ -393,8 +420,9 @@ class CatalogService:
             "createdBy": existing.get("createdBy", identity["userId"]) if existing else identity["userId"],
         }
         self._db.put_context(item)
-        # El contexto es el contenido más semántico: re-indexa el vector de la tabla.
-        self._index_catalog_table(database, table_name)
+        # El contexto funcional vive en el documento de la TABLA (nivel 1); las
+        # columnas no cambian con esta edición → no se recorren.
+        self._index_catalog_table(database, table_name, include_columns=False)
         return _format_table_context(item)
 
     def save_column_context(self, database: str, table_name: str, column_name: str, body: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
@@ -413,7 +441,8 @@ class CatalogService:
             "createdBy": existing.get("createdBy", identity["userId"]) if existing else identity["userId"],
         }
         self._db.put_context(item)
-        self._index_catalog_table(database, table_name)
+        # Solo el vector de ESTA columna (nivel 2); el de la tabla no cambia.
+        self._index_catalog_column(database, table_name, column_name, item)
         return _format_column_context(item)
 
 

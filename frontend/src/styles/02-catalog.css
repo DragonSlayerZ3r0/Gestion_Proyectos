@@ -322,6 +322,12 @@
     color: var(--text-soft);
     background: var(--surface-muted);
   }
+  /* Nivel 2: la coincidencia vino de una columna documentada (dice cuál). */
+  .catSemBadge.col {
+    margin-left: 0;
+    font-family: var(--mono, ui-monospace, monospace);
+    font-weight: 500;
+  }
   .catSemSnippet {
     margin: 5px 0 0;
     font-size: 0.78rem; color: var(--text-soft);

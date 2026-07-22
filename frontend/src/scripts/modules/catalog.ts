@@ -314,10 +314,15 @@ export function createCatalogModule(ctx) {
         const badge = r.literal
           ? `<span class="catSemBadge lit">coincidencia</span>`
           : `<span class="catSemBadge">≈ significado</span>`;
+        // Nivel 2: la coincidencia vino de UNA columna documentada — se dice cuál.
+        const colChip = r.column
+          ? `<span class="catSemBadge col" title="La coincidencia vino de esta columna">≈ columna: ${escapeHtml(r.column)}</span>`
+          : "";
         return `<button class="catalogTableCard catSemCard${selected ? " active" : ""}" data-db="${escapeAttribute(r.database)}" data-table="${escapeAttribute(r.table)}" type="button">
           <div class="catSemHead">
             <span class="catSemTable">${escapeHtml(r.table)}</span>
             <span class="catSemDb">${escapeHtml(r.database)}</span>
+            ${colChip}
             ${badge}
           </div>
           ${r.snippet ? `<p class="catSemSnippet">${escapeHtml(r.snippet)}</p>` : ""}

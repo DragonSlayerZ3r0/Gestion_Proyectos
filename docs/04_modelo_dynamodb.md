@@ -126,12 +126,15 @@ PK = DRAWING#<drawingId>
 SK = SHARE#<email>
 
 EMBEDDING (vector de búsqueda semántica, 2026-07-15. UN item por documento
-  vectorizado; namespaces actuales: solicitud (nombre+descripción, docId=projectId)
-  y seguimiento (texto, docId=updateId). Atributos: vec=Binary (float32 empacado,
-  256 dims = 1 KB), dim, srcHash (huella del texto → idempotencia: no re-embebe si
-  no cambió), meta (map con projectId/date/author…), updatedAt. entityType lleva el
-  namespace para que el GSI devuelva SOLO ese segmento en una query. Genérico y
-  parametrizable — core/embeddings.py; mecánica completa en docs/23)
+  vectorizado; namespaces actuales: solicitud (nombre+descripción, docId=projectId),
+  seguimiento (texto, docId=updateId), catalog:<cuenta> (tabla del catálogo,
+  docId=<db>#<tabla>) y catalog-col:<cuenta> (COLUMNA DOCUMENTADA del catálogo,
+  docId=<db>#<tabla>#<col> — nivel 2 del "chunking" por unidad semántica,
+  2026-07-16). Atributos: vec=Binary (float32 empacado, 256 dims = 1 KB), dim,
+  srcHash (huella del texto → idempotencia: no re-embebe si no cambió), meta (map
+  con projectId/date/author o database/table/column/snippet), updatedAt. entityType
+  lleva el namespace para que el GSI devuelva SOLO ese segmento en una query.
+  Genérico y parametrizable — core/embeddings.py; mecánica completa en docs/23)
 PK = EMBED#<namespace>#<docId>
 SK = EMBED#<namespace>
 

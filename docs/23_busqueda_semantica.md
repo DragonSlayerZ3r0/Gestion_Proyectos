@@ -297,29 +297,44 @@ corte" encuentre la tabla cuya columna se llama/describe "cutoff" — el caso qu
 `docs/02` tenía anotado como pendiente. Demuestra el reuso: es **un namespace más**,
 sin infra nueva.
 
-- **Namespace por cuenta:** `catalog:<cuenta>`. El barrido de coseno queda acotado a
-  esa cuenta (los catálogos de cuentas distintas no se mezclan). docId =
-  `<db>#<tabla>`; meta = `{account, database, table, snippet}`.
-- **Documento vectorizado (un vector por tabla):** nombre + descripción de Glue +
-  contexto funcional (uso principal, dominio, notas) + **nombres y comentarios de
-  columnas** + **descripción humana de columnas**. Así una consulta encuentra la
-  tabla aunque el término viva en una columna o en el contexto, no en el nombre.
-  Constructor: `catalog_table_text()` en `services/embedding_index.py`.
-- **Indexado on-write best-effort** (`services/catalog.py`): al **guardar contexto**
-  de tabla/columna (`save_table_context`/`save_column_context` — donde vive el
-  significado), al **sincronizar una tabla** (`sync_table`), y **borrado** del vector
-  cuando el sync detecta una tabla huérfana. Idempotente por hash. El diccionario
-  semántico se llena solo conforme se documentan las tablas.
+- **DOS NIVELES por cuenta (2026-07-16 — "chunking" por unidad semántica):**
+  `catalog:<cuenta>` (un vector por TABLA) y `catalog-col:<cuenta>` (un vector por
+  **COLUMNA DOCUMENTADA**, docId `<db>#<tabla>#<col>`). Por qué: con el data lake
+  documentándose a fondo, un solo vector por tabla ancha (190+ columnas descritas)
+  sería el **promedio de 190 conceptos** — centroide difuso que diluye la señal de
+  cada columna (verificado: "codigo de la agencia bancaria" da 0.67 vía el vector de
+  la columna `codagencia` vs ~0.39 de los centroides de tabla) — además de rozar el
+  límite real de Titan (~8192 tokens). El chunking clásico (partir cada N chars) no
+  aplica: la unidad natural del catálogo es la columna, mismo patrón
+  seguimiento→solicitud. **Solo columnas con contexto humano** tienen vector (los
+  nombres pelones ya van en el vector de tabla): el índice crece con el diccionario.
+- **Documento por nivel** (`services/embedding_index.py`): tabla
+  (`catalog_table_text`) = nombre + descripción Glue + contexto funcional + nombres
+  de columnas con comentario Glue (SIN descripciones humanas de columnas — nivel 2);
+  tope 20K chars (margen del límite de tokens) con **warning al 90%** antes de
+  truncar. Columna (`catalog_column_text`) = nombre + comentario + descripción +
+  notas; texto vacío (sin documentar) = sin vector (el core borra).
+- **Indexado on-write best-effort** (`services/catalog.py`), con granularidad para
+  no pagar de más: guardar el **contexto de la tabla** re-indexa solo el vector de
+  tabla (`include_columns=False` — las columnas no cambian); guardar el **contexto de
+  UNA columna** re-indexa solo ESA columna (`safe_index_catalog_column` — en tablas
+  de 190 columnas, recorrerlas todas añadiría segundos al guardado; el documento de
+  la tabla no cambia porque el nivel 1 no lleva descripciones de columnas);
+  `sync_table` re-indexa completo (tabla + columnas); huérfanas del sync → se borra
+  el vector de tabla **y los de sus columnas** (nombres tomados del item cacheado
+  antes de borrarlo). Idempotente por hash en ambos niveles.
 - **Backfill:** acción `catalog_embeddings_backfill` (`aws lambda invoke` con
   `{"action":"catalog_embeddings_backfill","account":"<id>"}`; sin account = hub).
   Paraleliza `get_table`+embed (8 hilos) para caber en el timeout con miles de tablas.
 - **Búsqueda (endpoint):** `GET /api/catalog/search?q=&account=` →
-  `CatalogService.search_semantic()`. Es **híbrida**: ranquea por coseno sobre TODAS
-  las bases de la cuenta y **realza** los que además casan literal en nombre/base/
-  snippet (orden: literal primero, luego coseno). Devuelve `[{database, table,
-  snippet, score, literal}]` listo para pintar sin abrir cada tabla. La ruta literal
-  `/api/catalog/search` se registra ANTES de `/{database}` (el router prioriza
-  literales). `min_score` 0.2, top_k 40.
+  `CatalogService.search_semantic()` → `catalog_search()` busca en **AMBOS niveles**
+  y un acierto de columna surface su TABLA (si la misma tabla acierta por los dos,
+  gana el mejor score). Es **híbrida**: realza los que además casan literal en
+  nombre/base/snippet/columna. Devuelve `[{database, table, snippet, column, score,
+  literal}]`; `column` ≠ "" indica que la coincidencia vino de esa columna y la UI
+  muestra el chip **"≈ columna: X"**. La ruta literal `/api/catalog/search` se
+  registra ANTES de `/{database}` (el router prioriza literales). `min_score` 0.2,
+  top_k 40.
 - **UX ("Búsqueda avanzada"):** un toggle `≈ Avanzada` junto al buscador
   (`catalog.ts`). Apagado = búsqueda instantánea actual (keyword, dentro de la base
   seleccionada, filtra **en vivo** cada letra) sin cambios. Encendido = consulta
@@ -345,14 +360,26 @@ exacta (modo normal) sigue disponible para búsquedas literales.
 
 ---
 
-## 10. Verificación del Catálogo (2026-07-15)
+## 10. Verificación del Catálogo (2026-07-15/16)
 
-- Backfill del hub: **595 tablas** indexadas en `catalog:396913696127` (0 errores),
-  todas las bases.
-- E2E: "fecha de corte" → #1-3 las tablas `*_fecha_corte` reales de `ds_sandbox`
-  (0.49), cruzando bases; "informacion de clientes y cuentas" → `info_clientes`,
-  `apertura_cuentas`, `cuentas`, `clientes` (0.60+) en `stage_staging`/`data_mart` —
-  coincidencia por significado, no por palabra.
+- Backfill del hub: **603 tablas** en `catalog:396913696127` + **204 columnas
+  documentadas** en `catalog-col:396913696127` (0 errores, todas las bases; 31 s).
+- E2E nivel 1: "fecha de corte" → #1-3 las tablas `*_fecha_corte` reales de
+  `ds_sandbox` (0.49), cruzando bases; "informacion de clientes y cuentas" →
+  `info_clientes`, `apertura_cuentas`, `cuentas`, `clientes` (0.60+).
+- E2E nivel 2 (la tesis de la dilución, confirmada): "codigo de la agencia
+  bancaria" → **0.67 vía la columna `codagencia`** de `cn_cap_ahorro_resumen`
+  (los centroides de tabla daban ~0.39); "monto o importe de la transaccion" →
+  columnas `monto_*` reales de las tablas de detalle.
+- **Incidente de rendimiento (2026-07-16, resuelto):** el primer backfill de dos
+  niveles agotó los 600 s del Lambda — `DynamoVectorStore._table()` y
+  `TitanEmbedder._client()` creaban una sesión/cliente boto3 NUEVO por operación
+  (~100-200 ms c/u × ~12K operaciones de columnas). Arreglo en el core: **caché de
+  clientes a nivel de módulo** (`_CLIENT_CACHE`, llave por sesión — los clientes
+  boto3 son thread-safe y los comparten los workers). Resultado: 603 tablas + 204
+  columnas en **31 s**. Lección para consumidores del core: los clientes se cachean
+  solos; no crear sesiones por llamada en los providers (el del hub ya venía
+  cacheado por expiración).
 
 ---
 

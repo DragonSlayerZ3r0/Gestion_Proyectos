@@ -1179,8 +1179,18 @@
   .projectFilters {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 7px;
     margin: -2px 0 12px;
+  }
+
+  /* Rótulo de la fila de chips de estado: la agrupa visualmente como UN filtro
+     (mismo lenguaje que "Buscar en:"), separándola del popover Filtros ▾. */
+  .projectFiltersLabel {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
   }
 
   .filterChip {

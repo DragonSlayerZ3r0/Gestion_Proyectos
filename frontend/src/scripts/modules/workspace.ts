@@ -278,11 +278,12 @@ export function createWorkspaceModule(ctx) {
         const ownerF = state.projectOwnerFilter || "all";
         const involvesF = state.projectInvolvesFilter || "all";
         return projects.filter((project) => {
-          if (state.projectStatusFilter === "none" && project.status) {
-            return false;
-          }
-          if (state.projectStatusFilter !== "all" && state.projectStatusFilter !== "none" && project.status !== state.projectStatusFilter) {
-            return false;
+          // Estado: MULTI-selección con OR ([] = todos; "none" = sin estado).
+          // "Activo y Planificado a la vez" era imposible con el valor único.
+          const stF = state.projectStatusFilter || [];
+          if (stF.length) {
+            const matches = (stF.includes("none") && !project.status) || stF.includes(project.status);
+            if (!matches) return false;
           }
           if (typeF !== "all" && (typeF === "__none__" ? !!project.requestType : (project.requestType || "") !== typeF)) {
             return false;
@@ -374,22 +375,38 @@ export function createWorkspaceModule(ctx) {
         return state.workspace?.taskStatuses.find((status) => status.key === statusKey)?.label || "";
       }
 
+      // El conjunto COMPLETO de estados seleccionables ("none" = sin estado).
+      function allStatusIds() {
+        return ["none", ...projectStatusList().map((s) => s.id)];
+      }
+
       function renderProjectStatusFilters() {
+        // Multi-selección estilo "resta" (pedido del usuario 2026-07-22): "Todos"
+        // ENCIENDE todos los chips y luego se apagan los que no se quieren ver —
+        // el flujo "todo menos Cerrado" es 2 clics, no marcar 6 uno a uno. [] (sin
+        // selección) también significa todos, con solo "Todos" encendido. La
+        // etiqueta "Estado:" agrupa la fila como UN filtro junto a Filtros ▾.
+        const stF = state.projectStatusFilter || [];
+        const isFull = allStatusIds().every((s) => stF.includes(s));
         const options = [
           ["all", "Todos"],
           ["none", "Sin estado"],
           ...projectStatusList().map((s) => [s.id, s.label])
         ];
-        return options
-          .map(([status, label]) => `
+        const chips = options
+          .map(([status, label]) => {
+            const active = status === "all" ? (stF.length === 0 || isFull) : stF.includes(status);
+            return `
             <button
-              class="filterChip ${state.projectStatusFilter === status ? "active" : ""}"
+              class="filterChip ${active ? "active" : ""}"
               type="button"
               data-project-status-filter="${status}"
-              aria-pressed="${state.projectStatusFilter === status ? "true" : "false"}"
-            >${label}</button>
-          `)
+              aria-pressed="${active ? "true" : "false"}"
+              title="${status === "all" ? "Marcar todos los estados (luego apaga los que no quieras ver)" : "Clic para encender/apagar este estado"}"
+            >${label}</button>`;
+          })
           .join("");
+        return `<span class="projectFiltersLabel">Estado:</span>${chips}`;
       }
 
       // Filtros por dimensión (dropdowns): Tipo, Área, Responsable. Las opciones
@@ -505,7 +522,7 @@ export function createWorkspaceModule(ctx) {
       }
 
       function anyProjectFilterActive() {
-        return (state.projectStatusFilter && state.projectStatusFilter !== "all")
+        return (state.projectStatusFilter || []).length > 0
           || (state.projectTypeFilter && state.projectTypeFilter !== "all")
           || (state.projectAreaFilter && state.projectAreaFilter !== "all")
           || (state.projectTargetAreaFilter && state.projectTargetAreaFilter !== "all")
@@ -1862,7 +1879,21 @@ export function createWorkspaceModule(ctx) {
 
         for (const button of document.querySelectorAll("[data-project-status-filter]")) {
           button.addEventListener("click", () => {
-            state.projectStatusFilter = button.dataset.projectStatusFilter || "all";
+            const value = button.dataset.projectStatusFilter || "all";
+            const current = state.projectStatusFilter || [];
+            if (value === "all") {
+              // "Todos" ENCIENDE todos los chips (flujo "resta": luego se apagan
+              // los que no se quieren ver). Si ya estaban todos encendidos, vuelve
+              // a la vista limpia (solo "Todos" activo) — actúa como reinicio.
+              const full = allStatusIds();
+              const isFull = full.every((s) => current.includes(s));
+              state.projectStatusFilter = isFull ? [] : full;
+            } else {
+              // Toggle individual (OR entre los encendidos).
+              state.projectStatusFilter = current.includes(value)
+                ? current.filter((s) => s !== value)
+                : [...current, value];
+            }
             renderWorkspace();
           });
         }
@@ -1923,7 +1954,7 @@ export function createWorkspaceModule(ctx) {
           });
         }
         document.querySelector("#clearProjectFilters")?.addEventListener("click", () => {
-          state.projectStatusFilter = "all";
+          state.projectStatusFilter = [];
           state.projectTypeFilter = "all";
           state.projectAreaFilter = "all";
           state.projectTargetAreaFilter = "all";

@@ -38,7 +38,9 @@
         showPersonForm: false,
         showTaskForm: false,
         taskFormProjectId: null,
-        projectStatusFilter: "all",
+        // Multi-selección (2026-07-22): [] = todos; varios ids = OR entre ellos
+        // ("none" = sin estado). Antes era un string de valor único.
+        projectStatusFilter: [],
         projectSearch: "",
         personSearch: "",
         projectSearchScope: "all",  // alcance de la búsqueda: "all" | "projects" | "tasks"

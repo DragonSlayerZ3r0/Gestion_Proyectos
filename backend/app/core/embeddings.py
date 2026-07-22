@@ -63,6 +63,36 @@ def _hash_text(text: str) -> str:
     return sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+# Caché de clientes/recursos boto3 a nivel de módulo. Crear un cliente boto3
+# cuesta ~100-200 ms (carga el JSON del servicio): sin caché, un backfill de
+# miles de vectores gasta MINUTOS solo en instanciar clientes (incidente
+# 2026-07-16: el backfill del catálogo agotó el timeout del Lambda por esto).
+# Llave = id() de la sesión que lo produce (las sesiones vienen cacheadas del
+# proveedor inyectado) o el nombre de tabla para credenciales del entorno.
+# Los CLIENTES boto3 son thread-safe (los workers del backfill los comparten).
+_CLIENT_CACHE: dict[Any, Any] = {}
+
+
+def _cached_bedrock_client(session: Optional["boto3.Session"], region: str):
+    key = ("bedrock", id(session) if session else "env", region)
+    client = _CLIENT_CACHE.get(key)
+    if client is None:
+        s = session or boto3.Session(region_name=region)
+        client = s.client("bedrock-runtime", region_name=region)
+        _CLIENT_CACHE[key] = client
+    return client
+
+
+def _cached_table(session: Optional["boto3.Session"], table_name: str, region: str):
+    key = ("table", id(session) if session else "env", table_name, region)
+    table = _CLIENT_CACHE.get(key)
+    if table is None:
+        s = session or boto3.Session(region_name=region)
+        table = s.resource("dynamodb", region_name=region).Table(table_name)
+        _CLIENT_CACHE[key] = table
+    return table
+
+
 def _to_bytes(raw: Any) -> bytes:
     """Normaliza lo que devuelve DynamoDB para un atributo Binary (boto3 lo envuelve
     en su tipo Binary; según la ruta puede llegar como bytes crudos)."""
@@ -84,8 +114,8 @@ class TitanEmbedder:
 
     def _client(self):
         provider = self._config.bedrock_session_provider
-        session = provider() if provider else boto3.Session(region_name=self._config.region)
-        return session.client("bedrock-runtime", region_name=self._config.region)
+        session = provider() if provider else None
+        return _cached_bedrock_client(session, self._config.region)
 
     def embed(self, text: str) -> list[float]:
         body = json.dumps({
@@ -108,8 +138,8 @@ class DynamoVectorStore:
 
     def _table(self):
         provider = self._config.table_session_provider
-        session = provider() if provider else boto3.Session(region_name=self._config.region)
-        return session.resource("dynamodb", region_name=self._config.region).Table(self._config.table_name)
+        session = provider() if provider else None
+        return _cached_table(session, self._config.table_name, self._config.region)
 
     def _pk(self, doc_id: str) -> str:
         return f"EMBED#{self._config.namespace}#{doc_id}"
