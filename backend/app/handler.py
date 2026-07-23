@@ -64,6 +64,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         from services.embedding_index import catalog_backfill
         return {"ok": True, "stats": catalog_backfill(event.get("account") or "")}
 
+    # Limpieza de imágenes huérfanas de la Wiki (auto-disparada al guardar/borrar
+    # páginas, máx. 1 vez/día; también invocable a mano). Idempotente.
+    if event.get("action") == "wiki_images_cleanup":
+        from services.wiki import WikiService
+        return {"ok": True, "stats": WikiService().cleanup_orphan_images()}
+
     # Conteo de filas por área/tabla (tabla de control vía Athena), acotado a un rango.
     if event.get("action") == "datalake_records_scan":
         from services.datalake import DatalakeService

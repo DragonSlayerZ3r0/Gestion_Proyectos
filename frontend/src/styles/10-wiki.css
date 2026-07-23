@@ -1,0 +1,150 @@
+  /* ── Wiki: base de conocimiento (sidebar de páginas + artículo) ──────────
+     Lectura para todos los que tengan el módulo; edición solo con el
+     sub-permiso wiki_editor (el backend es la autoridad). */
+  .wikiLayout {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .wikiSidebar {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100dvh - 40px);
+  }
+  .wikiSidebarHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .wikiSidebarHead .eyebrow { margin: 0; }
+  /* .searchInput trae flex:1 1 320px pensado para FILAS; aquí (columna) sería alto. */
+  .wikiSearch { flex: none; }
+
+  .wikiPageList { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+  .wikiPageItem {
+    display: flex; flex-direction: column; gap: 2px;
+    text-align: left; font: inherit;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .wikiPageItem:hover { background: var(--surface-muted); }
+  .wikiPageItem.active { background: var(--accent-soft); border-color: var(--accent); }
+  .wikiPageTitle { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+  .wikiPageMeta { font-size: 0.72rem; color: var(--muted); }
+  .wikiReadOnlyNote { margin: 0; font-size: 0.74rem; color: var(--muted); }
+
+  .wikiMain {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 24px;
+    min-height: 320px;
+  }
+  .wikiEmpty { color: var(--muted); font-size: 0.9rem; }
+  .wikiWelcome h3 { margin: 0 0 6px; }
+  .wikiWelcome p { color: var(--text-soft); }
+
+  .wikiPageHead {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .wikiPageHeading { margin: 0; font-size: 1.35rem; }
+  .wikiPageActions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .wikiPageInfo { margin: 4px 0 14px; font-size: 0.76rem; color: var(--muted); }
+
+  /* Artículo renderizado (mdLite): tipografía de lectura. */
+  .wikiBody { max-width: 860px; line-height: 1.6; color: var(--text); }
+  .wikiBody h1, .wikiBody h2, .wikiBody h3 { margin: 18px 0 8px; }
+  .wikiBody p { margin: 8px 0; }
+  .wikiBody ul, .wikiBody ol { margin: 8px 0; padding-left: 22px; }
+  .wikiBody pre.llmCode { margin: 10px 0; }
+  /* Imágenes pegadas: nunca más anchas que el artículo, con marco sutil. */
+  .wikiImg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 12px 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .wikiImg.broken { min-height: 40px; background: var(--surface-muted); }
+  .wikiPasteNote { font-size: 0.78rem; color: var(--muted); }
+
+  /* Editor */
+  .wikiEditor { display: flex; flex-direction: column; gap: 10px; }
+  .wikiTitleInput {
+    font: inherit; font-size: 1.1rem; font-weight: 600;
+    border: 1px solid var(--line-strong); border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .wikiBodyInput {
+    font: var(--mono, ui-monospace, monospace);
+    font-size: 0.86rem;
+    border: 1px solid var(--line-strong); border-radius: 8px;
+    padding: 10px 12px;
+    resize: vertical;
+    min-height: 320px;
+    line-height: 1.5;
+  }
+  .wikiEditorActions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .wikiEditorHint { margin: 0; font-size: 0.74rem; color: var(--muted); }
+  /* Eliminar: discreto y al final (acción rara, dentro del flujo de edición). */
+  .wikiDeleteBtn {
+    margin-left: auto;
+    font: inherit; font-size: 0.8rem;
+    color: var(--danger);
+    background: transparent;
+    border: 1px solid var(--danger-border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .wikiDeleteBtn:hover { background: var(--danger-soft); }
+
+  /* Historial */
+  .wikiHistory {
+    margin: 0 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    padding: 10px;
+  }
+  .wikiRevList { display: flex; flex-direction: column; gap: 4px; }
+  .wikiRevItem {
+    display: flex; justify-content: space-between; gap: 10px;
+    font: inherit; font-size: 0.82rem;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    cursor: pointer;
+    text-align: left;
+  }
+  .wikiRevItem:hover { border-color: var(--accent); }
+  .wikiRevBy { color: var(--muted); }
+  .wikiRevBanner {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    color: var(--text-soft);
+    background: var(--warn-soft);
+    border: 1px solid var(--warn-border);
+    border-radius: 8px;
+  }
+
+  /* Responsive (después de las reglas base, docs/06). */
+  @media (max-width: 900px) {
+    .wikiLayout { grid-template-columns: 1fr; }
+    .wikiSidebar { position: static; max-height: none; }
+    .wikiMain { padding: 16px; }
+  }

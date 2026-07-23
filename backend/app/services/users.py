@@ -2,7 +2,8 @@ import os
 from typing import Any
 
 from core.errors import UserNotConfiguredError  # re-exportado para compatibilidad
-from modules.manifest import ADMIN_DEFAULT_HOME_TABS, HOME_TAB_KEYS, MODULES, RETIRED_HOME_TAB_KEYS
+from modules.manifest import (ADMIN_DEFAULT_HOME_TABS, HOME_TAB_KEYS, MODULES,
+                              RETIRED_HOME_TAB_KEYS, SUBPERM_KEYS)
 from repositories.users import UsersRepository
 
 
@@ -17,9 +18,10 @@ _CURRENT_LABELS = {m["key"]: m["label"] for m in MODULES}
 MODULE_ORDER = {module["key"]: index for index, module in enumerate(DEFAULT_MODULES)}
 
 _HOME_TAB_KEYS = set(HOME_TAB_KEYS)
-# Claves excluidas del MENÚ (pestañas activas + retiradas): las retiradas ya no
-# son pestañas, pero siguen sin ser entradas de navegación.
-_MENU_EXCLUDE_KEYS = _HOME_TAB_KEYS | set(RETIRED_HOME_TAB_KEYS)
+_SUBPERM_KEYS = set(SUBPERM_KEYS)
+# Claves excluidas del MENÚ (pestañas activas + retiradas + sub-permisos): son
+# permisos/capacidades, no entradas de navegación.
+_MENU_EXCLUDE_KEYS = _HOME_TAB_KEYS | set(RETIRED_HOME_TAB_KEYS) | _SUBPERM_KEYS
 
 __all__ = ["UserService", "UserNotConfiguredError", "DEFAULT_MODULES", "MODULE_ORDER"]
 
@@ -47,6 +49,13 @@ class UserService:
             },
             "modules": modules,
             "homeTabs": home_tabs,
+            # Sub-permisos habilitados (capacidades dentro de un módulo, p. ej.
+            # wiki_editor). El frontend muestra/oculta acciones con esto; la
+            # autoridad real es el guard del backend.
+            "capabilities": sorted({
+                i["moduleKey"] for i in module_items
+                if i.get("moduleKey") in _SUBPERM_KEYS and i.get("enabled")
+            }),
             "environment": os.environ.get("ENV_NAME", "dev")
         }
 

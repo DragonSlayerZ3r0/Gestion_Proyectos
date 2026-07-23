@@ -20,11 +20,28 @@ MODULES = [
     # invita, el invitado acepta/rechaza). Escenas en S3 (bucket de adjuntos,
     # prefijo drawings/); metadata DRAWING/DRAWING_SHARE en DynamoDB.
     {"key": "draw", "label": "Pizarra"},
+    # Wiki (2026-07-22): base de conocimiento tipo Wikipedia. Todos los que
+    # tengan el módulo LEEN; solo quienes además tengan el sub-permiso
+    # wiki_editor (check hijo en Administración) crean/editan.
+    {"key": "wiki", "label": "Wiki"},
     {"key": "chat", "label": "Apoyo técnico"},
     {"key": "admin", "label": "Administración"},
 ]
 
 MODULE_KEYS = [m["key"] for m in MODULES]
+
+# ── Sub-permisos de módulos ───────────────────────────────────────────────────
+# Capacidades EXTRA dentro de un módulo (no son entradas de menú ni pestañas):
+# se almacenan como filas MODULE#<key> igual que los módulos (mismo guard
+# `modules=[...]` en las rutas), aparecen como check HIJO de su módulo padre en
+# la matriz de Administración, y /api/me los publica en `capabilities` para que
+# el frontend muestre/oculte las acciones. Agregar uno aquí basta — el patrón
+# es el mismo de HOME_TABS pero para capacidades, no pestañas.
+MODULE_SUBPERMS = [
+    {"key": "wiki_editor", "label": "Editor (crear y editar páginas)", "parent": "wiki"},
+]
+
+SUBPERM_KEYS = [s["key"] for s in MODULE_SUBPERMS]
 
 # Pestañas asignables dentro del módulo Inicio. Se almacenan y validan como
 # permisos granulares (igual que los módulos), pero NO son entradas de menú: el
@@ -70,7 +87,12 @@ DEFAULT_NEW_USER_KEYS = ["home", "home_datalake", "catalog"]
 def admin_module_groups() -> list[dict]:
     """Grupos de casillas para la pantalla de Administración. Un módulo nuevo en
     MODULES sale como grupo propio; una pestaña nueva en HOME_TABS sale como hija
-    de Inicio — sin tocar nada más."""
+    de Inicio; un sub-permiso en MODULE_SUBPERMS sale como hija de su módulo
+    padre — sin tocar nada más."""
+    subperms_by_parent: dict[str, list[dict]] = {}
+    for s in MODULE_SUBPERMS:
+        subperms_by_parent.setdefault(s["parent"], []).append(
+            {"key": s["key"], "label": s["label"]})
     groups: list[dict] = []
     for m in MODULES:
         key = m["key"]
@@ -88,5 +110,8 @@ def admin_module_groups() -> list[dict]:
             g = _MERGED_GROUPS[key]
             groups.append({"key": key, "label": g["label"], "keys": list(g["keys"])})
         else:
-            groups.append({"key": key, "label": m["label"], "keys": [key]})
+            group: dict = {"key": key, "label": m["label"], "keys": [key]}
+            if key in subperms_by_parent:
+                group["children"] = subperms_by_parent[key]
+            groups.append(group)
     return groups

@@ -89,6 +89,12 @@ Si el módulo tiene conjuntos de valores seleccionables (tipos, estados…), def
    export function createReportsModule(ctx) {
      const { state, elements, apiRequest, escapeHtml } = ctx;
      async function render() {
+       // OBLIGATORIAS las DOS líneas: al RECARGAR la página directo en este
+       // módulo, el placeholder de arranque (statusPanel "Base técnica") sigue
+       // visible y el contenido oculto — sin este toggle la vista se queda en
+       // blanco (bug real de la Wiki, 2026-07-22; navegando desde otro módulo
+       // no se nota porque el módulo anterior ya hizo el toggle).
+       elements.statusPanel.hidden = true;
        elements.contentPanel.hidden = false;
        const { data } = await apiRequest("api/reports");
        elements.contentPanel.innerHTML = `...`;

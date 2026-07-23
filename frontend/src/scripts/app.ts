@@ -11,6 +11,7 @@
       import { createChatModule } from "./modules/chat";
       import { createDrawModule } from "./modules/draw";
       import { createStaffModule } from "./modules/staff";
+      import { createWikiModule } from "./modules/wiki";
 
       const defaultModules = [
         { key: "projects", label: "Solicitudes" },
@@ -73,6 +74,20 @@
         staffHolidaysOpen: false, // panel de asuetos visible (admin)
         staffHolidayDraft: null,  // borrador extraído de la imagen, pendiente de confirmar
         staffExtracting: false,   // OCR+LLM en curso
+        // Wiki (2026-07-22): páginas markdown; edición solo con el sub-permiso
+        // wiki_editor (check hijo en Administración, viaja en profile.capabilities).
+        wikiPages: null,          // null = aún no cargado (primer render dispara load)
+        wikiLoading: false,
+        wikiError: "",
+        wikiSearch: "",
+        wikiSelectedId: null,
+        wikiPage: null,
+        wikiEditing: false,
+        wikiCreating: false,
+        wikiEditPrefill: null,    // precarga del editor al "usar" una revisión
+        wikiHistoryOpen: false,
+        wikiRevisions: null,
+        wikiRevisionView: null,
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",
@@ -869,6 +884,9 @@
       const staffModule = createStaffModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton,
       });
+      const wikiModule = createWikiModule({
+        state, elements, apiRequest, escapeHtml, escapeAttribute, mdLite,
+      });
 
       function renderModule(moduleKey) {
         moduleKey = normalizeModuleKey(moduleKey);
@@ -890,6 +908,10 @@
         }
         if (moduleKey === "staff") {
           staffModule.render();
+          return;
+        }
+        if (moduleKey === "wiki") {
+          wikiModule.render();
           return;
         }
         if (moduleKey === "admin") {

@@ -1,6 +1,10 @@
 # Estado de implementación
 
-## Último avance (2026-07-15: búsqueda semántica + reporte ejecutivo de dos pasos)
+## Último avance (2026-07-22: módulo Wiki + sub-permisos)
+
+- **Módulo Wiki**: base de conocimiento tipo Wikipedia (páginas markdown con historial de revisiones append-only). Lectura = módulo `wiki`; edición = **sub-permiso `wiki_editor`** (check hijo "Editor" bajo Wiki en Administración). Patrón nuevo de **sub-permisos** en el manifiesto (`MODULE_SUBPERMS`): check hijo automático en la matriz del admin + guard `modules=[...]` existente + campo `capabilities` en `/api/me`. Desplegado en dev; rutas verificadas contra la API real. Ver `docs/02` y bitácora 2026-07-22.
+
+## Avance previo (2026-07-15: búsqueda semántica + reporte ejecutivo de dos pasos)
 
 - **Reporte ejecutivo con IA reescrito** para escalar a miles de solicitudes y responder bajo **cualquier contexto** ("qué hizo un usuario", "qué hay pendiente", temas por concepto). Antes volcaba TODO el portafolio al LLM (no escala; `llm.py` lanza error pasados 60K chars). Ahora **tres pasos** (`services/exec_report.py`): planificador LLM barato → filtro estructurado (conceptos+sinónimos, palabras clave, personas, estados, agregados); búsqueda **híbrida** en código (estructurada + **semántica embeddings** + literal) con puntuación por relevancia y **recorte elegante** a presupuesto (45K chars, avisa "incluidas X de Y"); redactor sobre el subconjunto. Preguntas amplias → recencia + agregados. **Fallback total** (nunca se rompe). Desplegado en dev.
 - **Índice de embeddings genérico y reutilizable**: `core/embeddings.py` (cero imports del proyecto, parametrizable por tabla/**namespace**/modelo/credenciales — copiable a plataformas hermanas) + cableado `services/embedding_index.py` (**Amazon Titan Embeddings V2** vía rol del hub; namespaces `solicitud`/`seguimiento`). Vectores en la **misma DynamoDB** (`entityType=EMBEDDING#{ns}`, Binary float32, coseno en la Lambda) — sin OpenSearch. Indexado **on-write best-effort** + backfill idempotente (`embeddings_backfill`). **Permiso**: ARN de Titan en la inline `BedrockLLMInvoke` del hub. **Verificado E2E**: 42 solicitudes + 80 seguimientos indexados; búsqueda semántica de Sagemaker acierta #1. Ver `docs/01`, `docs/02`, `permisos_hub.md` 1d, bitácora 2026-07-15.

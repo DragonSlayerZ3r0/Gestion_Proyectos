@@ -46,6 +46,7 @@ gestion-proyectos-main-{env}
 - `AUDIT_EVENT`
 - `SETTING`
 - `EMBEDDING#<namespace>` (vectores de búsqueda semántica, 2026-07-15 — ver `docs/23`)
+- `WIKI_PAGE` / `WIKI_REV` (Wiki, 2026-07-22)
 
 ## Ejemplos de claves
 
@@ -124,6 +125,18 @@ DRAWING_SHARE (invitación por usuario: status pending → el invitado acepta
   (accepted, ve/edita) o rechaza (se borra el item). Solo el dueño invita/revoca)
 PK = DRAWING#<drawingId>
 SK = SHARE#<email>
+
+WIKI_PAGE (página de la Wiki, 2026-07-22: title + body markdown ≤150K chars +
+  autoría + revisionCount. Lectura = módulo wiki; escritura = sub-permiso
+  wiki_editor. Título único sin acentos/mayúsculas)
+PK = WIKI#<pageId>
+SK = META
+
+WIKI_REV (revisión append-only: snapshot del estado ANTERIOR a cada edición —
+  title + body + savedAt/By. Se borran junto con la página; el SK ordena
+  cronológicamente natural)
+PK = WIKI#<pageId>
+SK = REV#<updatedAt-anterior>#<uuid8>
 
 EMBEDDING (vector de búsqueda semántica, 2026-07-15. UN item por documento
   vectorizado; namespaces actuales: solicitud (nombre+descripción, docId=projectId),

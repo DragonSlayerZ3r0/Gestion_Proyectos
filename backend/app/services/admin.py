@@ -2,14 +2,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from modules.manifest import (DEFAULT_NEW_USER_KEYS, HOME_TAB_KEYS, HOME_TABS,
-                              MODULES, admin_module_groups)
+                              MODULE_SUBPERMS, MODULES, admin_module_groups)
 from repositories.users import UsersRepository
 from services.workspace import ValidationError
 
 
 # Catálogo de módulos asignables y su etiqueta visible (módulos de menú +
-# pestañas granulares de Inicio). Fuente única: el manifiesto.
-MODULE_LABELS = {m["key"]: m["label"] for m in (MODULES + HOME_TABS)}
+# pestañas granulares de Inicio + sub-permisos). Fuente única: el manifiesto.
+MODULE_LABELS = {m["key"]: m["label"] for m in (MODULES + HOME_TABS + MODULE_SUBPERMS)}
 MODULE_ORDER = {key: index for index, key in enumerate(MODULE_LABELS)}
 _HOME_TAB_KEYS = set(HOME_TAB_KEYS)
 
