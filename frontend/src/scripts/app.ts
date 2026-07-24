@@ -235,6 +235,7 @@
 
       const elements = {
         moduleNav: document.querySelector("#moduleNav"),
+        navBottom: document.querySelector("#navBottom"),
         app: document.querySelector("#app"),
         sidebarToggleButton: document.querySelector("#sidebarToggleButton"),
         loginLanding: document.querySelector("#loginLanding"),
@@ -264,6 +265,13 @@
         cancelLoginButton: document.querySelector("#cancelLoginButton"),
         cancelLoginIconButton: document.querySelector("#cancelLoginIconButton")
       };
+
+      // Engrane del item de Administración (SVG inline: nítido en cualquier
+      // densidad y hereda el color del texto — un emoji varía por plataforma).
+      // OJO: debe declararse ANTES de boot() — renderDefaultNav() la usa en el
+      // primer render y una const más abajo estaría en zona muerta temporal
+      // (ReferenceError silencioso que deja la app en "Cargando…", 2026-07-23).
+      const GEAR_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
 
       boot();
 
@@ -830,8 +838,24 @@
         } catch {}
       }
 
+      function makeNavButton(module, active) {
+        const button = document.createElement("button");
+        button.type = "button";
+        if (module.key === "admin") {
+          // Administración: engrane + etiqueta (patrón "configuración abajo").
+          button.innerHTML = `${GEAR_SVG}<span></span>`;
+          button.querySelector("span").textContent = module.label;
+          button.className = active ? "navItem navAdmin active" : "navItem navAdmin";
+        } else {
+          button.textContent = module.label;
+          button.className = active ? "navItem active" : "navItem";
+        }
+        return button;
+      }
+
       function renderNav() {
         elements.moduleNav.innerHTML = "";
+        elements.navBottom.innerHTML = "";
         const visibleModules = getVisibleModules(state.profile.modules);
         state.activeModule = normalizeModuleKey(state.activeModule);
         // "staff" (Personal) no es entrada del menú lateral: vive en el menú del
@@ -840,11 +864,9 @@
           state.activeModule = getDefaultModule(visibleModules);
         }
 
+        elements.navBottom.hidden = !visibleModules.some((module) => module.key === "admin");
         for (const module of visibleModules) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = module.label;
-          button.className = module.key === state.activeModule ? "navItem active" : "navItem";
+          const button = makeNavButton(module, module.key === state.activeModule);
           button.addEventListener("click", () => {
             const changed = state.activeModule !== module.key;
             state.activeModule = module.key;
@@ -852,20 +874,23 @@
             renderApp();
             if (changed) animateViewEnter();
           });
-          elements.moduleNav.append(button);
+          // Administración vive anclada al fondo, separada de los módulos de
+          // trabajo diario (es configuración — mismo patrón de VS Code/GitHub).
+          (module.key === "admin" ? elements.navBottom : elements.moduleNav).append(button);
         }
       }
 
       function renderDefaultNav() {
         elements.moduleNav.innerHTML = "";
+        elements.navBottom.innerHTML = "";
+        const defaults = getVisibleModules(defaultModules);
         const activeModule = getDefaultModule(defaultModules);
-        for (const module of getVisibleModules(defaultModules)) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = module.label;
-          button.className = module.key === activeModule ? "navItem active" : "navItem muted";
+        elements.navBottom.hidden = !defaults.some((module) => module.key === "admin");
+        for (const module of defaults) {
+          const button = makeNavButton(module, module.key === activeModule);
+          if (module.key !== activeModule) button.classList.add("muted");
           button.setAttribute("aria-disabled", "true");
-          elements.moduleNav.append(button);
+          (module.key === "admin" ? elements.navBottom : elements.moduleNav).append(button);
         }
       }
 

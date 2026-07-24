@@ -29,6 +29,8 @@ El backend constituye la fuente de autorización; el menú refleja los permisos 
 
 El menú debe reducir navegación innecesaria. Si el usuario tiene permisos de `projects` o `tasks`, el frontend debe mostrar una sola entrada llamada `Proyectos y tareas`, porque ambas acciones pertenecen a la misma mesa de trabajo.
 
+**Administración anclada abajo (2026-07-23):** la entrada de Administración NO va entre los módulos de trabajo — vive en su propio contenedor `#navBottom` anclado al fondo del sidebar, separada por un divisor y con ícono de engrane + etiqueta (patrón "configuración abajo" de VS Code/GitHub/Slack: la administración es configuración, no trabajo diario). El engrane es SVG inline (nítido y hereda el color; un emoji varía por plataforma) y siempre acompaña al texto — el resto del menú es de texto y un ícono solitario perdería descubribilidad. En móvil (≤ breakpoint) el sidebar es estático y Administración queda simplemente al final con su divisor. Si el usuario no tiene el módulo admin, el contenedor queda oculto.
+
 El módulo activo se persiste en `sessionStorage` (`gestionProyectosModule`): al recargar la página con sesión vigente, el usuario vuelve al módulo donde estaba (si sigue habilitado para él) en lugar del módulo por defecto. La preferencia se limpia al cerrar sesión. La sesión Cognito también vive en `sessionStorage` (`gestionProyectosAuth`), por lo que al recargar se ve brevemente la pantalla de acceso mientras se valida.
 
 ## Pantalla Inicio
