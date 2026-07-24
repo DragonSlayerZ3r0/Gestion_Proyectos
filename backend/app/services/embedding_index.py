@@ -33,6 +33,8 @@ NS_SOLICITUD = "solicitud"
 NS_SEGUIMIENTO = "seguimiento"
 NS_CATALOG = "catalog"                       # namespace real = f"catalog:{cuenta}"
 NS_CATALOG_COL = "catalog-col"               # nivel 2: f"catalog-col:{cuenta}"
+NS_WIKI = "wiki"                             # 1 vector por página (título + inicio)
+NS_WIKI_DOC = "wiki-doc"                     # chunks: cuerpo largo + texto de PDFs
 
 # Caché de la sesión del hub entre invocaciones calientes: sin esto, indexar en
 # lote (backfill de miles de tablas) dispararía un assume-role por vector. Las
@@ -390,6 +392,173 @@ def catalog_search(account: str, query: str, top_k: int = 40,
         logger.warning("Búsqueda semántica de catálogo (columnas) falló (cuenta %s)", account, exc_info=True)
     ranked = sorted(merged.values(), key=lambda r: r["score"], reverse=True)
     return ranked[:top_k]
+
+
+# ── Wiki (páginas + PDFs adjuntos, chunking por tramos) ──────────────────────
+# DOS NIVELES, mismo patrón parent-document del catálogo:
+#   wiki      1 vector por PÁGINA — "¿de qué trata?" (título + inicio del cuerpo)
+#   wiki-doc  chunks de texto largo — tramos de ~2000 chars con solape de 200:
+#             el cuerpo cuando supera el umbral (docId <pageId>#body#<n>) y el
+#             texto EXTRAÍDO de cada PDF adjunto (docId <pageId>#<token>#<n>).
+# A diferencia del catálogo (donde el chunk es la columna, una unidad semántica),
+# aquí el contenido es prosa libre → chunking clásico por tramos. Cada chunk
+# guarda su TEXTO en meta (≤2000 chars): el RAG de «Preguntar a la Wiki» arma el
+# contexto directo de los hits, sin releer S3. Un hit de chunk surface su página.
+_WIKI_CHUNK_CHARS = 2000
+_WIKI_CHUNK_OVERLAP = 200
+_WIKI_BODY_INLINE_MAX = 6000     # cuerpo ≤ esto cabe en el vector de página; si no, se trocea
+
+
+def wiki_index() -> EmbeddingIndex:
+    return index_for(NS_WIKI)
+
+
+def wiki_doc_index() -> EmbeddingIndex:
+    return index_for(NS_WIKI_DOC)
+
+
+def chunk_text(text: str, size: int = _WIKI_CHUNK_CHARS,
+               overlap: int = _WIKI_CHUNK_OVERLAP) -> list[str]:
+    """Tramos con solape (el solape evita cortar una idea justo en la frontera).
+    Intenta cortar en un salto de línea o espacio cercano al límite."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = min(start + size, len(text))
+        if end < len(text):
+            # Retrocede hasta un corte natural (salto o espacio) si hay uno cerca.
+            window = text[start:end]
+            cut = max(window.rfind("\n"), window.rfind(" "))
+            if cut > size * 0.6:
+                end = start + cut
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(text):
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
+
+
+def _wiki_page_vector_text(page: dict[str, Any]) -> str:
+    title = (page.get("title") or "").strip()
+    body = (page.get("body") or "").strip()
+    return f"{title}\n{body[:_WIKI_BODY_INLINE_MAX]}".strip()
+
+
+def safe_index_wiki_page(page: dict[str, Any],
+                         doc_texts: Optional[dict[str, str]] = None) -> None:
+    """Indexa una página completa: su vector de página y los chunks (cuerpo largo
+    + PDFs). `doc_texts` = {token: texto extraído} de los PDFs referenciados en el
+    cuerpo (lo arma WikiService leyendo los sidecars). Reconciliación: los chunks
+    del pageId que ya no existen (PDF quitado, cuerpo acortado) se borran.
+    Best-effort: nunca rompe el guardado."""
+    page_id = page.get("pageId") or ""
+    if not page_id:
+        return
+    title = (page.get("title") or "")[:80]
+    try:
+        wiki_index().index(
+            page_id, _wiki_page_vector_text(page),
+            meta={"pageId": page_id, "title": title},
+            updated_at=page.get("updatedAt", ""))
+    except Exception:                       # noqa: BLE001
+        logger.warning("No se pudo indexar la página wiki %s", page_id, exc_info=True)
+    try:
+        desired: dict[str, dict[str, Any]] = {}
+        body = (page.get("body") or "").strip()
+        if len(body) > _WIKI_BODY_INLINE_MAX:
+            for n, chunk in enumerate(chunk_text(body)):
+                desired[f"{page_id}#body#{n}"] = {
+                    "text": chunk,
+                    "meta": {"pageId": page_id, "title": title, "source": "body",
+                             "part": n, "text": chunk}}
+        for token, text in (doc_texts or {}).items():
+            for n, chunk in enumerate(chunk_text(text)):
+                desired[f"{page_id}#{token}#{n}"] = {
+                    "text": chunk,
+                    "meta": {"pageId": page_id, "title": title, "source": token,
+                             "part": n, "text": chunk}}
+        idx = wiki_doc_index()
+        prefix = f"{page_id}#"
+        existing = {i for i in idx.list_ids() if i.startswith(prefix)}
+        for doc_id, payload in desired.items():
+            idx.index(doc_id, payload["text"], meta=payload["meta"],
+                      updated_at=page.get("updatedAt", ""))
+        for stale in existing - set(desired):
+            idx.delete(stale)
+    except Exception:                       # noqa: BLE001
+        logger.warning("No se pudieron indexar los chunks de la página wiki %s",
+                       page_id, exc_info=True)
+
+
+def safe_delete_wiki_page(page_id: str) -> None:
+    if not page_id:
+        return
+    try:
+        wiki_index().delete(page_id)
+        idx = wiki_doc_index()
+        prefix = f"{page_id}#"
+        for doc_id in idx.list_ids():
+            if doc_id.startswith(prefix):
+                idx.delete(doc_id)
+    except Exception:                       # noqa: BLE001
+        logger.warning("No se pudieron borrar los vectores de la página wiki %s",
+                       page_id, exc_info=True)
+
+
+def wiki_search(query: str, top_k: int = 12,
+                min_score: float = 0.2) -> list[dict[str, Any]]:
+    """Búsqueda en dos niveles para la Wiki. Devuelve hits a nivel de CHUNK/página
+    (sin colapsar duplicados de página: el RAG quiere varios tramos de la misma
+    página si son relevantes). Cada hit: {pageId, title, score, via, text?}."""
+    query = (query or "").strip()
+    if not query:
+        return []
+    hits: list[dict[str, Any]] = []
+    try:
+        for h in wiki_index().search(query, top_k=top_k, min_score=min_score):
+            meta = h.get("meta") or {}
+            hits.append({"pageId": meta.get("pageId") or h.get("docId", ""),
+                         "title": meta.get("title", ""), "score": h["score"],
+                         "via": "pagina", "text": ""})
+        for h in wiki_doc_index().search(query, top_k=top_k, min_score=min_score):
+            meta = h.get("meta") or {}
+            if not meta.get("pageId"):
+                continue
+            hits.append({"pageId": meta["pageId"], "title": meta.get("title", ""),
+                         "score": h["score"],
+                         "via": "documento" if meta.get("source") != "body" else "pagina",
+                         "source": meta.get("source", ""),
+                         "text": meta.get("text", "")})
+    except Exception:                       # noqa: BLE001
+        logger.warning("Búsqueda semántica de wiki falló", exc_info=True)
+        return []
+    for h in hits:
+        h["score"] = round(float(h["score"]), 3)
+    hits.sort(key=lambda r: r["score"], reverse=True)
+    return hits[: top_k * 2]
+
+
+def wiki_backfill() -> dict[str, int]:
+    """Indexa TODAS las páginas de la wiki (idempotente por hash). Acción
+    `wiki_embeddings_backfill` del handler."""
+    from services.wiki import WikiService
+    svc = WikiService()
+    stats = {"paginas": 0, "errores": 0}
+    for meta in svc.list_pages().get("pages", []):
+        try:
+            page = svc.get_page(meta["pageId"])
+            safe_index_wiki_page(page, svc.doc_texts_for_body(page.get("body", "")))
+            stats["paginas"] += 1
+        except Exception:                   # noqa: BLE001
+            stats["errores"] += 1
+            logger.warning("Backfill wiki: falló %s", meta.get("pageId"), exc_info=True)
+    logger.info("Backfill wiki: %s", stats)
+    return stats
 
 
 def catalog_backfill(account: str, max_workers: int = 8) -> dict[str, int]:

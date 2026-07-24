@@ -455,6 +455,49 @@ sobre clientes" → filtro `database=data_mart` + concepto "clientes". Cuando se
 - "solicitudes activas de diego sobre tableau" → `{status: active, ownerPersonId: Diego Sosa}`, semantica="tableau" (mixto).
 - "requerimientos en desarrollo" → `{requestType: requirement, status: En Desarrollo}` (resuelve etiqueta→id, puro filtro).
 
-Ver también: `docs/01` (arquitectura), `docs/02` (Reporte ejecutivo + Catálogo + Solicitudes),
+## 13. Cuarto consumidor — Wiki: chunking clásico + RAG «Preguntar a la Wiki» (2026-07-23)
+
+La Wiki es el primer consumidor con **chunking clásico por tramos** (a diferencia del
+catálogo, donde el chunk es una unidad semántica — la columna): el contenido es prosa
+libre y los PDFs adjuntos pueden ser largos, así que se trocea con `chunk_text()`
+(`services/embedding_index.py`): tramos de **~2 000 chars con solape de 200**, cortando
+en salto de línea/espacio cercano al límite para no partir ideas.
+
+**Dos namespaces (mismo patrón parent-document):**
+
+| Namespace | Contenido | docId |
+| --- | --- | --- |
+| `wiki` | 1 vector por página: título + inicio del cuerpo (≤6 000 chars) | `<pageId>` |
+| `wiki-doc` | chunks del cuerpo cuando supera 6 000 chars y del **texto extraído de cada PDF** | `<pageId>#body#<n>` / `<pageId>#<token>#<n>` |
+
+Particularidades:
+
+- **El chunk guarda su TEXTO en `meta.text`** (≤2 000 chars → item ~3 KB): el RAG arma
+  el contexto directo de los hits, sin releer S3 ni recalcular offsets.
+- **Reconciliación**: al reindexar una página se calculan los chunks deseados y se
+  borran los existentes con prefijo `<pageId>#` que sobran (PDF quitado, cuerpo
+  acortado). Usa `EmbeddingIndex.list_ids()` (nuevo en el core, proyección mínima).
+- **Texto de PDFs**: viene del sidecar `wiki/doc/<token>.txt` que escribe
+  `process_document` (pypdf) al confirmar la subida — ver `docs/02` Wiki.
+- Hooks on-write en `WikiService` (crear/editar → `safe_index_wiki_page`; borrar →
+  `safe_delete_wiki_page`); backfill one-shot `{"action":"wiki_embeddings_backfill"}`.
+
+**RAG (`WikiService.ask`, `POST /api/wiki/ask`, guard de lectura):** `wiki_search()`
+busca en ambos namespaces (top 12, min_score 0.22, sin colapsar duplicados de página —
+varios tramos relevantes de la misma página son bienvenidos) → contexto con presupuesto
+de 30K chars (hit de página completa ≤8K; hit de chunk usa su `meta.text`) → GLM
+(thinking off, 1 200 tokens) con system prompt que lo limita al contexto y le exige
+citar páginas → respuesta + `sources` (pageId/título/via) que el frontend pinta como
+chips clicables. Sin hits, responde honesto sin invocar al LLM. **Alcance opcional**
+(check «Solo esta página», 2026-07-23): `pageId` en el payload filtra los hits a esa
+página y sus PDFs; sin hits dentro de ella, el cuerpo de la página entra igual al
+contexto (acotar a propósito nunca devuelve vacío).
+
+**Verificación (2026-07-23, AWS real):** backfill 1 página → 1 vector `wiki` + 9 chunks
+`wiki-doc`; PDF de prueba subido por presign + `process` extrajo su texto exacto al
+sidecar (`extractable: true, pages: 1`); `/api/wiki/ask` ("¿de qué trata la wiki?")
+respondió citando la página "Estándar de Nomenclatura — Data Lake AWS".
+
+Ver también: `docs/01` (arquitectura), `docs/02` (Reporte ejecutivo + Catálogo + Solicitudes + Wiki),
 `docs/04` (ítem EMBEDDING), `docs/07` (Catálogo), `docs/permisos_hub.md` 1d (ARN Titan),
 `docs/22` (bitácora).

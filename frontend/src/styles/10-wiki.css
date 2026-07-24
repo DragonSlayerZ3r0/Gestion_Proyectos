@@ -142,6 +142,57 @@
     border-radius: 8px;
   }
 
+  /* Enlaces a PDFs adjuntos dentro del artículo. */
+  .wikiDocLink {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 3px 10px;
+    background: var(--panel-soft);
+  }
+  .wikiDocLink:hover { border-color: var(--accent); }
+
+  /* «Preguntar a la Wiki» (RAG): barra arriba del artículo. */
+  .wikiAskBox {
+    margin: 0 0 16px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel-soft);
+  }
+  .wikiAskForm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .wikiAskInput { flex: 1 1 260px; }
+  /* Check de alcance «Solo esta página» (tooltip aclara que incluye sus PDFs). */
+  .wikiAskScope {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; color: var(--text-soft);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  .wikiAskScope input { accent-color: var(--accent); margin: 0; }
+  .wikiAskResult:not(:empty) { margin-top: 10px; }
+  .wikiAskAnswer {
+    font-size: 0.9rem; line-height: 1.55; color: var(--text);
+    max-width: 860px;
+  }
+  .wikiAskAnswer p { margin: 6px 0; }
+  .wikiAskSources {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin: 10px 0 6px;
+  }
+  .wikiAskSourcesLabel { font-size: 0.74rem; color: var(--muted); }
+  .wikiAskSource {
+    font: inherit; font-size: 0.76rem;
+    color: var(--accent);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 10px;
+    cursor: pointer;
+  }
+  .wikiAskSource:hover { border-color: var(--accent); }
+
   /* Responsive (después de las reglas base, docs/06). */
   @media (max-width: 900px) {
     .wikiLayout { grid-template-columns: 1fr; }

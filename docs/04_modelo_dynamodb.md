@@ -141,9 +141,13 @@ SK = REV#<updatedAt-anterior>#<uuid8>
 EMBEDDING (vector de búsqueda semántica, 2026-07-15. UN item por documento
   vectorizado; namespaces actuales: solicitud (nombre+descripción, docId=projectId),
   seguimiento (texto, docId=updateId), catalog:<cuenta> (tabla del catálogo,
-  docId=<db>#<tabla>) y catalog-col:<cuenta> (COLUMNA DOCUMENTADA del catálogo,
+  docId=<db>#<tabla>), catalog-col:<cuenta> (COLUMNA DOCUMENTADA del catálogo,
   docId=<db>#<tabla>#<col> — nivel 2 del "chunking" por unidad semántica,
-  2026-07-16). Atributos: vec=Binary (float32 empacado, 256 dims = 1 KB), dim,
+  2026-07-16), wiki (1 vector por página, docId=pageId, 2026-07-23) y wiki-doc
+  (chunks de ~2000 chars con solape: cuerpo largo docId=<pageId>#body#<n> y
+  texto extraído de PDFs adjuntos docId=<pageId>#<token>#<n>; el chunk guarda su
+  TEXTO en meta para que el RAG arme el contexto sin releer S3).
+  Atributos: vec=Binary (float32 empacado, 256 dims = 1 KB), dim,
   srcHash (huella del texto → idempotencia: no re-embebe si no cambió), meta (map
   con projectId/date/author o database/table/column/snippet), updatedAt. entityType
   lleva el namespace para que el GSI devuelva SOLO ese segmento en una query.

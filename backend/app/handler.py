@@ -64,6 +64,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         from services.embedding_index import catalog_backfill
         return {"ok": True, "stats": catalog_backfill(event.get("account") or "")}
 
+    # Backfill de embeddings de la WIKI (páginas + chunks de PDFs). One-shot
+    # idempotente. aws lambda invoke con {"action":"wiki_embeddings_backfill"}.
+    if event.get("action") == "wiki_embeddings_backfill":
+        from services.embedding_index import wiki_backfill
+        return {"ok": True, "stats": wiki_backfill()}
+
     # Limpieza de imágenes huérfanas de la Wiki (auto-disparada al guardar/borrar
     # páginas, máx. 1 vez/día; también invocable a mano). Idempotente.
     if event.get("action") == "wiki_images_cleanup":

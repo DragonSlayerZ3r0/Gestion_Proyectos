@@ -173,6 +173,25 @@ class DynamoVectorStore:
     def delete(self, doc_id: str) -> None:
         self._table().delete_item(Key={"PK": self._pk(doc_id), "SK": self._sk()})
 
+    def all_ids(self) -> list[str]:
+        """Solo los docId del namespace (proyección mínima, sin vectores): para
+        reconciliar borrados en lote (p. ej. chunks que dejaron de existir)."""
+        table = self._table()
+        ids: list[str] = []
+        kwargs: dict[str, Any] = {
+            "IndexName": self._config.entity_index,
+            "KeyConditionExpression": Key(self._config.entity_attr).eq(
+                f"EMBEDDING#{self._config.namespace}"),
+            "ProjectionExpression": "docId",
+        }
+        while True:
+            resp = table.query(**kwargs)
+            ids.extend(i.get("docId", "") for i in resp.get("Items", []))
+            last = resp.get("LastEvaluatedKey")
+            if not last:
+                return ids
+            kwargs["ExclusiveStartKey"] = last
+
     def _all_vectors(self) -> list[dict[str, Any]]:
         """Todos los vectores del namespace vía el GSI (query exacta por
         entityType, paginada). No mezcla otros namespaces ni otros items."""
@@ -240,6 +259,10 @@ class EmbeddingIndex:
 
     def delete(self, doc_id: str) -> None:
         self._store.delete(doc_id)
+
+    def list_ids(self) -> list[str]:
+        """docIds presentes en el namespace (para reconciliación en lote)."""
+        return self._store.all_ids()
 
     def search(self, query_text: str, top_k: Optional[int] = None,
                min_score: float = 0.0) -> list[dict[str, Any]]:

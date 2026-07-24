@@ -1,6 +1,11 @@
 # Estado de implementación
 
-## Último avance (2026-07-22: módulo Wiki + sub-permisos)
+## Último avance (2026-07-23: Wiki con PDFs adjuntos + RAG «Preguntar a la Wiki»)
+
+- **PDFs adjuntos en la Wiki**: botón «Adjuntar PDF» (≤10 MB) — presign + PUT directo a `wiki/doc/`, token `[nombre](wikidoc:…)` en el markdown, enlace 📄 con URL presignada al clic. Al subir se **extrae el texto con pypdf** (vendorizado en `_vendor`) a un sidecar `.txt`; un PDF escaneado no tiene texto y se avisa al editor. Borrado de página y limpieza de huérfanos cubren binario + sidecar.
+- **«Preguntar a la Wiki» (RAG)**: caja dentro del módulo que responde solo con el contenido de la wiki (páginas + texto de PDFs) citando fuentes clicables — `POST /api/wiki/ask`, guard de lectura. Embeddings: namespaces `wiki`/`wiki-doc` (chunking ~2 000 chars con solape; detalle `docs/23 §13`). Desplegado en dev y verificado E2E contra AWS real. Ver bitácora 2026-07-23.
+
+## Avance previo (2026-07-22: módulo Wiki + sub-permisos)
 
 - **Módulo Wiki**: base de conocimiento tipo Wikipedia (páginas markdown con historial de revisiones append-only). Lectura = módulo `wiki`; edición = **sub-permiso `wiki_editor`** (check hijo "Editor" bajo Wiki en Administración). Patrón nuevo de **sub-permisos** en el manifiesto (`MODULE_SUBPERMS`): check hijo automático en la matriz del admin + guard `modules=[...]` existente + campo `capabilities` en `/api/me`. Desplegado en dev; rutas verificadas contra la API real. Ver `docs/02` y bitácora 2026-07-22.
 

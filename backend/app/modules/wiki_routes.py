@@ -54,6 +54,22 @@ def _image_url(req: Request):
     return success(WikiService().image_url(req.params.get("token") or ""))
 
 
+def _presign_doc(req: Request):
+    return success(WikiService().presign_document(req.body(), req.identity))
+
+
+def _process_doc(req: Request):
+    return success(WikiService().process_document(req.params.get("token") or ""))
+
+
+def _doc_url(req: Request):
+    return success(WikiService().document_url(req.params.get("token") or ""))
+
+
+def _ask(req: Request):
+    return success(WikiService().ask(req.body()))
+
+
 def register(router: Router) -> None:
     router.add(["GET"], "/api/wiki", _list, modules=R,
                error_msg="Error inesperado al listar las páginas.")
@@ -64,6 +80,14 @@ def register(router: Router) -> None:
                error_msg="Error inesperado al preparar la subida de la imagen.")
     router.add(["GET"], "/api/wiki/images/{token}/url", _image_url, modules=R,
                error_msg="Error inesperado al cargar la imagen.")
+    router.add(["POST"], "/api/wiki/docs/presign", _presign_doc, modules=W,
+               error_msg="Error inesperado al preparar la subida del documento.")
+    router.add(["POST"], "/api/wiki/docs/{token}/process", _process_doc, modules=W,
+               error_msg="Error inesperado al procesar el documento.")
+    router.add(["GET"], "/api/wiki/docs/{token}/url", _doc_url, modules=R,
+               error_msg="Error inesperado al cargar el documento.")
+    router.add(["POST"], "/api/wiki/ask", _ask, modules=R,
+               error_msg="Error inesperado al consultar la wiki.")
     router.add(["GET"], "/api/wiki/{pageId}", _page, modules=R,
                error_msg="Error inesperado al cargar la página.")
     router.add(["PATCH", "DELETE"], "/api/wiki/{pageId}", _page_update, modules=W,

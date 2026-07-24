@@ -88,6 +88,15 @@
         wikiHistoryOpen: false,
         wikiRevisions: null,
         wikiRevisionView: null,
+        // «Preguntar a la Wiki» (RAG sobre páginas + PDFs adjuntos) y cachés de
+        // URLs presignadas de adjuntos (expiran ~15 min).
+        wikiAskQ: "",
+        wikiAskScoped: false,   // check «Solo esta página» (incluye sus PDFs)
+        wikiAsk: null,
+        wikiAskLoading: false,
+        wikiAskError: "",
+        wikiImgUrls: {},
+        wikiDocUrls: {},
         saveNotice: null,
         sidebarCollapsed: false,
         activeModule: "projects",

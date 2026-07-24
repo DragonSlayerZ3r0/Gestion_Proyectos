@@ -40,6 +40,19 @@ _IMG_MAX_BYTES = 5 * 1024 * 1024
 _IMG_TOKEN_RE = re.compile(r"^[a-f0-9]{32}\.(png|jpg|webp|gif)$")
 # Tokens dentro del markdown (para borrar los objetos al eliminar la página).
 _IMG_IN_BODY_RE = re.compile(r"wikiimg:([a-f0-9]{32}\.(?:png|jpg|webp|gif))")
+
+# ── Documentos PDF adjuntos ──────────────────────────────────────────────────
+# Mismo patrón que las imágenes (presign → PUT directo → token en el markdown:
+# `[nombre](wikidoc:<uuid>.pdf)`), con un paso extra: al confirmar la subida, el
+# backend EXTRAE el texto con pypdf (vendorizado en _vendor) y lo guarda como
+# sidecar `<token>.txt` junto al binario. Ese texto — nunca el binario — es lo
+# que se indexa en embeddings y lo que lee el LLM en «Preguntar a la Wiki».
+# Un PDF escaneado (sin capa de texto) produce texto vacío: se avisa al editor.
+_DOC_TYPES = {"application/pdf": "pdf"}
+_DOC_MAX_BYTES = 10 * 1024 * 1024
+_DOC_TOKEN_RE = re.compile(r"^[a-f0-9]{32}\.pdf$")
+_DOC_IN_BODY_RE = re.compile(r"wikidoc:([a-f0-9]{32}\.pdf)")
+_DOC_TEXT_MAX = 300_000     # chars de texto extraído por PDF (tope defensivo)
 _PRESIGN_PUT_TTL = 300
 _PRESIGN_GET_TTL = 900
 _REGION = os.environ.get("AWS_REGION", "us-east-1")
@@ -124,7 +137,9 @@ class WikiService:
             "updatedAt": now, "updatedBy": identity["userId"],
             "revisionCount": 0,
         })
-        return self.get_page(page_id)
+        result = self.get_page(page_id)
+        self._index_page(result)            # embeddings, best-effort
+        return result
 
     def update_page(self, page_id: str, payload: dict[str, Any],
                     identity: dict[str, str]) -> dict[str, Any]:
@@ -151,23 +166,32 @@ class WikiService:
             "updatedAt": now, "updatedBy": identity["userId"],
             "revisionCount": int(existing.get("revisionCount", 0)) + 1,
         })
-        return self.get_page(page_id)
+        result = self.get_page(page_id)
+        self._index_page(result)            # embeddings, best-effort
+        return result
 
     def delete_page(self, page_id: str, identity: dict[str, str]) -> dict[str, Any]:
         page = self._db.get_page(page_id)
         if not page:
             raise ValidationError("La página no existe.")
-        # Imágenes referenciadas (página + revisiones): se borran de S3 antes de
-        # los items — mismo criterio que adjuntos (la entidad limpia su binario).
-        tokens = set(_IMG_IN_BODY_RE.findall(page.get("body", "")))
+        # Imágenes y PDFs referenciados (página + revisiones): se borran de S3
+        # antes de los items — la entidad limpia su binario (los PDFs incluyen su
+        # sidecar de texto extraído).
+        img_tokens = set(_IMG_IN_BODY_RE.findall(page.get("body", "")))
+        doc_tokens = set(_DOC_IN_BODY_RE.findall(page.get("body", "")))
         for rev in self._db.list_revisions(page_id):
-            tokens |= set(_IMG_IN_BODY_RE.findall(rev.get("body", "")))
-        for token in tokens:
+            img_tokens |= set(_IMG_IN_BODY_RE.findall(rev.get("body", "")))
+            doc_tokens |= set(_DOC_IN_BODY_RE.findall(rev.get("body", "")))
+        keys = [self._img_key(t) for t in img_tokens]
+        for t in doc_tokens:
+            keys += [self._doc_key(t), self._doc_text_key(t)]
+        for key in keys:
             try:
-                self._storage().delete_object(Bucket=self._bucket(), Key=self._img_key(token))
+                self._storage().delete_object(Bucket=self._bucket(), Key=key)
             except Exception:               # noqa: BLE001 — best-effort
                 pass
         self._db.delete_page(page_id)
+        self._deindex_page(page_id)
         return {"pageId": page_id, "removed": True}
 
     # ── Imágenes (pegadas con Ctrl+V en el editor) ────────────────────────────
@@ -235,34 +259,40 @@ class WikiService:
         {"action":"wiki_images_cleanup"}."""
         referenced: set[str] = set()
         for page in self._db.list_pages():
-            referenced |= set(_IMG_IN_BODY_RE.findall(page.get("body", "")))
+            body = page.get("body", "")
+            referenced |= set(_IMG_IN_BODY_RE.findall(body))
+            referenced |= set(_DOC_IN_BODY_RE.findall(body))
             for rev in self._db.list_revisions(page.get("pageId", "")):
-                referenced |= set(_IMG_IN_BODY_RE.findall(rev.get("body", "")))
+                rbody = rev.get("body", "")
+                referenced |= set(_IMG_IN_BODY_RE.findall(rbody))
+                referenced |= set(_DOC_IN_BODY_RE.findall(rbody))
 
         s3 = self._storage()
         bucket = self._bucket()
-        prefix = self._img_key("")          # .../wiki/img/
         cutoff = datetime.now(timezone.utc) - _ORPHAN_MIN_AGE
         stats = {"revisados": 0, "borrados": 0, "referenciados": len(referenced)}
-        kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
-        while True:
-            resp = s3.list_objects_v2(**kwargs)
-            for obj in resp.get("Contents", []):
-                stats["revisados"] += 1
-                token = obj["Key"].removeprefix(prefix)
-                if token in referenced:
-                    continue
-                if obj.get("LastModified") and obj["LastModified"] > cutoff:
-                    continue                # recién subida: puede estar en un editor abierto
-                try:
-                    s3.delete_object(Bucket=bucket, Key=obj["Key"])
-                    stats["borrados"] += 1
-                except Exception:           # noqa: BLE001
-                    logger.warning("No se pudo borrar la imagen huérfana %s", obj["Key"], exc_info=True)
-            if not resp.get("IsTruncated"):
-                break
-            kwargs["ContinuationToken"] = resp.get("NextContinuationToken")
-        logger.info("Limpieza de imágenes Wiki: %s", stats)
+        # Ambos prefijos: imágenes (wiki/img/) y PDFs con su sidecar (wiki/doc/).
+        # El sidecar `<token>.txt` se evalúa por el token de su PDF.
+        for prefix in (self._img_key(""), self._doc_key("")):
+            kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+            while True:
+                resp = s3.list_objects_v2(**kwargs)
+                for obj in resp.get("Contents", []):
+                    stats["revisados"] += 1
+                    token = obj["Key"].removeprefix(prefix).removesuffix(".txt")
+                    if token in referenced:
+                        continue
+                    if obj.get("LastModified") and obj["LastModified"] > cutoff:
+                        continue            # recién subido: puede estar en un editor abierto
+                    try:
+                        s3.delete_object(Bucket=bucket, Key=obj["Key"])
+                        stats["borrados"] += 1
+                    except Exception:       # noqa: BLE001
+                        logger.warning("No se pudo borrar el adjunto huérfano %s", obj["Key"], exc_info=True)
+                if not resp.get("IsTruncated"):
+                    break
+                kwargs["ContinuationToken"] = resp.get("NextContinuationToken")
+        logger.info("Limpieza de adjuntos Wiki: %s", stats)
         return stats
 
     def image_url(self, token: str) -> dict[str, Any]:
@@ -275,6 +305,195 @@ class WikiService:
             ExpiresIn=_PRESIGN_GET_TTL,
         )
         return {"token": token, "url": url, "expiresIn": _PRESIGN_GET_TTL}
+
+    # ── Documentos PDF (adjuntar en el editor) ────────────────────────────────
+    def _doc_key(self, token: str) -> str:
+        prefix = os.environ.get("ATTACHMENTS_PREFIX", "gestion-proyectos/")
+        return f"{prefix}wiki/doc/{token}"
+
+    def _doc_text_key(self, token: str) -> str:
+        return self._doc_key(token) + ".txt"
+
+    def presign_document(self, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        content_type = str(payload.get("contentType") or "").strip().lower()
+        ext = _DOC_TYPES.get(content_type)
+        if not ext:
+            raise ValidationError("Solo se aceptan documentos PDF.")
+        size = int(payload.get("size") or 0)
+        if size <= 0 or size > _DOC_MAX_BYTES:
+            mb = _DOC_MAX_BYTES // (1024 * 1024)
+            raise ValidationError(f"El documento debe pesar entre 1 byte y {mb} MB.")
+        token = f"{uuid4().hex}.{ext}"
+        url = self._storage().generate_presigned_url(
+            "put_object",
+            Params={"Bucket": self._bucket(), "Key": self._doc_key(token),
+                    "ContentType": content_type},
+            ExpiresIn=_PRESIGN_PUT_TTL,
+        )
+        return {"token": token, "uploadUrl": url, "contentType": content_type,
+                "expiresIn": _PRESIGN_PUT_TTL, "maxBytes": _DOC_MAX_BYTES}
+
+    def process_document(self, token: str) -> dict[str, Any]:
+        """Tras el PUT del navegador: extrae el texto del PDF (pypdf) y lo guarda
+        como sidecar `.txt` junto al binario. Devuelve si hubo texto extraíble —
+        un PDF escaneado (solo imágenes) no lo tiene y el editor debe saberlo."""
+        token = (token or "").strip()
+        if not _DOC_TOKEN_RE.match(token):
+            raise ValidationError("Documento inválido.")
+        try:
+            raw = self._storage().get_object(
+                Bucket=self._bucket(), Key=self._doc_key(token))["Body"].read()
+        except Exception as exc:            # noqa: BLE001
+            raise ValidationError("El documento aún no está disponible en el almacenamiento.") from exc
+        text, pages = self._extract_pdf_text(raw)
+        self._storage().put_object(
+            Bucket=self._bucket(), Key=self._doc_text_key(token),
+            Body=text.encode("utf-8"), ContentType="text/plain; charset=utf-8")
+        return {"token": token, "pages": pages, "chars": len(text),
+                "extractable": bool(text.strip())}
+
+    @staticmethod
+    def _extract_pdf_text(raw: bytes) -> tuple[str, int]:
+        """pypdf vendorizado (puro Python). Si faltara o el PDF está dañado,
+        degrada a "sin texto" — el adjunto sigue funcionando como descarga."""
+        import io
+        import sys
+        vendor = os.path.join(os.path.dirname(__file__), "..", "_vendor")
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(raw))
+            parts: list[str] = []
+            total = 0
+            for page in reader.pages:
+                chunk = (page.extract_text() or "").strip()
+                if chunk:
+                    parts.append(chunk)
+                total += len(chunk) + 1
+                if total > _DOC_TEXT_MAX:
+                    break
+            return "\n\n".join(parts)[:_DOC_TEXT_MAX], len(reader.pages)
+        except Exception:                   # noqa: BLE001
+            logger.warning("No se pudo extraer texto del PDF", exc_info=True)
+            return "", 0
+
+    def document_url(self, token: str) -> dict[str, Any]:
+        token = (token or "").strip()
+        if not _DOC_TOKEN_RE.match(token):
+            raise ValidationError("Documento inválido.")
+        url = self._storage().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket(), "Key": self._doc_key(token),
+                    "ResponseContentType": "application/pdf",
+                    "ResponseContentDisposition": "inline"},
+            ExpiresIn=_PRESIGN_GET_TTL,
+        )
+        return {"token": token, "url": url, "expiresIn": _PRESIGN_GET_TTL}
+
+    def doc_texts_for_body(self, body: str) -> dict[str, str]:
+        """{token: texto extraído} de los PDFs referenciados en un cuerpo, leyendo
+        los sidecars de S3. Best-effort: un sidecar ausente aporta vacío."""
+        texts: dict[str, str] = {}
+        for token in set(_DOC_IN_BODY_RE.findall(body or "")):
+            try:
+                raw = self._storage().get_object(
+                    Bucket=self._bucket(), Key=self._doc_text_key(token))["Body"].read()
+                texts[token] = raw.decode("utf-8", errors="replace")
+            except Exception:               # noqa: BLE001
+                texts[token] = ""
+        return texts
+
+    # ── Embeddings (hooks best-effort, import diferido para no acoplar) ──────
+    def _index_page(self, page: dict[str, Any]) -> None:
+        try:
+            from services.embedding_index import safe_index_wiki_page
+            safe_index_wiki_page(page, self.doc_texts_for_body(page.get("body", "")))
+        except Exception:                   # noqa: BLE001
+            logger.warning("No se pudo indexar la página wiki (embeddings)", exc_info=True)
+
+    def _deindex_page(self, page_id: str) -> None:
+        try:
+            from services.embedding_index import safe_delete_wiki_page
+            safe_delete_wiki_page(page_id)
+        except Exception:                   # noqa: BLE001
+            logger.warning("No se pudieron borrar los vectores de la página wiki", exc_info=True)
+
+    # ── «Preguntar a la Wiki» (RAG sobre páginas + PDFs) ──────────────────────
+    _ASK_SYSTEM = (
+        "Eres el asistente de la Wiki interna de la Gerencia Administrativa de Datos "
+        "de Banrural. Respondes SOLO con la información del contexto (páginas de la "
+        "wiki y texto de sus PDFs adjuntos). Si el contexto no alcanza para responder, "
+        "dilo con claridad y sugiere qué página podría faltar. Responde en español, "
+        "conciso y en markdown simple. Cita las páginas que usaste por su título."
+    )
+    _ASK_CONTEXT_BUDGET = 30_000    # chars de contexto para el LLM
+    _ASK_PAGE_CAP = 8_000           # chars por página completa incluida
+
+    def ask(self, payload: dict[str, Any]) -> dict[str, Any]:
+        question = str(payload.get("question") or "").strip()
+        if not question:
+            raise ValidationError("Escribe una pregunta.")
+        if len(question) > 500:
+            raise ValidationError("La pregunta supera el máximo de 500 caracteres.")
+        # Alcance opcional: pageId → responder SOLO con esa página y sus PDFs
+        # (check «Solo esta página y sus PDFs» en la UI). Sin pageId = toda la wiki.
+        page_scope = str(payload.get("pageId") or "").strip()
+        scope_page = None
+        if page_scope:
+            scope_page = self._db.get_page(page_scope)
+            if not scope_page:
+                raise ValidationError("La página del alcance no existe.")
+        from services.embedding_index import wiki_search
+        hits = wiki_search(question, top_k=12, min_score=0.22)
+        if page_scope:
+            hits = [h for h in hits if h["pageId"] == page_scope]
+            if not hits:
+                # Nada superó el umbral DENTRO de la página: igual se responde con
+                # su cuerpo (el usuario acotó a propósito — no devolver vacío).
+                hits = [{"pageId": page_scope,
+                         "title": scope_page.get("title", ""),
+                         "score": 0.0, "via": "pagina", "text": ""}]
+        if not hits:
+            return {"question": question, "sources": [],
+                    "answer": "No encontré páginas de la wiki relacionadas con tu "
+                              "pregunta. Prueba con otras palabras o revisa si el "
+                              "tema ya está documentado."}
+        # Contexto: chunks tal cual (traen su texto en meta); hits de página
+        # completa cargan el cuerpo desde la base. Presupuesto con corte honesto.
+        blocks: list[str] = []
+        used = 0
+        sources: list[dict[str, Any]] = []
+        seen_pages: set[str] = set()
+        loaded_pages: set[str] = set()
+        for h in hits:
+            page_id = h["pageId"]
+            if page_id not in seen_pages:
+                seen_pages.add(page_id)
+                sources.append({"pageId": page_id, "title": h.get("title", ""),
+                                "score": h["score"], "via": h["via"]})
+            if h.get("text"):
+                block = f"### {h.get('title', '')} (fragmento)\n{h['text']}"
+            elif page_id not in loaded_pages:
+                loaded_pages.add(page_id)
+                try:
+                    body = self._db.get_page(page_id).get("body", "")
+                except Exception:           # noqa: BLE001
+                    continue
+                block = f"### {h.get('title', '')}\n{body[:self._ASK_PAGE_CAP]}"
+            else:
+                continue
+            if used + len(block) > self._ASK_CONTEXT_BUDGET:
+                break
+            blocks.append(block)
+            used += len(block)
+        from services.llm import LlmService
+        prompt = (f"Pregunta del usuario: {question}\n\n"
+                  f"Contexto (páginas de la wiki):\n\n" + "\n\n---\n\n".join(blocks))
+        result = LlmService().complete(prompt, system=self._ASK_SYSTEM,
+                                       max_tokens=1200, thinking=False)
+        return {"question": question, "answer": result.get("text", ""),
+                "sources": sources[:6]}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     def _validate(self, payload: dict[str, Any]) -> tuple[str, str]:
