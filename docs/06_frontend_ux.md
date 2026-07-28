@@ -58,6 +58,7 @@ Debe mostrar:
 - Mensajes claros.
 - Guardado evidente.
 - En `Proyectos y tareas`, los formularios de registro de personas y creación de tareas deben estar colapsados por defecto y abrirse solo cuando el usuario presione `Registrar persona` o `Crear tarea`. Si el usuario abandona una creación rápida, la acción debe llamarse `Cancelar`, cerrar el formulario y limpiar sus campos.
+- **Campo + botón en columnas ANGOSTAS (regla 2026-07-24):** la clase compartida `.inlineForm` maqueta en **dos columnas** (`minmax(0,1fr) auto`), lo cual funciona en zonas anchas pero en un panel de detalle deja el campo tan corto que el usuario no ve lo que escribió (caso real: el seguimiento por tarea). En columnas angostas hay que **apilar**: campo a todo el ancho arriba, acciones debajo con el botón anclado a la derecha (`margin-right:auto` en la pista para que el botón no salte a la izquierda al envolver). **Si el formulario conserva la clase `.inlineForm`, la regla propia DEBE resetear `grid-template-columns: 1fr`** — sin esa línea el apilado no ocurre aunque se declare `display:grid`. Cuando el texto puede pasar de un renglón, usar `<textarea>` con auto-crecimiento (JS ajusta el alto al contenido con un tope) y conservar el gesto: **Enter envía, Shift+Enter salta de línea**; tras enviar hay que devolver el alto a su base.
 
 ## Login
 

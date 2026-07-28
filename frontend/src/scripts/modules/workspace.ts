@@ -826,10 +826,24 @@ export function createWorkspaceModule(ctx) {
           return { pct: project.progress, source: "manual" };
         }
         if (project.tasks.length) {
-          const done = project.tasks.filter((t) => t.status === "done").length;
-          return { pct: Math.round((100 * done) / project.tasks.length), source: "tareas" };
+          // Promedio del % de CADA tarea (2026-07-24). Si ninguna tarea tiene %
+          // manual, cada una vale 100 (completada) o 0 → el promedio es idéntico
+          // al cálculo anterior "completadas/total": compatible hacia atrás, y
+          // ahora una tarea a medias aporta su avance real.
+          const total = project.tasks.reduce((sum, t) => sum + taskProgress(t).pct, 0);
+          return { pct: Math.round(total / project.tasks.length), source: "tareas" };
         }
         return { pct: null, source: "none" };
+      }
+
+      // % de avance de UNA tarea: manda el manual; si no está definido se deriva
+      // del estado (completada = 100, cualquier otro = 0), que es lo que la
+      // solicitud usaba históricamente para su cálculo por tareas.
+      function taskProgress(task) {
+        if (task.progress !== "" && task.progress !== undefined && task.progress !== null) {
+          return { pct: Number(task.progress), source: "manual" };
+        }
+        return { pct: task.status === "done" ? 100 : 0, source: "estado" };
       }
 
       // Tablero de avance: informe ejecutivo para presentar. Estatus por estado
@@ -1310,6 +1324,7 @@ export function createWorkspaceModule(ctx) {
         const assignee = task.assigneePersonId ? peopleById[task.assigneePersonId] : null;
         const isSelected = state.selectedDetail?.type === "task" && state.selectedDetail.id === task.id;
         const assigneeAction = assignee ? "Cambiar" : "Asignar";
+        const updatesCount = (task.updates || []).length;
         return `
           <article class="taskCard ${isSelected ? "selected" : ""}" draggable="true" data-task-id="${task.id}" data-task-select="${task.id}">
             <div class="cardHeader">
@@ -1329,9 +1344,21 @@ export function createWorkspaceModule(ctx) {
               ` : `<small>Sin responsable</small>`}
               <button class="tinyButton subtle" type="button" data-detail-task="${task.id}" data-detail-task-project="${task.projectId}" data-focus-task-assignee="true">${assigneeAction}</button>
             </div>
-            <small>Arrastra para cambiar estado.</small>
+            ${renderTaskProgressBar(task)}
+            <small>Arrastra para cambiar estado.${updatesCount ? ` · ${updatesCount} seguimiento${updatesCount === 1 ? "" : "s"}` : ""}</small>
           </article>
         `;
+      }
+
+      // Barra de avance de la tarjeta: el % manual se marca con tono propio (dato
+      // afirmado por el responsable) y el derivado del estado queda tenue.
+      function renderTaskProgressBar(task) {
+        const { pct, source } = taskProgress(task);
+        return `
+          <div class="taskProgress ${source === "manual" ? "manual" : "derived"}" title="${source === "manual" ? "Avance registrado por el responsable" : "Derivado del estado de la tarea"}">
+            <div class="taskProgressTrack"><span style="width:${Math.max(0, Math.min(100, pct))}%"></span></div>
+            <span class="taskProgressPct">${pct}%</span>
+          </div>`;
       }
 
       function renderDetailPanel(activeProject, peopleById) {
@@ -1490,6 +1517,75 @@ export function createWorkspaceModule(ctx) {
         `;
       }
 
+      // Bitácora POR TAREA (2026-07-24): misma mecánica que la de la solicitud
+      // (fecha de hoy automática, edición de texto/fecha, borrado), en el panel
+      // de detalle de la tarea. Las entradas también alimentan la búsqueda
+      // avanzada: el acierto lleva a la solicitud padre.
+      function renderTaskUpdateRow(task, u, editing) {
+        if (editing && editing.taskId === task.id && editing.updateId === u.id) {
+          return `
+            <form class="projectUpdateRow projectUpdateEditForm" data-task-update-edit-form="${task.id}" data-task-update-project="${task.projectId}" data-update-id="${u.id}">
+              <input class="projectUpdateDateInput" name="date" type="date" value="${escapeAttribute(u.date)}" required aria-label="Fecha del seguimiento" />
+              <input class="projectUpdateTextInput" name="text" type="text" value="${escapeAttribute(u.text)}" required aria-label="Texto del seguimiento" />
+              <div class="projectUpdateEditActions">
+                <button class="tinyButton" type="submit">Guardar</button>
+                <button class="tinyButton ghost" type="button" data-task-update-cancel>Cancelar</button>
+                <button class="tinyButton danger" type="button" data-task-update-delete="${task.id}" data-task-update-project="${task.projectId}" data-update-id="${u.id}">Eliminar</button>
+              </div>
+            </form>`;
+        }
+        const author = u.createdByName || u.createdBy || "";
+        const time = updateTimeLabel(u.createdAt);
+        const meta = [
+          time ? `<span class="projectUpdateTime">${escapeHtml(time)}</span>` : "",
+          author ? `<span class="projectUpdateAuthor" title="Registrado por ${escapeAttribute(author)}">${escapeHtml(author)}</span>` : ""
+        ].filter(Boolean).join(" · ");
+        return `
+          <div class="projectUpdateRow">
+            <div class="projectUpdateBody">
+              ${meta ? `<span class="projectUpdateMeta">${meta}</span>` : ""}
+              <span class="projectUpdateText">${escapeHtml(u.text)}</span>
+            </div>
+            ${renderEditIconButton("Editar seguimiento", `data-task-update-edit="${task.id}" data-task-update-project="${task.projectId}" data-update-id="${u.id}"`)}
+          </div>`;
+      }
+
+      function renderTaskUpdates(task) {
+        const updates = task.updates || [];
+        const expanded = !!state.taskUpdatesExpanded[task.id];
+        const visible = expanded ? updates : updates.slice(0, 3);
+        const editing = state.taskUpdateEditing;
+        const groups = [];
+        for (const u of visible) {
+          const last = groups[groups.length - 1];
+          if (last && last.date === u.date) last.items.push(u);
+          else groups.push({ date: u.date, items: [u] });
+        }
+        const rows = groups.map((g) => `
+          <div class="projectUpdateDay">
+            <div class="projectUpdateDayHeader">${escapeHtml(updateDateLabel(g.date))}</div>
+            ${g.items.map((u) => renderTaskUpdateRow(task, u, editing)).join("")}
+          </div>`).join("");
+        return `
+          <section class="projectUpdatesBlock taskUpdatesBlock">
+            <div class="blockHeader">
+              <strong>Seguimiento de la tarea</strong>
+              <span>${updates.length}</span>
+            </div>
+            <form class="inlineForm taskUpdateForm" data-task-update-quick="${task.id}" data-task-update-project="${task.projectId}">
+              <textarea name="text" class="taskUpdateInput" rows="2" title="Enter registra · Shift+Enter salta de línea" placeholder="¿Qué se avanzó en esta tarea? Se registra con la fecha de hoy" required maxlength="2000"></textarea>
+              <div class="taskUpdateFormActions">
+                <span class="taskUpdateHint" title="Shift+Enter salta de línea">Enter registra</span>
+                <button class="primaryButton" type="submit">Registrar</button>
+              </div>
+            </form>
+            <div class="projectUpdateList">
+              ${rows || `<p class="emptyText">Sin registros aún. Anota el avance de esta tarea.</p>`}
+            </div>
+            ${updates.length > 3 ? `<button class="tinyButton ghost projectUpdateToggle" type="button" data-task-update-toggle="${task.id}">${expanded ? "Ver menos" : `Ver todas (${updates.length})`}</button>` : ""}
+          </section>`;
+      }
+
       function renderTaskDetail(task, peopleById) {
         const notice = state.saveNotice?.target === `task:${task.id}` ? state.saveNotice.message : "";
         return `
@@ -1520,10 +1616,17 @@ export function createWorkspaceModule(ctx) {
                   ${state.workspace.people.map((person) => `<option value="${person.id}" ${person.id === task.assigneePersonId ? "selected" : ""}>${escapeHtml(person.fullName)}</option>`).join("")}
                 </select>
               </label>
+              <label>% de avance
+                <input name="progress" type="number" min="0" max="100" step="5" inputmode="numeric" placeholder="—" value="${task.progress === "" || task.progress === undefined || task.progress === null ? "" : escapeAttribute(String(task.progress))}" />
+              </label>
+              <p class="fieldHint">${task.progress === "" || task.progress === undefined || task.progress === null
+                ? `Vacío = se deriva del estado (${taskProgress(task).pct}%). Escribe un % para reflejar el avance real de una tarea a medias.`
+                : `Avance registrado por el responsable. Si lo dejas vacío, se deriva del estado.`}</p>
               <label>Notas<textarea name="notes" rows="4">${escapeHtml(task.notes)}</textarea></label>
               <button class="primaryButton" type="submit">Guardar tarea</button>
               ${notice ? `<p class="saveFeedback" role="status">${escapeHtml(notice)}</p>` : ""}
             </form>
+            ${renderTaskUpdates(task)}
             <p class="detailHint">Responsable actual: ${escapeHtml(peopleById[task.assigneePersonId]?.fullName || "Sin responsable")}</p>
             <div class="detailDanger">
               <button class="dangerButton" type="button" data-delete-task="${task.id}" data-delete-task-project="${task.projectId}" data-delete-name="${escapeAttribute(task.title)}">Eliminar tarea</button>
@@ -1788,6 +1891,54 @@ export function createWorkspaceModule(ctx) {
           button.addEventListener("click", () => {
             const id = button.dataset.updateToggle;
             state.updatesExpanded[id] = !state.updatesExpanded[id];
+            renderWorkspace();
+          });
+        }
+
+        // Seguimiento POR TAREA (mismos gestos que el de la solicitud).
+        for (const form of document.querySelectorAll("[data-task-update-quick]")) {
+          form.addEventListener("submit", submitTaskUpdateForm);
+          // El campo es un textarea (el panel de detalle es angosto y una sola
+          // línea escondía lo escrito): crece con el contenido y Enter registra
+          // —Shift+Enter hace salto de línea— para no perder el gesto de siempre.
+          const ta = form.querySelector(".taskUpdateInput");
+          if (!ta) continue;
+          const autoGrow = () => {
+            ta.style.height = "auto";
+            ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
+          };
+          ta.addEventListener("input", autoGrow);
+          ta.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              form.requestSubmit();
+            }
+          });
+          autoGrow();
+        }
+        for (const form of document.querySelectorAll("[data-task-update-edit-form]")) {
+          form.addEventListener("submit", submitTaskUpdateEditForm);
+        }
+        for (const button of document.querySelectorAll("[data-task-update-edit]")) {
+          button.addEventListener("click", () => {
+            state.taskUpdateEditing = { taskId: button.dataset.taskUpdateEdit, updateId: button.dataset.updateId };
+            renderWorkspace();
+          });
+        }
+        for (const button of document.querySelectorAll("[data-task-update-cancel]")) {
+          button.addEventListener("click", () => {
+            state.taskUpdateEditing = null;
+            renderWorkspace();
+          });
+        }
+        for (const button of document.querySelectorAll("[data-task-update-delete]")) {
+          button.addEventListener("click", () => deleteTaskUpdate(
+            button.dataset.taskUpdateProject, button.dataset.taskUpdateDelete, button.dataset.updateId));
+        }
+        for (const button of document.querySelectorAll("[data-task-update-toggle]")) {
+          button.addEventListener("click", () => {
+            const id = button.dataset.taskUpdateToggle;
+            state.taskUpdatesExpanded[id] = !state.taskUpdatesExpanded[id];
             renderWorkspace();
           });
         }
@@ -2607,6 +2758,91 @@ export function createWorkspaceModule(ctx) {
         }
       }
 
+      // ── Seguimiento por tarea ───────────────────────────────────────────────
+      function findTask(projectId, taskId) {
+        return (findProject(projectId)?.tasks || []).find((t) => t.id === taskId) || null;
+      }
+
+      function sortTaskUpdates(task) {
+        task.updates.sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
+      }
+
+      async function submitTaskUpdateForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const taskId = target.dataset.taskUpdateQuick;
+        const projectId = target.dataset.taskUpdateProject;
+        if (!taskId || !projectId) return;
+        const text = (new FormData(target).get("text") || "").toString().trim();
+        if (!text) return;
+        const unlock = lockSubmit(target);
+        const ta = target.querySelector(".taskUpdateInput");
+        try {
+          const payload = await apiRequest(`api/projects/${projectId}/tasks/${taskId}/updates`, {
+            method: "POST",
+            body: JSON.stringify({ text })
+          });
+          const task = findTask(projectId, taskId);
+          if (task) {
+            task.updates = [payload.data, ...(task.updates || [])];
+            sortTaskUpdates(task);
+          }
+          target.reset();
+          if (ta) ta.style.height = "";      // vuelve a su alto base tras registrar
+          renderWorkspace();
+        } catch (error) {
+          alert(error.message);
+        } finally {
+          unlock();
+        }
+      }
+
+      async function submitTaskUpdateEditForm(event) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const taskId = target.dataset.taskUpdateEditForm;
+        const projectId = target.dataset.taskUpdateProject;
+        const updateId = target.dataset.updateId;
+        if (!taskId || !projectId || !updateId) return;
+        const form = new FormData(target);
+        const text = (form.get("text") || "").toString().trim();
+        const date = (form.get("date") || "").toString();
+        if (!text || !date) return;
+        const unlock = lockSubmit(target);
+        try {
+          const payload = await apiRequest(`api/projects/${projectId}/tasks/${taskId}/updates/${updateId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ text, date })
+          });
+          const task = findTask(projectId, taskId);
+          if (task) {
+            const idx = (task.updates || []).findIndex((item) => item.id === updateId);
+            if (idx >= 0) task.updates[idx] = { ...task.updates[idx], ...payload.data };
+            sortTaskUpdates(task);
+          }
+          state.taskUpdateEditing = null;
+          renderWorkspace();
+        } catch (error) {
+          alert(error.message);
+        } finally {
+          unlock();
+        }
+      }
+
+      async function deleteTaskUpdate(projectId, taskId, updateId) {
+        if (!projectId || !taskId || !updateId) return;
+        if (!window.confirm("¿Eliminar esta entrada de seguimiento? No se puede deshacer.")) return;
+        try {
+          await apiRequest(`api/projects/${projectId}/tasks/${taskId}/updates/${updateId}`, { method: "DELETE" });
+          const task = findTask(projectId, taskId);
+          if (task) task.updates = (task.updates || []).filter((item) => item.id !== updateId);
+          state.taskUpdateEditing = null;
+          renderWorkspace();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
       async function deleteProjectUpdate(projectId, updateId) {
         if (!projectId || !updateId) return;
         if (!window.confirm("¿Eliminar esta entrada de seguimiento? No se puede deshacer.")) return;
@@ -3167,7 +3403,14 @@ export function createWorkspaceModule(ctx) {
       body.innerHTML = `<p class="wsReportHint">Generación cancelada. Elige un preajuste o escribe qué necesitas.</p>`;
     }
 
+    // Qué se pidió (preajuste o texto libre): va en el encabezado del PDF para
+    // que el documento se explique solo fuera de la app.
+    let lastAsk = "";
+
     async function generate(kind, text) {
+      lastAsk = kind
+        ? (REPORT_PRESETS.find((p) => p.kind === kind)?.label || "").replace(/^\S+\s/, "")
+        : (text || "").trim();
       const seq = ++genSeq;   // reemplaza cualquier generación en curso
       body.innerHTML = `
         <p class="wsReportLoading">Generando reporte… puede tardar hasta un minuto (analiza todas las solicitudes).</p>
@@ -3198,6 +3441,7 @@ export function createWorkspaceModule(ctx) {
       body.innerHTML = `
         <div class="wsReportActions">
           <button type="button" class="tinyButton wsReportCopy">⧉ Copiar texto</button>
+          <button type="button" class="tinyButton wsReportPdf" title="Abre el diálogo de impresión: elige «Guardar como PDF»">⬇ Descargar PDF</button>
           ${svg ? `<button type="button" class="tinyButton wsReportPng">⬇ Descargar diagrama</button>` : ""}
         </div>
         <div class="wsReportText">${mdLite(data.report || "")}</div>
@@ -3214,6 +3458,75 @@ export function createWorkspaceModule(ctx) {
         const el = body.querySelector(".wsReportDiagram svg");
         if (el) downloadDiagramPng(el, "reporte-solicitudes.png");
       };
+      body.querySelector(".wsReportPdf").onclick = () => printReportPdf(data, lastAsk);
+    }
+
+    // PDF del reporte COMPLETO (texto + diagrama). Se arma un documento
+    // autocontenido en un iframe oculto y se manda a imprimir: el usuario elige
+    // "Guardar como PDF" (destino nativo en Chrome/Edge/Safari). Se prefiere esto
+    // a empaquetar un generador de PDF porque el resultado sale mejor y sin peso
+    // extra: el texto queda SELECCIONABLE, el diagrama VECTORIAL (es SVG, no una
+    // captura) y la paginación/saltos los resuelve el navegador. Regla del
+    // proyecto: nada de CDNs externos — aquí no hace falta ninguna dependencia.
+    function printReportPdf(data, ask) {
+      const svg = diagramSvg(data.diagram);
+      const now = new Date().toLocaleString("es-GT", {
+        year: "numeric", month: "long", day: "numeric",
+        hour: "2-digit", minute: "2-digit", timeZone: "America/Guatemala",
+      });
+      const frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+      document.body.appendChild(frame);
+      const doc = frame.contentDocument;
+      doc.open();
+      doc.write(`<!doctype html><html lang="es"><head><meta charset="utf-8" />
+        <title>Reporte ejecutivo — Gestión de Datos</title>
+        <style>
+          @page { size: A4; margin: 18mm 16mm; }
+          * { box-sizing: border-box; }
+          body { margin: 0; font: 11pt/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1c2528; }
+          header { border-bottom: 2px solid #2f6f63; padding-bottom: 10px; margin-bottom: 18px; }
+          header h1 { margin: 0 0 4px; font-size: 17pt; color: #14322c; }
+          header .meta { font-size: 9pt; color: #5c6b70; }
+          h1, h2, h3, h4 { color: #14322c; line-height: 1.25; break-after: avoid; }
+          h2 { font-size: 13pt; margin: 16px 0 6px; }
+          h3 { font-size: 11.5pt; margin: 14px 0 5px; }
+          p, li { orphans: 3; widows: 3; }
+          ul, ol { padding-left: 20px; }
+          table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5pt; break-inside: avoid; }
+          th, td { border: 1px solid #cfd8da; padding: 5px 7px; text-align: left; vertical-align: top; }
+          th { background: #eef4f3; }
+          pre { background: #f4f7f7; padding: 8px; border-radius: 4px; font-size: 9pt; white-space: pre-wrap; }
+          code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9.5pt; }
+          hr { border: 0; border-top: 1px solid #dfe6e7; margin: 14px 0; }
+          .diagram { margin-top: 18px; break-inside: avoid; }
+          .diagram svg { max-width: 100%; height: auto; }
+          footer { margin-top: 22px; padding-top: 8px; border-top: 1px solid #dfe6e7;
+                   font-size: 8.5pt; color: #7b898e; }
+        </style></head><body>
+        <header>
+          <h1>Reporte ejecutivo — Solicitudes</h1>
+          <div class="meta">Gerencia Administrativa de Datos · ${escapeHtml(now)} (hora de Guatemala)${
+            ask ? ` · Consulta: ${escapeHtml(ask)}` : ""}</div>
+        </header>
+        ${mdLite(data.report || "")}
+        ${svg ? `<div class="diagram">${svg}</div>` : ""}
+        <footer>Generado con IA sobre los datos vigentes de las solicitudes al momento de la consulta. Verifica las cifras antes de difundirlo.</footer>
+      </body></html>`);
+      doc.close();
+      const go = () => {
+        try {
+          frame.contentWindow.focus();
+          frame.contentWindow.print();
+        } catch { /* si el navegador lo bloquea, el usuario aún tiene "Copiar texto" */ }
+        // El iframe se retira DESPUÉS del diálogo (quitarlo antes cancela la
+        // impresión en algunos navegadores).
+        setTimeout(() => frame.remove(), 60000);
+      };
+      // Esperar al layout del SVG antes de imprimir (si no, sale en blanco).
+      if (frame.contentWindow.document.readyState === "complete") requestAnimationFrame(go);
+      else frame.onload = () => requestAnimationFrame(go);
     }
 
     for (const b of modal.querySelectorAll(".wsReportPreset")) {

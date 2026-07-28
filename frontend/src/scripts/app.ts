@@ -53,6 +53,9 @@
         projectColOrder: null,     // orden de COLUMNAS preferido por el usuario (localStorage); null = el del código
         updateEditing: null,    // {projectId, updateId} entrada de seguimiento en edición
         updatesExpanded: {},    // por projectId: true = mostrar todo el seguimiento (no solo lo último)
+        // Bitácora POR TAREA (2026-07-24), mismos gestos pero llaveada por taskId.
+        taskUpdateEditing: null,  // {taskId, updateId} entrada en edición
+        taskUpdatesExpanded: {},  // por taskId: true = mostrar toda la bitácora de la tarea
         attachQueryFor: null,   // projectId con el formulario "+ Query" abierto (o null)
         attachUploading: {},    // por projectId: true mientras sube un archivo
         attachError: {},        // por projectId: mensaje de error de la última subida

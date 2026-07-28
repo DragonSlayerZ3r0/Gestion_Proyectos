@@ -86,6 +86,40 @@ class WorkspaceRepository(BaseRepository):
     def delete_task(self, project_id: str, task_id: str) -> None:
         self._table.delete_item(Key={"PK": f"PROJECT#{project_id}", "SK": f"TASK#{task_id}"})
 
+    # ── Seguimiento POR TAREA (bitácora de la tarea, 2026-07-24) ──────────────
+    # Mismo PK del proyecto (los hijos viajan juntos y el borrado del proyecto
+    # los arrastra); el SK lleva el taskId ANTES del updateId para poder listar
+    # los de UNA tarea con un begins_with, sin filtros ni scans.
+    def list_task_updates(self, project_id: str, task_id: str) -> list[dict[str, Any]]:
+        return self._query_all(
+            KeyConditionExpression=Key("PK").eq(f"PROJECT#{project_id}")
+            & Key("SK").begins_with(f"TASKUPDATE#{task_id}#"))
+
+    def get_task_update(self, project_id: str, task_id: str, update_id: str) -> dict[str, Any] | None:
+        response = self._table.get_item(
+            Key={"PK": f"PROJECT#{project_id}", "SK": f"TASKUPDATE#{task_id}#{update_id}"})
+        return response.get("Item")
+
+    def update_task_update(self, project_id: str, task_id: str, update_id: str,
+                           values: dict[str, Any]) -> dict[str, Any]:
+        return self._update(
+            {"PK": f"PROJECT#{project_id}", "SK": f"TASKUPDATE#{task_id}#{update_id}"}, values)
+
+    def delete_task_update(self, project_id: str, task_id: str, update_id: str) -> None:
+        self._table.delete_item(
+            Key={"PK": f"PROJECT#{project_id}", "SK": f"TASKUPDATE#{task_id}#{update_id}"})
+
+    def delete_task_updates(self, project_id: str, task_id: str) -> list[str]:
+        """Borra la bitácora completa de una tarea (al eliminar la tarea) y
+        devuelve los updateId borrados para desindexar sus vectores."""
+        items = self.list_task_updates(project_id, task_id)
+        if not items:
+            return []
+        with self._table.batch_writer() as batch:
+            for item in items:
+                batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
+        return [item.get("updateId", "") for item in items if item.get("updateId")]
+
     # ── Seguimiento (bitácora del proyecto) ───────────────────────────────────
     def list_project_updates(self, project_id: str) -> list[dict[str, Any]]:
         return self._query_all(
@@ -130,6 +164,9 @@ class WorkspaceRepository(BaseRepository):
 
     def list_all_updates(self) -> list[dict[str, Any]]:
         return self._query_entity_type("PROJECT_UPDATE")
+
+    def list_all_task_updates(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("TASK_UPDATE")
 
     def list_all_tasks(self) -> list[dict[str, Any]]:
         return self._query_entity_type(

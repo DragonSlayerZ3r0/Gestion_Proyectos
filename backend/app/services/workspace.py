@@ -92,7 +92,7 @@ _DEFAULT_STATUSES = [
 REQUEST_TYPES = [t["key"] for t in REQUEST_TYPES_CATALOG]
 PERSON_STATUSES = [t["key"] for t in PERSON_STATUSES_CATALOG]
 PROJECT_MEMBER_ROLES = ["owner", "member", "reader"]
-TASK_AUDIT_FIELDS = ["status", "priority", "assigneePersonId"]
+TASK_AUDIT_FIELDS = ["status", "priority", "assigneePersonId", "progress"]
 UPDATE_MAX_CHARS = 2000
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Guatemala (UTC-6, sin horario de verano): la "fecha de hoy" del seguimiento debe
@@ -119,14 +119,30 @@ class WorkspaceService:
         for item in self._repository.list_all_members():
             members_by.setdefault(item.get("projectId", ""), []).append(self._normalize_member(item))
         tasks_by: dict[str, list] = {}
+        tasks_by_id: dict[str, dict[str, Any]] = {}
         for item in self._repository.list_all_tasks_full():
-            tasks_by.setdefault(item.get("projectId", ""), []).append(self._normalize_task(item))
+            task = self._normalize_task(item)
+            tasks_by.setdefault(item.get("projectId", ""), []).append(task)
+            tasks_by_id[task["id"]] = task
         updates_by: dict[str, list] = {}
         all_updates: list[dict[str, Any]] = []
         for item in self._repository.list_all_updates():
             update = self._normalize_update(item)
             updates_by.setdefault(item.get("projectId", ""), []).append(update)
             all_updates.append(update)
+        # Bitácora POR TAREA (2026-07-24): mismo viaje único por tipo; se cuelga
+        # de su tarea. Los autores se resuelven junto con los demás (abajo).
+        task_updates_by: dict[str, list] = {}
+        for item in self._repository.list_all_task_updates():
+            update = self._normalize_update(item)
+            update["taskId"] = item.get("taskId", "")
+            task_updates_by.setdefault(update["taskId"], []).append(update)
+            all_updates.append(update)
+        for task_id, items in task_updates_by.items():
+            task = tasks_by_id.get(task_id)
+            if task is None:
+                continue                    # bitácora de una tarea ya borrada
+            task["updates"] = sorted(items, key=lambda u: (u["date"], u["createdAt"]), reverse=True)
         # Adjuntos (archivos S3 + queries) agrupados por solicitud, mismo viaje único.
         attach_service = AttachmentService(self._repository)
         attachments_by: dict[str, list] = {}
@@ -528,8 +544,12 @@ class WorkspaceService:
         for att in self._repository.list_project_attachments(project_id):
             if att.get("kind") == "file" and att.get("storageKey"):
                 attach_service._delete_object(att["storageKey"])
-        # Vectores: el de la solicitud + el de cada seguimiento (antes de borrarlos).
+        # Vectores: el de la solicitud + el de cada seguimiento, incluidos los de
+        # las bitácoras POR TAREA (delete_project arrastra los items por PK, pero
+        # los vectores hay que listarlos ANTES de borrarlos).
         update_ids = [u.get("updateId", "") for u in self._repository.list_project_updates(project_id)]
+        update_ids += [u.get("updateId", "") for u in self._repository.list_all_task_updates()
+                       if u.get("projectId") == project_id]
         self._repository.delete_project(project_id)
         _deindex_solicitud(project_id, update_ids)
         return {"projectId": project_id, "removed": True}
@@ -537,13 +557,18 @@ class WorkspaceService:
     def delete_task(self, project_id: str, task_id: str, identity: dict[str, str]) -> dict[str, Any]:
         project_id = self._required_text({"projectId": project_id}, "projectId", "Proyecto")
         task_id = self._required_text({"taskId": task_id}, "taskId", "Tarea")
+        # Cascada: la bitácora de la tarea se va con ella (sin items huérfanos) y
+        # sus vectores se borran del índice.
+        for update_id in self._repository.delete_task_updates(project_id, task_id):
+            _deindex_seguimiento(update_id)
         self._repository.delete_task(project_id, task_id)
         return {"projectId": project_id, "taskId": task_id, "removed": True}
 
     def _optional_progress(self, value: Any) -> Any:
-        """% de avance MANUAL de la solicitud (0-100, entero); "" = sin definir.
-        Es la opinión del responsable (como en los informes ejecutivos); el
-        derivado de tareas se muestra aparte como sugerencia, no lo pisa."""
+        """% de avance MANUAL (0-100, entero); "" = sin definir. Lo usan la
+        solicitud y la TAREA (2026-07-24). Es la opinión del responsable (como en
+        los informes ejecutivos); el derivado (tareas completadas, o el estado de
+        la tarea) se muestra aparte como sugerencia y nunca lo pisa."""
         raw = str(value if value is not None else "").strip()
         if raw == "":
             return ""
@@ -688,6 +713,75 @@ class WorkspaceService:
         _deindex_seguimiento(update_id)
         return {"projectId": project_id, "updateId": update_id, "removed": True}
 
+    # ── Seguimiento POR TAREA (misma mecánica que el del proyecto) ────────────
+    # Un item TASK_UPDATE por entrada, colgado del PK del proyecto con el taskId
+    # en el SK. Se vectoriza en el MISMO namespace `seguimiento` que la bitácora
+    # del proyecto: para la búsqueda avanzada "qué se hizo" da igual si el
+    # trabajo se anotó en la solicitud o en una de sus tareas — ambos aciertos
+    # llevan a la solicitud padre (meta.projectId).
+    def _require_task(self, project_id: str, task_id: str) -> dict[str, Any]:
+        task = self._repository.get_task(project_id, task_id)
+        if not task:
+            raise ValidationError("La tarea no existe.")
+        return task
+
+    def create_task_update(self, project_id: str, task_id: str, payload: dict[str, Any],
+                           identity: dict[str, str]) -> dict[str, Any]:
+        self._require_task(project_id, task_id)
+        text = self._required_text(payload, "text", "Texto del seguimiento")
+        if len(text) > UPDATE_MAX_CHARS:
+            raise ValidationError(f"El seguimiento supera el máximo de {UPDATE_MAX_CHARS} caracteres.")
+        date = (payload.get("date") or "").strip() or datetime.now(_TZ_GT).strftime("%Y-%m-%d")
+        date = self._validate_update_date(date)
+        now = self._now()
+        update_id = uuid4().hex
+        item = {
+            "PK": f"PROJECT#{project_id}",
+            "SK": f"TASKUPDATE#{task_id}#{update_id}",
+            "entityType": "TASK_UPDATE",
+            "projectId": project_id,
+            "taskId": task_id,
+            "updateId": update_id,
+            "date": date,
+            "text": text,
+            "createdAt": now,
+            "updatedAt": now,
+            "createdBy": identity["userId"],
+            "updatedBy": identity["userId"],
+        }
+        self._repository.put_item(item)
+        update = self._normalize_update(item)
+        update["taskId"] = task_id
+        update["createdByName"] = NameDirectory().resolve([update["createdBy"]]).get(update["createdBy"], "")
+        _index_seguimiento(item)
+        return update
+
+    def update_task_update(self, project_id: str, task_id: str, update_id: str,
+                           payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        if not self._repository.get_task_update(project_id, task_id, update_id):
+            raise ValidationError("La entrada de seguimiento no existe.")
+        values: dict[str, Any] = {"updatedAt": self._now(), "updatedBy": identity["userId"]}
+        if "text" in payload:
+            text = self._required_text(payload, "text", "Texto del seguimiento")
+            if len(text) > UPDATE_MAX_CHARS:
+                raise ValidationError(f"El seguimiento supera el máximo de {UPDATE_MAX_CHARS} caracteres.")
+            values["text"] = text
+        if "date" in payload:
+            values["date"] = self._validate_update_date(payload.get("date") or "")
+        item = self._repository.update_task_update(project_id, task_id, update_id, values)
+        update = self._normalize_update(item)
+        update["taskId"] = task_id
+        update["createdByName"] = NameDirectory().resolve([update["createdBy"]]).get(update["createdBy"], "")
+        if "text" in payload:                # solo el texto se vectoriza
+            _index_seguimiento(update)
+        return update
+
+    def delete_task_update(self, project_id: str, task_id: str, update_id: str,
+                           identity: dict[str, str]) -> dict[str, Any]:
+        self._repository.delete_task_update(project_id, task_id, update_id)
+        _deindex_seguimiento(update_id)
+        return {"projectId": project_id, "taskId": task_id, "updateId": update_id, "removed": True}
+
     def create_task(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         title = self._required_text(payload, "title", "Título de la tarea")
         now = self._now()
@@ -703,6 +797,9 @@ class WorkspaceService:
             "priority": self._allowed_optional(payload.get("priority"), TASK_PRIORITIES, "Prioridad"),
             "assigneePersonId": self._optional_text(payload, "assigneePersonId"),
             "notes": self._optional_text(payload, "notes"),
+            # % de avance MANUAL de la tarea (mismo criterio que el de la
+            # solicitud): "" = sin definir → se deriva del estado.
+            "progress": self._optional_progress(payload.get("progress")),
             "createdAt": now,
             "updatedAt": now,
             "createdBy": identity["userId"],
@@ -727,6 +824,8 @@ class WorkspaceService:
             values["title"] = self._required_text(payload, "title", "Título de la tarea")
         if "notes" in payload:
             values["notes"] = self._optional_text(payload, "notes")
+        if "progress" in payload:
+            values["progress"] = self._optional_progress(payload.get("progress"))
 
         updated_task = self._repository.update_task(project_id, task_id, values)
         self._audit_task_changes(project_id, task_id, existing_task, updated_task, identity)
@@ -811,6 +910,8 @@ class WorkspaceService:
             "priority": item.get("priority", ""),
             "assigneePersonId": item.get("assigneePersonId", ""),
             "notes": item.get("notes", ""),
+            "progress": item.get("progress", "") if item.get("progress", "") == "" else int(item.get("progress")),
+            "updates": [],                  # bitácora de la tarea (se llena en get_workspace)
             "updatedAt": item.get("updatedAt", "")
         }
 

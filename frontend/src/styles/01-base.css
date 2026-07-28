@@ -1468,6 +1468,84 @@
     line-height: 1.35;
   }
 
+  /* Avance de la tarea (2026-07-24): barra fina + %. El % MANUAL (dato afirmado
+     por el responsable) va en tono de acento; el derivado del estado, tenue —
+     así se distingue de un vistazo lo registrado de lo inferido. */
+  .taskProgress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .taskProgressTrack {
+    flex: 1;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .taskProgressTrack span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--muted);
+    transition: width 200ms ease;
+  }
+  .taskProgress.manual .taskProgressTrack span { background: var(--accent); }
+  .taskCard .taskProgressPct {
+    flex: none;
+    font-size: 0.74rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .taskProgress.manual .taskProgressPct { color: var(--accent-strong); font-weight: 650; }
+
+  /* Bitácora dentro del panel de detalle de la tarea: separada del formulario. */
+  .taskUpdatesBlock {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* El panel de detalle es una columna ANGOSTA: aquí el campo y el botón se
+     APILAN (en fila, el botón se comía media línea y no se veía lo escrito) y el
+     campo es un textarea que crece con el contenido (JS, tope 140px). */
+  .taskUpdateForm {
+    display: grid;
+    /* OBLIGATORIO resetear a 1 columna: .inlineForm (compartida) impone
+       `minmax(0,1fr) auto` — las dos columnas son justo lo que apretaba el campo
+       en este panel angosto. Sin esta línea el apilado no ocurre. */
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .taskUpdateInput {
+    width: 100%;
+    min-height: 56px;
+    max-height: 140px;
+    padding: 9px 11px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    resize: none;              /* el alto lo maneja el auto-crecimiento */
+    overflow-y: auto;
+  }
+  /* Pista a la izquierda, botón SIEMPRE a la derecha: con `margin-right:auto`
+     en la pista, si el ancho no alcanza y envuelve, el botón sigue anclado a la
+     derecha en vez de saltar a la izquierda. */
+  .taskUpdateFormActions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .taskUpdateHint {
+    margin-right: auto;
+    font-size: 0.72rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
   .projectCard.active {
     border-color: #9bcac4;
     background: var(--accent-soft);

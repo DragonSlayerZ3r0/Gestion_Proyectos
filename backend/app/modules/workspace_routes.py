@@ -108,6 +108,22 @@ def _task_update(req: Request):
     return success(service.update_task(project_id, task_id, req.body(), req.identity))
 
 
+def _create_task_update(req: Request):
+    return success(WorkspaceService().create_task_update(
+        req.params.get("projectId") or "", req.params.get("taskId") or "",
+        req.body(), req.identity), 201)
+
+
+def _task_update_update(req: Request):
+    service = WorkspaceService()
+    project_id = req.params.get("projectId") or ""
+    task_id = req.params.get("taskId") or ""
+    update_id = req.params.get("updateId") or ""
+    if req.method == "DELETE":
+        return success(service.delete_task_update(project_id, task_id, update_id, req.identity))
+    return success(service.update_task_update(project_id, task_id, update_id, req.body(), req.identity))
+
+
 def _presign_attachment(req: Request):
     project_id = req.params.get("projectId") or ""
     return success(AttachmentService().presign_upload(project_id, req.body(), req.identity), 201)
@@ -174,6 +190,12 @@ def register(router: Router) -> None:
                error_msg="Error inesperado al crear la tarea.")
     router.add(["PATCH", "DELETE"], "/api/projects/{projectId}/tasks/{taskId}", _task_update, modules=T,
                error_msg="Error inesperado al actualizar la tarea.")
+    # Bitácora POR TAREA (2026-07-24): mismo guard que las tareas.
+    router.add(["POST"], "/api/projects/{projectId}/tasks/{taskId}/updates", _create_task_update, modules=T,
+               error_msg="Error inesperado al registrar el seguimiento de la tarea.")
+    router.add(["PATCH", "DELETE"], "/api/projects/{projectId}/tasks/{taskId}/updates/{updateId}",
+               _task_update_update, modules=T,
+               error_msg="Error inesperado al actualizar el seguimiento de la tarea.")
     router.add(["POST"], "/api/projects/{projectId}/attachments/presign", _presign_attachment, modules=P,
                error_msg="Error inesperado al preparar la subida del adjunto.")
     router.add(["POST"], "/api/projects/{projectId}/attachments", _create_attachment, modules=P,

@@ -88,13 +88,23 @@ PROJECT_MEMBER
 PK = PROJECT#<projectId>
 SK = PERSON#<personId>
 
-TASK
+TASK (incluye `progress`: % de avance MANUAL 0-100 o "" = sin definir, 2026-07-24;
+  vacío ⇒ el frontend lo deriva del estado: completada 100, resto 0)
 PK = PROJECT#<projectId>
 SK = TASK#<taskId>
 
 PROJECT_UPDATE (seguimiento/bitácora de la solicitud: date + text + autor)
 PK = PROJECT#<projectId>
 SK = UPDATE#<updateId>
+
+TASK_UPDATE (seguimiento/bitácora POR TAREA, 2026-07-24: mismos campos que
+  PROJECT_UPDATE + taskId. Cuelga del PK del PROYECTO — así el borrado del
+  proyecto lo arrastra por PK — y el taskId va ANTES del updateId en el SK para
+  listar la bitácora de UNA tarea con un begins_with, sin filtros ni scans.
+  Se vectoriza en el MISMO namespace `seguimiento` que la del proyecto: para
+  "¿qué se hizo?" da igual dónde se anotó, el acierto lleva a la solicitud)
+PK = PROJECT#<projectId>
+SK = TASKUPDATE#<taskId>#<updateId>
 
 HOLIDAY (asuetos autorizados 2026-07-09: date + name + half + notes; upsert por
   fecha. Los completos no descuentan del saldo de vacaciones)

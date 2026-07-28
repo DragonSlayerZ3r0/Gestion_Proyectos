@@ -27,6 +27,17 @@ La pantalla funciona como una vista general de proyectos con sus personas y tare
 - Mostrar confirmación visible al guardar cambios de proyecto o tarea desde el panel de detalle.
 - Mostrar confirmación breve al registrar persona, crear proyecto o crear tarea.
 
+### Avance y bitácora POR TAREA (2026-07-24)
+
+Cada tarea tiene, además del estado del Kanban, dos datos propios:
+
+- **% de avance** (`progress`, 0-100 o vacío): opinión del responsable, mismo criterio que el % de la solicitud. **Vacío = se deriva del estado** (completada 100, cualquier otro 0). En la tarjeta se ve como barra fina + porcentaje: el % manual va en tono de acento y el derivado queda tenue, para distinguir de un vistazo lo *registrado* de lo *inferido*. El % de la solicitud calculado "por tareas" ahora es el **promedio del % de cada tarea** — si ninguna tiene % manual el resultado es idéntico al histórico "completadas/total" (compatible hacia atrás), pero una tarea a medias ya aporta su avance real.
+- **Seguimiento de la tarea**: bitácora con la misma mecánica que la de la solicitud (fecha de hoy automática en hora de Guatemala, edición de texto y fecha con el lápiz, borrado con confirmación, agrupada por día, "Ver todas (N)"). Vive en el panel de detalle de la tarea; la tarjeta solo muestra el conteo. Borrar la tarea borra su bitácora en cascada (items y vectores).
+
+Las entradas por tarea se indexan en el **mismo namespace `seguimiento`** que las de la solicitud (`docs/23`): para la búsqueda avanzada "¿qué se hizo?" da igual dónde se anotó el trabajo — el acierto lleva siempre a la solicitud padre.
+
+Rutas: `POST /api/projects/{projectId}/tasks/{taskId}/updates` y `PATCH|DELETE .../updates/{updateId}` (guard `tasks`). Ítem `TASK_UPDATE` en `docs/04`.
+
 Nota de lenguaje: en esta pantalla se usa `persona` para integrantes operativos que pueden participar en proyectos y tareas. `Usuario` queda reservado para cuentas de acceso a la aplicación web, autenticación, perfiles y administración.
 
 Regla de navegación: `Proyectos y tareas` es una sola entrada del menú y una sola mesa de trabajo. Cada tarjeta reúne proyecto, responsable, personas y tareas.

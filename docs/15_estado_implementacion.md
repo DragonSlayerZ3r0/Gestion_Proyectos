@@ -1,6 +1,11 @@
 # Estado de implementación
 
-## Último avance (2026-07-23: Wiki con PDFs adjuntos + RAG «Preguntar a la Wiki»)
+## Último avance (2026-07-24: tareas con bitácora propia y % de avance)
+
+- **Seguimiento por tarea**: cada tarea del Kanban tiene su bitácora en el panel de detalle (misma mecánica que la de la solicitud); la tarjeta muestra el conteo. Item `TASK_UPDATE`, rutas bajo `/api/projects/{id}/tasks/{taskId}/updates`, cascada al borrar la tarea. Se indexa en el namespace `seguimiento`, así que la Búsqueda avanzada y el Reporte ejecutivo también la ven.
+- **% de avance por tarea**: campo manual (vacío ⇒ derivado del estado) con barra en la tarjeta; el % "por tareas" de la solicitud pasó a ser el promedio del % de cada tarea (compatible hacia atrás). Desplegado en dev y verificado E2E contra la API real. Ver `docs/08` y bitácora 2026-07-24.
+
+## Avance previo (2026-07-23: Wiki con PDFs adjuntos + RAG «Preguntar a la Wiki»)
 
 - **PDFs adjuntos en la Wiki**: botón «Adjuntar PDF» (≤10 MB) — presign + PUT directo a `wiki/doc/`, token `[nombre](wikidoc:…)` en el markdown, enlace 📄 con URL presignada al clic. Al subir se **extrae el texto con pypdf** (vendorizado en `_vendor`) a un sidecar `.txt`; un PDF escaneado no tiene texto y se avisa al editor. Borrado de página y limpieza de huérfanos cubren binario + sidecar.
 - **«Preguntar a la Wiki» (RAG)**: caja dentro del módulo que responde solo con el contenido de la wiki (páginas + texto de PDFs) citando fuentes clicables — `POST /api/wiki/ask`, guard de lectura. Embeddings: namespaces `wiki`/`wiki-doc` (chunking ~2 000 chars con solape; detalle `docs/23 §13`). Desplegado en dev y verificado E2E contra AWS real. Ver bitácora 2026-07-23.
