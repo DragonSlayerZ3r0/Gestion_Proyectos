@@ -37,6 +37,17 @@ Cada tarea tiene, además del estado del Kanban, dos datos propios:
 
 Las entradas por tarea se indexan en el **mismo namespace `seguimiento`** que las de la solicitud (`docs/23`): para la búsqueda avanzada "¿qué se hizo?" da igual dónde se anotó el trabajo — el acierto lleva siempre a la solicitud padre.
 
+### Línea de tiempo de la solicitud (2026-07-28)
+
+Botón **«Línea de tiempo»** en el encabezado del detalle (junto a Crear tarea / Ver tablero / Editar solicitud). Abre un **modal casi a pantalla completa** con el diagrama de la solicitud abierta.
+
+- **Por qué modal y no otra pestaña:** la sesión Cognito vive en `sessionStorage`, que es **por pestaña** — una pestaña nueva llegaría sin sesión y pediría iniciar sesión otra vez. El modal además conserva la solicitud seleccionada y cierra con `Escape` (mismo patrón del Reporte ejecutivo).
+- **Los hitos se DERIVAN, no se capturan:** cada **tarea** es un hito, ordenada por su fecha (fin, o inicio si no tiene fin; las tareas sin fecha van al final marcadas "Sin fecha", que también es información). Cada hito muestra estado (tiñe su marcador), responsable, % de avance y —como actividades anidadas— sus **seguimientos** más recientes. Si el tablero está al día, el diagrama también: cero captura extra.
+- **Acciones:** conmutador **Horizontal / Vertical**, **«Presentar»** (pantalla completa real vía API Fullscreen, para proyectar en junta) y **«PDF»** (impresión nativa como el Reporte ejecutivo; el PDF sale siempre en vertical, que es lo que no se corta en una hoja).
+- **Responsive:** en ≤760px el recorrido se fuerza a vertical y el conmutador se oculta (el horizontal obligaría a scroll lateral).
+
+Implementación: `frontend/src/scripts/modules/timeline.ts` + `frontend/src/styles/11-timeline.css`, portado del proyecto hermano `pry_timeline` (DOM + CSS puro, sin librerías) y reajustado a los tokens de la plataforma. Es un **sub-módulo** compuesto por el módulo de Solicitudes (patrón de `docs/21`).
+
 Rutas: `POST /api/projects/{projectId}/tasks/{taskId}/updates` y `PATCH|DELETE .../updates/{updateId}` (guard `tasks`). Ítem `TASK_UPDATE` en `docs/04`.
 
 Nota de lenguaje: en esta pantalla se usa `persona` para integrantes operativos que pueden participar en proyectos y tareas. `Usuario` queda reservado para cuentas de acceso a la aplicación web, autenticación, perfiles y administración.

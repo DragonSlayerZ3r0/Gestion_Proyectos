@@ -1,7 +1,13 @@
 // @ts-nocheck
 // Módulo Proyectos y tareas (workspace). Inyección de dependencias desde el shell.
+import { createTimelineModule } from "./timeline";
+
 export function createWorkspaceModule(ctx) {
   const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel, mdLite } = ctx;
+
+  // Sub-módulo: el diagrama de línea de tiempo de UNA solicitud (patrón de
+  // composición de docs/21 — el módulo padre lo instancia y le delega).
+  const timelineModule = createTimelineModule({ state, escapeHtml, escapeAttribute });
 
   // Columnas de la tabla de solicitudes: definición única (orden, etiqueta, clave
   // de orden, ancho por defecto). "Solicitud" es el identificador → siempre visible.
@@ -1030,6 +1036,7 @@ export function createWorkspaceModule(ctx) {
                   <div class="projectActions">
                     <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cancelar" : "Crear tarea"}</button>
                     <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
+                    <button class="tinyButton ghost" type="button" data-timeline-project="${project.id}" title="Ver la línea de tiempo de esta solicitud">Línea de tiempo</button>
                     <button class="tinyButton ghost" type="button" data-detail-project="${project.id}">Editar solicitud</button>
                   </div>
                 </div>
@@ -2071,6 +2078,18 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
+        // Línea de tiempo: modal encima de la vista actual (no otra pestaña — la
+        // sesión vive en sessionStorage, que es por pestaña).
+        for (const button of document.querySelectorAll("[data-timeline-project]")) {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const project = findProject(button.dataset.timelineProject);
+            if (project) {
+              timelineModule.open(project, Object.fromEntries(
+                (state.workspace?.people || []).map((p) => [p.id, p])));
+            }
+          });
+        }
         for (const button of document.querySelectorAll("[data-toggle-board]")) {
           button.addEventListener("click", () => {
             const projectId = button.dataset.toggleBoard;

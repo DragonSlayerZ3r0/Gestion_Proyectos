@@ -1,0 +1,305 @@
+  /* ── Línea de tiempo de una solicitud (2026-07-28) ────────────────────────
+     Portado de `pry_timeline` (DOM + CSS puro, sin librerías) y reajustado a
+     los tokens de esta plataforma: el original usaba su propia paleta y aquí
+     todo sale de las variables (así el diagrama envejece con el resto de la app
+     y no se desincroniza si cambia un tono). */
+  .tlModal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(16, 26, 30, 0.55);
+    backdrop-filter: blur(2px);
+  }
+
+  .tlDialog {
+    display: flex;
+    flex-direction: column;
+    width: min(1280px, 96vw);
+    max-height: 92vh;
+    background: var(--panel);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  /* En "Presentar" (fullscreen) el diálogo ocupa toda la pantalla. */
+  .tlDialog:fullscreen { width: 100vw; max-height: 100vh; border-radius: 0; }
+
+  .tlHead {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .tlHead h3 { margin: 2px 0 0; font-size: 1.15rem; }
+  .tlHeadActions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tlClose {
+    display: grid; place-items: center;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    font-size: 1.3rem; line-height: 1;
+    color: var(--muted);
+  }
+  .tlClose:hover { background: var(--surface-muted); color: var(--text); }
+
+  /* Conmutador de orientación: dos opciones, la activa en blanco sobre el riel. */
+  .tlOrientation {
+    display: inline-grid;
+    grid-auto-flow: column;
+    gap: 3px;
+    padding: 3px;
+    background: var(--surface-muted);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .tlOrientBtn {
+    border: 0;
+    background: transparent;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 0.78rem;
+    font-weight: 650;
+    color: var(--muted);
+  }
+  .tlOrientBtn.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(17, 25, 31, 0.12); }
+
+  /* Resumen: los mismos datos del encabezado del detalle, en formato tarjeta. */
+  .tlSummary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 26px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-soft);
+  }
+  .tlSummaryLabel {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .tlSummary strong { font-size: 0.95rem; color: var(--text); }
+  .tlSummaryProgress { min-width: 180px; }
+
+  .tlProgress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--line);
+    overflow: hidden;
+    margin-top: 5px;
+  }
+  .tlProgress span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .tlProgress.big { height: 9px; }
+
+  /* Lienzo: cuadrícula sutil como en el original (da sensación de "plano"). */
+  .tlStage {
+    flex: 1;
+    min-height: 320px;
+    overflow: auto;
+    padding: 10px 20px 24px;
+    background:
+      linear-gradient(90deg, rgba(22, 27, 30, 0.035) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(22, 27, 30, 0.035) 1px, transparent 1px),
+      var(--panel);
+    background-size: 34px 34px;
+  }
+
+  .tlEmpty {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 8px;
+    min-height: 280px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .tlEmpty strong { color: var(--text); font-size: 1.05rem; }
+
+  /* ── Recorrido horizontal (por defecto) ─────────────────────────────────── */
+  .tlTrack {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(250px, 1fr);
+    align-items: start;
+    min-width: min-content;
+    padding: 46px 0 20px;
+  }
+
+  .tlItem {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 20px;
+    min-width: 230px;
+  }
+  /* La línea que une los hitos: se dibuja detrás de los marcadores y se recorta
+     a la mitad en los extremos para que no "salga" del recorrido. */
+  .tlItem::before {
+    content: "";
+    position: absolute;
+    top: 21px;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), #2f5fbd, #d58b00);
+  }
+  .tlItem:first-child::before { left: 50%; width: 50%; }
+  .tlItem:last-child::before { width: 50%; }
+
+  .tlMarker {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    color: #fff;
+    background: linear-gradient(135deg, var(--text), #24313a);
+    border: 5px solid var(--panel);
+    border-radius: 999px;
+    font-weight: 800;
+    box-shadow: 0 8px 20px rgba(17, 25, 31, 0.18);
+  }
+  /* El estado de la tarea tiñe su marcador: el recorrido se lee de un vistazo. */
+  .tlItem.is-done .tlMarker { background: linear-gradient(135deg, #15803d, #166534); }
+  .tlItem.is-progress .tlMarker { background: linear-gradient(135deg, var(--accent), var(--accent-strong)); }
+  .tlItem.is-review .tlMarker { background: linear-gradient(135deg, #b45309, #92400e); }
+
+  .tlContent {
+    position: relative;
+    display: grid;
+    gap: 7px;
+    width: min(240px, 100%);
+    padding: 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(17, 25, 31, 0.07);
+  }
+  /* Punta que apunta al marcador (el "globo" del original). */
+  .tlContent::before {
+    content: "";
+    position: absolute;
+    top: -8px;
+    left: 20px;
+    width: 15px;
+    height: 15px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+    transform: rotate(45deg);
+  }
+  .tlContent h3 { margin: 0; font-size: 0.92rem; line-height: 1.3; overflow-wrap: anywhere; }
+
+  .tlDate {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #8a5700;
+  }
+  .tlDate.isOverdue { color: var(--danger); }
+
+  .tlMeta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .tlBadge {
+    font-size: 0.68rem;
+    font-weight: 650;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--surface-muted);
+    color: var(--text-soft);
+  }
+  .tlBadge.is-done { background: #dcfce7; color: #166534; }
+  .tlBadge.is-progress { background: var(--accent-soft); color: var(--accent-strong); }
+  .tlBadge.is-review { background: #fef3c7; color: #92400e; }
+  .tlWho { font-size: 0.72rem; color: var(--muted); }
+  .tlProgressPct { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* Seguimientos de la tarea como actividades anidadas (píldoras ámbar del
+     original, aquí con los tonos de la app). */
+  .tlActivityList { display: grid; gap: 5px; margin-top: 4px; padding-left: 8px; border-left: 3px solid #facc15; }
+  .tlActivityLabel {
+    display: block;
+    padding: 5px 8px;
+    border-radius: 10px;
+    background: #fefce8;
+    color: #854d0e;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .tlActivityMore { font-size: 0.68rem; color: var(--muted); padding-left: 4px; }
+
+  /* ── Recorrido vertical ─────────────────────────────────────────────────── */
+  .tlStage[data-orientation="vertical"] .tlTrack {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    padding: 14px 0 8px;
+  }
+  .tlStage[data-orientation="vertical"] .tlItem {
+    grid-template-columns: 46px minmax(0, 1fr);
+    justify-items: start;
+    align-items: start;
+    min-width: 0;
+    gap: 14px;
+    padding-bottom: 18px;
+  }
+  .tlStage[data-orientation="vertical"] .tlItem::before,
+  .tlStage[data-orientation="vertical"] .tlItem:first-child::before,
+  .tlStage[data-orientation="vertical"] .tlItem:last-child::before {
+    top: 0;
+    left: 21px;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--accent), #2f5fbd, #d58b00);
+  }
+  .tlStage[data-orientation="vertical"] .tlContent { width: min(680px, 100%); }
+  .tlStage[data-orientation="vertical"] .tlContent::before {
+    top: 14px;
+    left: -8px;
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+  }
+
+  /* Responsive: en pantallas angostas el recorrido horizontal obliga a scroll
+     lateral, así que se fuerza el vertical (se lee de arriba a abajo). */
+  @media (max-width: 760px) {
+    .tlModal { padding: 0; }
+    .tlDialog { width: 100vw; max-height: 100vh; border-radius: 0; }
+    .tlStage { padding: 8px 12px 18px; }
+    .tlStage .tlTrack {
+      grid-auto-flow: row;
+      grid-auto-columns: auto;
+      padding: 12px 0 8px;
+    }
+    .tlStage .tlItem {
+      grid-template-columns: 42px minmax(0, 1fr);
+      justify-items: start;
+      min-width: 0;
+      gap: 12px;
+      padding-bottom: 16px;
+    }
+    .tlStage .tlItem::before,
+    .tlStage .tlItem:first-child::before,
+    .tlStage .tlItem:last-child::before {
+      top: 0; left: 19px; width: 3px; height: 100%;
+      background: linear-gradient(180deg, var(--accent), #2f5fbd, #d58b00);
+    }
+    .tlStage .tlContent { width: 100%; }
+    .tlStage .tlContent::before {
+      top: 14px; left: -8px;
+      border-top: 0; border-right: 0;
+      border-bottom: 1px solid var(--line); border-left: 1px solid var(--line);
+    }
+    /* El conmutador de orientación no aplica en móvil (siempre vertical). */
+    .tlOrientation { display: none; }
+  }
