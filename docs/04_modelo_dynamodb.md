@@ -68,6 +68,14 @@ PERSON (el perfil guarda también los atributos de la vista Personal:
 PK = PERSON#<personId>
 SK = PROFILE
 
+WORKSPACE_META (contador de versión del espacio de trabajo, 2026-07-28: `version`
+  se incrementa de forma ATÓMICA (ADD) en cada escritura de Solicitudes. El
+  frontend lo sondea para saber si algo cambió sin bajar el workspace completo
+  — patrón ETag. Las escrituras lo tocan desde las envolturas del repositorio
+  (_delete/_update/put_item), así ningún método nuevo se olvida de avisar)
+PK = WORKSPACE#META
+SK = VERSION
+
 AREA (catálogo vivo de áreas, COMPARTIDO por "Área solicitante", "Grupo de trabajo"
   (antes "Área destino") y —desde 2026-07-24— el "Área" de las PERSONAS;
   las solicitudes guardan requestingAreaId/targetAreaId y las personas areaId.

@@ -256,3 +256,26 @@
     .wsReportBtnLabel { display: none; }
     .wsReportFree { flex-direction: column; }
   }
+
+  /* Aviso de cambios remotos (refresco en vivo, 2026-07-28): flotante abajo a la
+     derecha, discreto. Solo aparece cuando el usuario está escribiendo y por eso
+     NO se repinta solo — él decide cuándo actualizar. */
+  .wsPendingBanner {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    font-size: 0.82rem;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 640px) {
+    .wsPendingBanner { left: 12px; right: 12px; bottom: 12px; justify-content: space-between; }
+  }

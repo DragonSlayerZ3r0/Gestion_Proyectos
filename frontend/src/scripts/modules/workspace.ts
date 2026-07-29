@@ -3,7 +3,7 @@
 import { createTimelineModule } from "./timeline";
 
 export function createWorkspaceModule(ctx) {
-  const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel, mdLite } = ctx;
+  const { state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel, mdLite, saveWorkspacePrefs } = ctx;
 
   // Sub-módulo: el diagrama de línea de tiempo de UNA solicitud (patrón de
   // composición de docs/21 — el módulo padre lo instancia y le delega).
@@ -87,7 +87,24 @@ export function createWorkspaceModule(ctx) {
     saveTablePrefs();
   }
 
+      // Búsqueda y filtros persistidos: se guardan en CADA render en vez de en
+      // los ~20 manejadores que los tocan (imposible olvidarse de uno). Es una
+      // escritura mínima a sessionStorage, sin costo perceptible.
+      function persistPrefs() {
+        saveWorkspacePrefs?.({
+          projectSearch: state.projectSearch,
+          projectSearchScope: state.projectSearchScope,
+          projectStatusFilter: state.projectStatusFilter,
+          projectTypeFilter: state.projectTypeFilter,
+          projectAreaFilter: state.projectAreaFilter,
+          projectTargetAreaFilter: state.projectTargetAreaFilter,
+          projectOwnerFilter: state.projectOwnerFilter,
+          projectInvolvesFilter: state.projectInvolvesFilter,
+        });
+      }
+
       async function renderWorkspace() {
+        persistPrefs();
         elements.statusPanel.hidden = true;
         elements.contentPanel.hidden = false;
         elements.viewTitle.textContent = "Solicitudes";
@@ -1781,6 +1798,7 @@ export function createWorkspaceModule(ctx) {
       // sobrevive y en móvil el teclado no se cierra). Mismo patrón que Catálogo/
       // Facturación/Athena (docs/06; regla "filtrar sin re-render para no perder foco").
       function applyProjectSearch() {
+        persistPrefs();     // ruta de repintado PARCIAL: no pasa por renderWorkspace
         const workspace = state.workspace;
         if (!workspace) return;
         const panel = elements.contentPanel;
@@ -1872,6 +1890,11 @@ export function createWorkspaceModule(ctx) {
         // — se escribe la idea completa; buscar con frases a medias confunde.
         projectSearch?.addEventListener("input", (event) => {
           state.projectSearch = event.target.value;
+          // OJO: guardar aquí, PEGADO a la mutación. Este input usa repintado
+          // PARCIAL (applyProjectSearch, para no cerrar el teclado en móvil) y
+          // por eso no pasa por renderWorkspace: confiar solo en el render dejaba
+          // la búsqueda sin persistir — el único campo que el usuario notó.
+          persistPrefs();
           if (state.projectAdvanced) {
             if (!(state.projectSearch || "").trim()) { resetProjectSem(); renderWorkspace(); }
           } else {
@@ -3252,10 +3275,89 @@ export function createWorkspaceModule(ctx) {
         renderWorkspace();
       }
 
+      // ── Refresco en vivo (2026-07-28) ──────────────────────────────────────
+      // Los usuarios recargaban la página cada rato "por si alguien actualizó".
+      // Ahora se sondea un CONTADOR de versión (1 item, unos bytes) cada 20 s y
+      // solo se baja el workspace completo (~180 KB) cuando ese número cambió.
+      // Educado: solo con el módulo activo y la pestaña visible.
+      //
+      // REGLA DE SEGURIDAD: nunca repintar encima de alguien que está
+      // escribiendo. Si hay un formulario abierto/enfocado, el refresco NO se
+      // aplica solo — aparece un aviso discreto "Hay cambios nuevos · Actualizar"
+      // y el usuario decide cuándo (así no se le borra lo que va escribiendo).
+      const VERSION_POLL_MS = 20000;
+      let versionTimer = null;
+      let knownVersion = null;
+
+      function isUserBusy() {
+        // Edición en curso: foco en un campo, formulario de detalle abierto o
+        // algún editor inline con contenido.
+        const el = document.activeElement;
+        if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;
+        if (state.selectedDetail) return true;             // panel de detalle abierto
+        if (state.updateEditing || state.taskUpdateEditing) return true;
+        if (document.querySelector(".tlModal, .wsReportModal")) return true;  // modal abierto
+        return false;
+      }
+
+      async function applyRemoteChanges() {
+        await loadWorkspace();
+        state.workspacePending = false;
+        renderWorkspace();
+      }
+
+      function startVersionPoll() {
+        if (versionTimer) return;
+        versionTimer = window.setInterval(async () => {
+          if (state.activeModule !== "projects" || document.hidden) return;
+          try {
+            const payload = await apiRequest("api/workspace/version");
+            const version = payload.data?.version ?? 0;
+            if (knownVersion === null) { knownVersion = version; return; }
+            if (version === knownVersion) return;
+            knownVersion = version;
+            if (isUserBusy()) {
+              state.workspacePending = true;               // se avisa, no se pisa
+              renderPendingBanner();
+              return;
+            }
+            await applyRemoteChanges();
+          } catch { /* sin red: se reintenta al próximo tick */ }
+        }, VERSION_POLL_MS);
+      }
+
+      // El aviso se inserta/actualiza SIN repintar el módulo (repintar sería
+      // justo lo que se está evitando mientras el usuario escribe).
+      function renderPendingBanner() {
+        if (!state.workspacePending) {
+          document.querySelector("#wsPendingBanner")?.remove();
+          return;
+        }
+        if (document.querySelector("#wsPendingBanner")) return;
+        const bar = document.createElement("div");
+        bar.id = "wsPendingBanner";
+        bar.className = "wsPendingBanner";
+        bar.innerHTML = `<span>Hay cambios nuevos de otra persona.</span>
+          <button type="button" class="tinyButton">Actualizar</button>`;
+        bar.querySelector("button").addEventListener("click", async () => {
+          bar.remove();
+          await applyRemoteChanges();
+        });
+        document.body.appendChild(bar);
+      }
+
       async function refreshWorkspace() {
         // Mantiene lo ya pintado mientras llega lo nuevo — sin pasar por la
         // pantalla "Cargando" (ese parpadeo hacía sentir lento cada guardado).
         await loadWorkspace();
+        state.workspacePending = false;
+        renderPendingBanner();
+        // El guardado propio ya subió la versión: se toma la nueva como conocida
+        // para no avisar al usuario de su propio cambio.
+        try {
+          const payload = await apiRequest("api/workspace/version");
+          knownVersion = payload.data?.version ?? knownVersion;
+        } catch { /* si falla, el próximo sondeo lo corrige */ }
         renderWorkspace();
       }
 
@@ -3613,6 +3715,10 @@ export function createWorkspaceModule(ctx) {
     goBtn.addEventListener("click", () => generate("", input.value));
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") generate("", input.value); });
   }
+
+  // El sondeo arranca con el módulo (idempotente) y se apaga solo cuando el
+  // módulo no está activo o la pestaña no se ve.
+  startVersionPoll();
 
   return { render: renderWorkspace, refresh: refreshWorkspace };
 }

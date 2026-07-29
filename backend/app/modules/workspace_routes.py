@@ -9,6 +9,10 @@ def _get_workspace(req: Request):
     return success(WorkspaceService().get_workspace())
 
 
+def _version(req: Request):
+    return success(WorkspaceService().get_version())
+
+
 def _search(req: Request):
     # Búsqueda AVANZADA de solicitudes: planificador (lenguaje natural → filtros
     # estructurados exactos + concepto semántico) + ranking híbrido sobre solicitud
@@ -162,6 +166,9 @@ def register(router: Router) -> None:
                error_msg="Error inesperado al cargar el espacio de trabajo.")
     router.add(["GET"], "/api/workspace/search", _search, modules=["projects", "tasks"],
                error_msg="Error inesperado en la búsqueda.")
+    # Sondeo de cambios (refresco en vivo): lectura de 1 item, sin datos pesados.
+    router.add(["GET"], "/api/workspace/version", _version, modules=["projects", "tasks"],
+               error_msg="Error inesperado al consultar la versión.")
     router.add(["POST"], "/api/areas", _create_area, modules=P,
                error_msg="Error inesperado al crear el área solicitante.")
     router.add(["PATCH", "DELETE"], "/api/areas/{areaId}", _area_update, modules=P,

@@ -23,6 +23,26 @@
 
       const moduleOrder = ["projects", "home", "catalog", "chat", "admin"];
 
+      // Preferencias de búsqueda/filtros de Solicitudes que sobreviven a la
+      // recarga. `function` (no const) a propósito: se HOISTEA, así puede usarse
+      // en la construcción de `state` que va justo abajo — un `const` aquí
+      // fallaría por zona muerta temporal (incidente 2026-07-23).
+      const WS_PREFS_KEY = "gestionProyectosWorkspacePrefs";
+      function readWorkspacePrefs() {
+        try {
+          const raw = window.sessionStorage.getItem(WS_PREFS_KEY);
+          return raw ? JSON.parse(raw) : {};
+        } catch {
+          return {};
+        }
+      }
+      function saveWorkspacePrefs(prefs) {
+        try {
+          window.sessionStorage.setItem(WS_PREFS_KEY, JSON.stringify(prefs));
+        } catch { /* modo privado / cuota: la app sigue igual, solo no recuerda */ }
+      }
+      const wsPrefs = readWorkspacePrefs();
+
       const state = {
         config: null,
         authClient: null,
@@ -41,10 +61,18 @@
         taskFormProjectId: null,
         // Multi-selección (2026-07-22): [] = todos; varios ids = OR entre ellos
         // ("none" = sin estado). Antes era un string de valor único.
-        projectStatusFilter: [],
-        projectSearch: "",
+        // Búsqueda y filtros SOBREVIVEN a la recarga (2026-07-28): los usuarios
+        // recargan seguido para ver cambios de otros y perdían el contexto.
+        // sessionStorage, igual que el módulo activo (se limpia al cerrar sesión).
+        projectStatusFilter: wsPrefs.projectStatusFilter || [],
+        projectSearch: wsPrefs.projectSearch || "",
         personSearch: "",
-        projectSearchScope: "all",  // alcance de la búsqueda: "all" | "projects" | "tasks"
+        projectSearchScope: wsPrefs.projectSearchScope || "all",  // "all" | "projects" | "tasks"
+        projectTypeFilter: wsPrefs.projectTypeFilter || "all",
+        projectAreaFilter: wsPrefs.projectAreaFilter || "all",
+        projectTargetAreaFilter: wsPrefs.projectTargetAreaFilter || "all",
+        projectOwnerFilter: wsPrefs.projectOwnerFilter || "all",
+        projectInvolvesFilter: wsPrefs.projectInvolvesFilter || "all",
         workspaceView: "manage",    // vista de Solicitudes: "manage" (Gestión) | "board" (Tablero de avance)
         boardExpanded: null,        // solicitud expandida en el tablero (qué falta / cuándo)
         expandedBoardProjectId: null,
@@ -637,6 +665,7 @@
         setUserMenuOpen(false);
         window.sessionStorage.removeItem("gestionProyectosAuth");
         window.sessionStorage.removeItem("gestionProyectosModule");
+        window.sessionStorage.removeItem(WS_PREFS_KEY);
         state.user = null;
         state.profile = null;
         state.workspace = null;
@@ -908,6 +937,7 @@
       });
       const workspaceModule = createWorkspaceModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, renderEditIconButton, renderDeleteIconButton, priorityLabel, mdLite,
+        saveWorkspacePrefs,
       });
       const catalogModule = createCatalogModule({
         state, elements, apiRequest, escapeHtml, escapeAttribute, formatBytes, catalogSyncedLabel, catalogDateLabel,

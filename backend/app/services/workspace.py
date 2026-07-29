@@ -190,6 +190,13 @@ class WorkspaceService:
             "personStatuses": PERSON_STATUSES_CATALOG
         }
 
+    def get_version(self) -> dict[str, Any]:
+        """Número que cambia con CADA escritura del espacio de trabajo. El
+        frontend lo sondea (barato) y solo recarga el workspace completo si
+        cambió — así los cambios de otros aparecen solos, sin recargar la
+        página."""
+        return {"version": self._repository.get_version()}
+
     @staticmethod
     def _norm_name(value: str) -> str:
         """Nombre comparable: minúsculas, sin acentos ni espacios repetidos — para
