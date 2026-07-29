@@ -244,7 +244,7 @@ export function createWorkspaceModule(ctx) {
                   <input name="firstName" type="text" placeholder="Nombre completo o proveedor" required />
                   <details class="optionalDetails">
                     <summary>Más datos</summary>
-                    <input name="area" type="text" placeholder="Área" />
+                    ${renderAreaField("areaId", "Área", "")}
                     <textarea name="availabilityNotes" rows="2" placeholder="Vacaciones o disponibilidad"></textarea>
                     <textarea name="notes" rows="2" placeholder="Notas"></textarea>
                   </details>
@@ -741,7 +741,10 @@ export function createWorkspaceModule(ctx) {
               const snippet = (upd?.text || "").slice(0, 90);
               semChip = `<span class="projSemHit" title="${escapeAttribute(snippet || "Coincide en un seguimiento")}">≈ seguimiento</span>`;
             }
-            return `<td class="projName"><span class="projNameText">${escapeHtml(project.name)}</span>${semChip}${clip}</td>`;
+            // `title` nativo: con la tabla de ancho fijo el nombre largo se
+            // recorta con elipsis, así que el completo debe poder verse al pasar
+            // el mouse (antes se perdía sin manera de leerlo).
+            return `<td class="projName" title="${escapeAttribute(project.name)}"><span class="projNameText">${escapeHtml(project.name)}</span>${semChip}${clip}</td>`;
           }
           case "type":
             return `<td>${requestTypeLabel(project.requestType) || `<span class="emptyText">—</span>`}</td>`;
@@ -1323,7 +1326,6 @@ export function createWorkspaceModule(ctx) {
       function renderTaskCard(task, peopleById) {
         const assignee = task.assigneePersonId ? peopleById[task.assigneePersonId] : null;
         const isSelected = state.selectedDetail?.type === "task" && state.selectedDetail.id === task.id;
-        const assigneeAction = assignee ? "Cambiar" : "Asignar";
         const updatesCount = (task.updates || []).length;
         return `
           <article class="taskCard ${isSelected ? "selected" : ""}" draggable="true" data-task-id="${task.id}" data-task-select="${task.id}">
@@ -1342,12 +1344,58 @@ export function createWorkspaceModule(ctx) {
                   data-task-assignee-person="${task.assigneePersonId}"
                 >${escapeHtml(assignee.fullName)}</span>
               ` : `<small>Sin responsable</small>`}
-              <button class="tinyButton subtle" type="button" data-detail-task="${task.id}" data-detail-task-project="${task.projectId}" data-focus-task-assignee="true">${assigneeAction}</button>
+              ${renderAssigneeIconButton(task, !!assignee)}
             </div>
+            ${renderTaskDates(task)}
             ${renderTaskProgressBar(task)}
             <small>Arrastra para cambiar estado.${updatesCount ? ` · ${updatesCount} seguimiento${updatesCount === 1 ? "" : "s"}` : ""}</small>
           </article>
         `;
+      }
+
+      // Responsable: botón-ícono (antes era un botón con texto "Asignar/Cambiar"
+      // que competía visualmente con el título y el chip en una tarjeta ya densa).
+      // Sigue la convención de la app —lápiz=editar, papelera=borrar— sumando
+      // persona=responsable, siempre con tooltip + aria-label. El ícono cambia
+      // según el caso: persona+ para asignar (invita a llenar un vacío), persona
+      // sola para cambiar (el chip de al lado ya dice quién es).
+      function renderAssigneeIconButton(task, hasAssignee) {
+        const label = hasAssignee ? "Cambiar responsable" : "Asignar responsable";
+        const icon = hasAssignee
+          ? `<circle cx="12" cy="8" r="3.4"></circle><path d="M5.5 19.5c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5"></path>`
+          : `<circle cx="10" cy="8" r="3.4"></circle><path d="M3.5 19.5c0-3.3 2.9-5.5 6.5-5.5 1 0 1.9.2 2.7.5"></path><path d="M17.5 14v6"></path><path d="M14.5 17h6"></path>`;
+        return `
+          <button class="iconTinyButton iconTinyButton--onCard" type="button"
+            data-detail-task="${task.id}" data-detail-task-project="${task.projectId}"
+            data-focus-task-assignee="true"
+            aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${icon}</svg>
+          </button>`;
+      }
+
+      // Fechas en la tarjeta: se muestran solo si existen. La de fin avisa cuando
+      // ya venció y la tarea NO está completada (es la señal que se busca en un
+      // tablero); una tarea cerrada nunca se pinta como vencida.
+      function renderTaskDates(task) {
+        const start = task.startDate || "";
+        const end = task.endDate || "";
+        if (!start && !end) return "";
+        const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+        const overdue = end && end < today && task.status !== "done";
+        const bits = [];
+        if (start) bits.push(`<span title="Fecha de inicio">▶ ${escapeHtml(shortDate(start))}</span>`);
+        if (end) bits.push(`<span class="${overdue ? "taskDateOverdue" : ""}" title="${overdue ? "Venció y sigue abierta" : "Fecha de fin"}">⏹ ${escapeHtml(shortDate(end))}</span>`);
+        return `<div class="taskDates">${bits.join("")}</div>`;
+      }
+
+      // "2026-07-31" → "31 jul" (en la tarjeta el año sobra salvo que sea otro).
+      function shortDate(iso) {
+        const d = new Date(`${iso}T12:00:00`);
+        if (isNaN(d.getTime())) return iso;
+        const sameYear = d.getFullYear() === new Date().getFullYear();
+        return d.toLocaleDateString("es-GT", sameYear
+          ? { day: "numeric", month: "short" }
+          : { day: "numeric", month: "short", year: "numeric" });
       }
 
       // Barra de avance de la tarjeta: el % manual se marca con tono propio (dato
@@ -1433,7 +1481,7 @@ export function createWorkspaceModule(ctx) {
             </div>
             <form id="personDetailForm" class="detailForm" data-person-detail="${person.id}">
               <label>Nombre<input name="firstName" type="text" value="${escapeAttribute(person.fullName)}" required /></label>
-              <label>Área<input name="area" type="text" value="${escapeAttribute(person.area)}" /></label>
+              ${renderAreaField("areaId", "Área", person.areaId)}
               <label>Estado
                 <select name="status">
                   <option value="" ${person.status ? "" : "selected"}>Ninguno</option>
@@ -1616,6 +1664,10 @@ export function createWorkspaceModule(ctx) {
                   ${state.workspace.people.map((person) => `<option value="${person.id}" ${person.id === task.assigneePersonId ? "selected" : ""}>${escapeHtml(person.fullName)}</option>`).join("")}
                 </select>
               </label>
+              <div class="taskDatesRow">
+                <label>Fecha de inicio<input name="startDate" type="date" value="${escapeAttribute(task.startDate || "")}" /></label>
+                <label>Fecha de fin<input name="endDate" type="date" value="${escapeAttribute(task.endDate || "")}" /></label>
+              </div>
               <label>% de avance
                 <input name="progress" type="number" min="0" max="100" step="5" inputmode="numeric" placeholder="—" value="${task.progress === "" || task.progress === undefined || task.progress === null ? "" : escapeAttribute(String(task.progress))}" />
               </label>
@@ -2585,10 +2637,13 @@ export function createWorkspaceModule(ctx) {
         const target = event.currentTarget;
         const form = new FormData(target);
         const unlock = lockSubmit(target);
+        const values = Object.fromEntries(form.entries());
+        // "__new__" es el disparador del mini-formulario de área, no un id.
+        if (values.areaId === "__new__") values.areaId = "";
         try {
           await apiRequest("api/people", {
             method: "POST",
-            body: JSON.stringify(Object.fromEntries(form.entries()))
+            body: JSON.stringify(values)
           });
           state.showPersonForm = false;
           state.saveNotice = { target: "person-create", message: "Persona registrada." };
@@ -2629,7 +2684,9 @@ export function createWorkspaceModule(ctx) {
         const form = new FormData(target);
         const unlock = lockSubmit(target);
         try {
-          await updatePerson(target.dataset.personDetail, Object.fromEntries(form.entries()));
+          const values = Object.fromEntries(form.entries());
+          if (values.areaId === "__new__") values.areaId = "";
+          await updatePerson(target.dataset.personDetail, values);
         } catch (error) {
           alert(error.message);
         } finally {

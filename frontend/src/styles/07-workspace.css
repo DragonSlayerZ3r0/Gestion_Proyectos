@@ -117,9 +117,18 @@
      vertical alineado, patrón correo) — al final del texto se perdía con nombres
      largos que envuelven; antes del título rompería la alineación izquierda del
      identificador. La celda reserva el carril con padding-right constante. */
-  .projName { position: relative; padding-right: 30px; }
+  /* OJO ESPECIFICIDAD (incidente visual 2026-07-28): el carril debe declararse
+     como `.projectTable td.projName` — con solo `.projName` (0,1,0) lo pisaba
+     `.projectTable td` (0,1,1) y el padding volvía a 12px, así que los títulos
+     largos pasaban POR DEBAJO del clip. El ancho del carril debe superar
+     `right` + tamaño del ícono. */
+  .projectTable td.projName { position: relative; padding-right: 34px; }
   .projClip { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: inline-flex; color: var(--muted); }
   .projClip svg { width: 13px; height: 13px; }
+  /* Con `table-layout: fixed` la celda recorta con elipsis en el borde de su caja
+     de contenido — es decir, ANTES del carril: el "…" y el clip nunca se tocan.
+     El título completo queda en el `title` nativo (se ve al pasar el mouse). */
+  .projName .projNameText { min-width: 0; }
   .projectTableEmpty { padding: 14px 4px; }
 
   /* ── Adjuntos ─────────────────────────────────────────────────────────────

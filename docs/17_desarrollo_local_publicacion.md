@@ -194,6 +194,8 @@ Usar siempre este script. Compila, sincroniza los assets **excluyendo `config.js
 STACK=GestionProyectosProdStack PROFILE=<perfil> ENV_NAME=prod ./scripts/deploy-frontend.sh
 ```
 
+**Caché (regla dura desde el incidente 2026-07-28):** el script sube en **dos tandas** — los archivos con hash en el nombre (`_astro/*`) con `Cache-Control: public, max-age=31536000, immutable` (son inmutables por definición; además las visitas siguientes cargan al instante) y el **HTML con `no-cache, must-revalidate`** (igual que `config.json`; `deploy.json` va con `no-store`). **Por qué es obligatorio:** el sync usa `--delete`, así que cada publicación borra el bundle anterior. Si un navegador conserva el HTML viejo, pide un bundle que ya no existe y —por el fallback SPA que convierte 403 en `/index.html` con status 200— **recibe HTML donde espera JavaScript**: el script muere sin error visible y la app se queda en "Cargando…" para siempre. Cualquier publicación manual debe respetar estas cabeceras.
+
 > ⚠️ **Nunca** correr `aws s3 sync dist/ ... --delete` sin `--exclude config.json`. El `frontend/public/config.json` versionado es un placeholder vacío (`environment: local`); un sync sin exclusión lo sube y borra el `config.json` real de producción → la pantalla de login muestra "Falta completar la configuración de acceso" y nadie puede entrar. El `config.json` real **solo vive en S3**, no en git.
 
 ### Flujo manual equivalente (si no se usa el script)

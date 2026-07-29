@@ -60,13 +60,19 @@ PK = USER#<userId>
 SK = MODULE#<moduleKey>
 
 PERSON (el perfil guarda también los atributos de la vista Personal:
-  vacationDays={"2026": 20} —cuota anual— y staffNotes —nota exclusiva de esa vista—)
+  vacationDays={"2026": 20} —cuota anual— y staffNotes —nota exclusiva de esa vista—.
+  Área: desde 2026-07-24 usa `areaId` del catálogo AREA (antes `area` era texto
+  libre). El campo `area` viejo se CONSERVA como legado y se sigue mostrando
+  mientras esa persona no se edite; al elegir del catálogo se limpia. La API
+  devuelve siempre `areaId` + `area` ya resuelta a nombre legible)
 PK = PERSON#<personId>
 SK = PROFILE
 
-AREA (catálogo vivo de áreas, COMPARTIDO por "Área solicitante" y "Grupo de trabajo" (antes "Área destino");
-  las solicitudes guardan requestingAreaId y targetAreaId. Borrado protegido si
-  alguna solicitud la usa en cualquiera de los dos campos)
+AREA (catálogo vivo de áreas, COMPARTIDO por "Área solicitante", "Grupo de trabajo"
+  (antes "Área destino") y —desde 2026-07-24— el "Área" de las PERSONAS;
+  las solicitudes guardan requestingAreaId/targetAreaId y las personas areaId.
+  Borrado protegido si alguna solicitud la usa en cualquiera de sus dos campos
+  O si alguna persona la tiene asignada — el mensaje dice cuántas)
 PK = AREA#<areaId>
 SK = PROFILE
 
@@ -89,7 +95,10 @@ PK = PROJECT#<projectId>
 SK = PERSON#<personId>
 
 TASK (incluye `progress`: % de avance MANUAL 0-100 o "" = sin definir, 2026-07-24;
-  vacío ⇒ el frontend lo deriva del estado: completada 100, resto 0)
+  vacío ⇒ el frontend lo deriva del estado: completada 100, resto 0. Y desde
+  2026-07-28 `startDate`/`endDate` AAAA-MM-DD opcionales — mismo formato que las
+  fechas de la solicitud; el backend valida fin ≥ inicio contra el estado FINAL,
+  así que editar solo una de las dos también se valida)
 PK = PROJECT#<projectId>
 SK = TASK#<taskId>
 

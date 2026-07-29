@@ -1418,6 +1418,30 @@
     stroke-width: 1.9;
   }
 
+  /* Variante para tarjetas densas (Kanban): más pequeña y con el color tenue
+     hasta que se apunta — el ícono acompaña, no compite con el título. */
+  .iconTinyButton--onCard {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    color: var(--muted);
+    /* Sin marco ni relleno en reposo: junto al chip del responsable, una caja
+       más leía como "otro botón" y volvía a amontonar. El fondo y el borde solo
+       aparecen al apuntar/enfocar (la acción sigue siendo descubrible por el
+       cursor y el tooltip, y el teclado la ve con focus-visible). */
+    border-color: transparent;
+    background: transparent;
+  }
+  .iconTinyButton--onCard svg { width: 15px; height: 15px; }
+  /* El borde del hover lo pone la regla global `button:hover:not(:disabled)`
+     (mayor especificidad: 0,2,1) — no se intenta sobrescribir aquí: la
+     convención de hover es común a todos los botones de la app. */
+  .iconTinyButton--onCard:hover,
+  .iconTinyButton--onCard:focus-visible {
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+  }
+
   /* Papelera de borrado: mismo tamaño que el lápiz, en rojo (acción destructiva). */
   .iconTinyButton--danger { color: #b42318; }
   .iconTinyButton--danger:hover { background: #fff1f0; }
@@ -1466,6 +1490,28 @@
     color: var(--muted);
     font-size: 0.82rem;
     line-height: 1.35;
+  }
+
+  /* Fechas de la tarea en la tarjeta (2026-07-28): discretas; la de fin se pinta
+     en tono de peligro solo si venció y la tarea sigue abierta. */
+  .taskDates {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 0.74rem;
+    color: var(--muted);
+  }
+  .taskCard .taskDates span { font-size: 0.74rem; }
+  .taskCard .taskDates .taskDateOverdue {
+    color: var(--danger);
+    font-weight: 650;
+  }
+  /* Dos fechas por fila en el detalle; se apilan si no caben. */
+  .taskDatesRow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px;
   }
 
   /* Avance de la tarea (2026-07-24): barra fina + %. El % MANUAL (dato afirmado

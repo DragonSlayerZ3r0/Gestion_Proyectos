@@ -241,6 +241,13 @@ class WorkspaceService:
             raise ValidationError(
                 f"No se puede eliminar: {in_use} solicitud(es) usan esta área "
                 "(como área solicitante o grupo de trabajo). Reasígnalas antes de eliminarla.")
+        # Desde 2026-07-24 las PERSONAS también referencian el catálogo: borrar un
+        # área en uso las dejaría sin área visible (sin este guard, huérfanas).
+        people_using = sum(1 for p in self._repository.list_people() if p.get("areaId") == area_id)
+        if people_using:
+            raise ValidationError(
+                f"No se puede eliminar: {people_using} persona(s) tienen esta área asignada. "
+                "Cámbiales el área antes de eliminarla.")
         self._repository.delete_area(area_id)
         return {"areaId": area_id, "removed": True}
 
@@ -372,6 +379,11 @@ class WorkspaceService:
             "firstName": first_name,
             "lastName": last_name,
             "fullName": full_name,
+            # Área de la persona: desde 2026-07-24 es el MISMO catálogo AREA que
+            # usan las solicitudes (antes texto libre → cada quien la escribía
+            # distinta y no se podía agrupar). `area` queda solo como legado de
+            # lo ya capturado; lo nuevo viaja en areaId.
+            "areaId": self._valid_area_id(payload.get("areaId")),
             "area": self._optional_text(payload, "area"),
             "notes": self._optional_text(payload, "notes"),
             "availabilityNotes": self._optional_text(payload, "availabilityNotes"),
@@ -447,8 +459,9 @@ class WorkspaceService:
             values["firstName"] = first_name
             values["lastName"] = last_name
             values["fullName"] = f"{first_name} {last_name}".strip()
-        if "area" in payload:
-            values["area"] = self._optional_text(payload, "area")
+        if "areaId" in payload:
+            values["areaId"] = self._valid_area_id(payload.get("areaId"))
+            values["area"] = ""          # al elegir del catálogo se retira el texto legado
         if "notes" in payload:
             values["notes"] = self._optional_text(payload, "notes")
         if "availabilityNotes" in payload:
@@ -579,6 +592,12 @@ class WorkspaceService:
         if pct < 0 or pct > 100:
             raise ValidationError("El % de avance debe estar entre 0 y 100.")
         return pct
+
+    def _check_task_dates(self, start: str, end: str) -> None:
+        """Fin no puede ser ANTES del inicio (error de dedo típico al teclear la
+        fecha). Si falta cualquiera de las dos, no hay nada que comparar."""
+        if start and end and end < start:      # AAAA-MM-DD ordena como texto
+            raise ValidationError("La fecha de fin no puede ser anterior a la de inicio.")
 
     def _optional_date(self, value: Any, label: str) -> str:
         """Fecha opcional AAAA-MM-DD (la que envía <input type=date>); "" si viene vacía."""
@@ -800,11 +819,16 @@ class WorkspaceService:
             # % de avance MANUAL de la tarea (mismo criterio que el de la
             # solicitud): "" = sin definir → se deriva del estado.
             "progress": self._optional_progress(payload.get("progress")),
+            # Fechas de la TAREA (2026-07-28), mismo formato AAAA-MM-DD que las de
+            # la solicitud; opcionales y validadas como pareja (fin ≥ inicio).
+            "startDate": self._optional_date(payload.get("startDate"), "Fecha de inicio"),
+            "endDate": self._optional_date(payload.get("endDate"), "Fecha de fin"),
             "createdAt": now,
             "updatedAt": now,
             "createdBy": identity["userId"],
             "updatedBy": identity["userId"]
         }
+        self._check_task_dates(item["startDate"], item["endDate"])
         self._repository.put_item(item)
         return self._normalize_task(item)
 
@@ -826,6 +850,15 @@ class WorkspaceService:
             values["notes"] = self._optional_text(payload, "notes")
         if "progress" in payload:
             values["progress"] = self._optional_progress(payload.get("progress"))
+        if "startDate" in payload:
+            values["startDate"] = self._optional_date(payload.get("startDate"), "Fecha de inicio")
+        if "endDate" in payload:
+            values["endDate"] = self._optional_date(payload.get("endDate"), "Fecha de fin")
+        # Se valida el resultado FINAL (lo enviado + lo ya guardado): editar solo
+        # una de las dos fechas también debe respetar fin ≥ inicio.
+        self._check_task_dates(
+            values.get("startDate", existing_task.get("startDate", "")),
+            values.get("endDate", existing_task.get("endDate", "")))
 
         updated_task = self._repository.update_task(project_id, task_id, values)
         self._audit_task_changes(project_id, task_id, existing_task, updated_task, identity)
@@ -841,6 +874,28 @@ class WorkspaceService:
             raise ValidationError("El área solicitante seleccionada ya no existe. Recarga y vuelve a intentarlo.")
         return area_id
 
+    def _area_names(self) -> dict[str, str]:
+        """{areaId: nombre} memorizado POR INSTANCIA: `_normalize_person` corre una
+        vez por persona y sin esta caché cada una releería el catálogo completo
+        (N+1 en get_workspace). El servicio se instancia por request, así que no
+        hay riesgo de servir nombres viejos."""
+        cache = getattr(self, "_area_names_cache", None)
+        if cache is None:
+            cache = {a.get("areaId", ""): str(a.get("name", "") or "")
+                     for a in self._repository.list_areas()}
+            self._area_names_cache = cache
+        return cache
+
+    def _area_label(self, person_item: dict[str, Any]) -> str:
+        """Nombre de área legible de una persona: el del catálogo si ya tiene
+        areaId; si no, el texto libre viejo (se conserva hasta que alguien edite
+        a esa persona y elija del catálogo). Así ninguna captura previa se pierde."""
+        area_id = person_item.get("areaId", "")
+        if not area_id:
+            return str(person_item.get("area", "") or "")
+        # Área borrada → sin etiqueta (nunca un id crudo en pantalla).
+        return self._area_names().get(area_id, "")
+
     def _normalize_area(self, item: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": item["areaId"],
@@ -854,7 +909,10 @@ class WorkspaceService:
             "firstName": item.get("firstName", ""),
             "lastName": item.get("lastName", ""),
             "fullName": item.get("fullName") or f"{item.get('firstName', '')} {item.get('lastName', '')}".strip(),
-            "area": item.get("area", ""),
+            "areaId": item.get("areaId", ""),
+            # `area` = etiqueta legible para mostrar/buscar: nombre del catálogo
+            # si ya está migrada, o el texto libre viejo mientras no se edite.
+            "area": self._area_label(item),
             "notes": item.get("notes", ""),
             "availabilityNotes": item.get("availabilityNotes", ""),
             "status": item.get("status", ""),
@@ -911,6 +969,8 @@ class WorkspaceService:
             "assigneePersonId": item.get("assigneePersonId", ""),
             "notes": item.get("notes", ""),
             "progress": item.get("progress", "") if item.get("progress", "") == "" else int(item.get("progress")),
+            "startDate": item.get("startDate", ""),
+            "endDate": item.get("endDate", ""),
             "updates": [],                  # bitácora de la tarea (se llena en get_workspace)
             "updatedAt": item.get("updatedAt", "")
         }

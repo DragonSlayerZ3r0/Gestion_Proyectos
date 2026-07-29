@@ -56,9 +56,27 @@ echo "→ Compilando frontend…"
 echo "→ Activando aviso de despliegue (deploy.json)…"
 STACK="$STACK" PROFILE="$PROFILE" REGION="$REGION" "$ROOT/scripts/deploy-flag.sh" start
 
-echo "→ Sincronizando assets (sin tocar config.json, deploy.json ni basura)…"
+# CACHÉ EN DOS TANDAS (incidente 2026-07-28 — ver docs/22):
+#   El HTML se subía SIN Cache-Control, así que navegador y CloudFront lo
+#   guardaban con heurística propia. Como el sync usa --delete, el bundle viejo
+#   (nombre con hash) desaparecía; un navegador con el HTML viejo en caché pedía
+#   ese archivo y —por el fallback SPA 403→index.html— recibía HTML con status
+#   200 donde esperaba JavaScript: el script moría en silencio y la app se
+#   quedaba en "Cargando…" PARA SIEMPRE (no era lentitud).
+#   Regla: los archivos con hash en el nombre son inmutables (caché de 1 año, y
+#   así las visitas siguientes cargan al instante); el HTML y los json de
+#   configuración SIEMPRE se revalidan.
+echo "→ Sincronizando assets con hash (caché larga, inmutables)…"
 aws s3 sync "$FRONTEND_DIR/dist/" "s3://$BUCKET" --delete \
   --exclude "config.json" --exclude "deploy.json" --exclude ".DS_Store" \
+  --exclude "*.html" \
+  --cache-control "public, max-age=31536000, immutable" \
+  --profile "$PROFILE"
+
+echo "→ Subiendo HTML (sin caché: siempre revalida)…"
+aws s3 sync "$FRONTEND_DIR/dist/" "s3://$BUCKET" \
+  --exclude "*" --include "*.html" \
+  --cache-control "no-cache, must-revalidate" --content-type "text/html; charset=utf-8" \
   --profile "$PROFILE"
 
 echo "→ Regenerando config.json de producción…"
@@ -74,7 +92,8 @@ cat > "$TMP_CFG" <<JSON
   "wsUrl": "$WS_URL"
 }
 JSON
-aws s3 cp "$TMP_CFG" "s3://$BUCKET/config.json" --content-type application/json --profile "$PROFILE"
+aws s3 cp "$TMP_CFG" "s3://$BUCKET/config.json" --content-type application/json \
+  --cache-control "no-cache, must-revalidate" --profile "$PROFILE"
 rm -f "$TMP_CFG"
 
 echo "→ Invalidando CloudFront…"
