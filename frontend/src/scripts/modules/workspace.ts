@@ -33,10 +33,17 @@ export function createWorkspaceModule(ctx) {
       state.projectColumns = saved.columns || {};
       state.projectColWidths = saved.widths || {};
       state.projectColOrder = Array.isArray(saved.order) ? saved.order : null;
+      // Orden MANUAL de filas (2026-07-29): lista de projectId en el orden que el
+      // usuario acomodó, más el interruptor del modo. Preferencia personal, igual
+      // que el orden de columnas.
+      state.projectRowOrder = Array.isArray(saved.rowOrder) ? saved.rowOrder : [];
+      state.projectManualOrder = !!saved.manualOrder;
     } catch {
       state.projectColumns = {};
       state.projectColWidths = {};
       state.projectColOrder = null;
+      state.projectRowOrder = [];
+      state.projectManualOrder = false;
     }
   }
   function saveTablePrefs() {
@@ -44,6 +51,7 @@ export function createWorkspaceModule(ctx) {
       localStorage.setItem(PROJECT_TABLE_LS, JSON.stringify({
         columns: state.projectColumns || {}, widths: state.projectColWidths || {},
         order: state.projectColOrder || null,
+        rowOrder: state.projectRowOrder || [], manualOrder: !!state.projectManualOrder,
       }));
     } catch { /* localStorage no disponible: se pierde solo la persistencia */ }
   }
@@ -237,6 +245,9 @@ export function createWorkspaceModule(ctx) {
                   ${renderFiltersControl()}
                   ${renderActiveFilterChips()}
                   ${anyProjectFilterActive() ? `<button class="tinyButton ghost" type="button" id="clearProjectFilters">Limpiar</button>` : ""}
+                  <button class="tinyButton ghost${state.projectManualOrder ? " active" : ""}" type="button" id="projectManualOrderBtn"
+                    aria-pressed="${state.projectManualOrder ? "true" : "false"}"
+                    title="${state.projectManualOrder ? "Volver al orden automático (tu acomodo se conserva)" : "Acomodar las filas a mano: arrastra o usa ↑/↓"}">⇅ Orden manual</button>
                   <div class="projectColumnsControl">
                     <button class="tinyButton ghost" type="button" id="projectColumnsBtn" aria-haspopup="true" aria-expanded="${state.projectColumnsMenuOpen ? "true" : "false"}">Columnas ▾</button>
                     ${state.projectColumnsMenuOpen ? renderColumnsMenu() : ""}
@@ -404,13 +415,15 @@ export function createWorkspaceModule(ctx) {
       }
 
       function renderProjectStatusFilters() {
-        // Multi-selección estilo "resta" (pedido del usuario 2026-07-22): "Todos"
-        // ENCIENDE todos los chips y luego se apagan los que no se quieren ver —
-        // el flujo "todo menos Cerrado" es 2 clics, no marcar 6 uno a uno. [] (sin
-        // selección) también significa todos, con solo "Todos" encendido. La
-        // etiqueta "Estado:" agrupa la fila como UN filtro junto a Filtros ▾.
+        // COHERENCIA VISUAL (2026-07-29, pedido del usuario): si la tabla muestra
+        // todos los estados, TODOS los chips deben verse encendidos. Antes el
+        // estado por defecto ([] = sin filtro) encendía solo "Todos" mientras la
+        // tabla listaba de todo — el dibujo contradecía al dato.
+        // Interacción elegida: desde "todos encendidos" un clic AÍSLA ese estado
+        // (el caso frecuente, 1 clic); después los chips suman/quitan; "Todos"
+        // regresa al conjunto completo. La etiqueta "Estado:" agrupa la fila.
         const stF = state.projectStatusFilter || [];
-        const isFull = allStatusIds().every((s) => stF.includes(s));
+        const showingAll = stF.length === 0 || allStatusIds().every((s) => stF.includes(s));
         const options = [
           ["all", "Todos"],
           ["none", "Sin estado"],
@@ -418,14 +431,21 @@ export function createWorkspaceModule(ctx) {
         ];
         const chips = options
           .map(([status, label]) => {
-            const active = status === "all" ? (stF.length === 0 || isFull) : stF.includes(status);
+            // Con la vista completa, todos los chips (incluido "Todos") van
+            // encendidos: es lo que el usuario está viendo.
+            const active = showingAll ? true : (status === "all" ? false : stF.includes(status));
+            const title = status === "all"
+              ? "Ver todos los estados"
+              : (showingAll
+                  ? `Ver solo ${label}`
+                  : (stF.includes(status) ? `Quitar ${label} del filtro` : `Agregar ${label} al filtro`));
             return `
             <button
               class="filterChip ${active ? "active" : ""}"
               type="button"
               data-project-status-filter="${status}"
               aria-pressed="${active ? "true" : "false"}"
-              title="${status === "all" ? "Marcar todos los estados (luego apaga los que no quieras ver)" : "Clic para encender/apagar este estado"}"
+              title="${escapeAttribute(title)}"
             >${label}</button>`;
           })
           .join("");
@@ -670,8 +690,65 @@ export function createWorkspaceModule(ctx) {
 
       // Orden por columna (clic en el encabezado: 1º asc, 2º desc). Sin orden
       // elegido se mantiene el del backend (última solicitud actualizada primero).
+      // Mueve una solicitud `delta` posiciones dentro del orden manual actual.
+      // `visibleIds` es el orden que el usuario TIENE EN PANTALLA: se toma como
+      // base para que el arrastre sea predecible aunque haya filtros aplicados.
+      function moveProjectRow(projectId, delta, visibleIds) {
+        const base = [...(visibleIds || [])];
+        const from = base.indexOf(projectId);
+        if (from < 0) return;
+        const to = Math.max(0, Math.min(base.length - 1, from + delta));
+        if (to === from) return;
+        base.splice(to, 0, base.splice(from, 1)[0]);
+        applyManualOrder(base);
+      }
+
+      // Coloca `dragId` en la posición de `targetId` (arrastre).
+      function dropProjectRow(dragId, targetId, visibleIds) {
+        const base = [...(visibleIds || [])];
+        const from = base.indexOf(dragId);
+        const to = base.indexOf(targetId);
+        if (from < 0 || to < 0 || from === to) return;
+        base.splice(to, 0, base.splice(from, 1)[0]);
+        applyManualOrder(base);
+      }
+
+      // Fusiona el orden de lo VISIBLE con el guardado: lo que está filtrado fuera
+      // conserva su posición relativa (mover con un filtro puesto no revuelve el resto).
+      function applyManualOrder(visibleOrder) {
+        const previous = state.projectRowOrder || [];
+        const visible = new Set(visibleOrder);
+        const merged = [];
+        let i = 0;
+        for (const id of previous) {
+          if (visible.has(id)) {                 // hueco de un visible → toma el siguiente del orden nuevo
+            if (i < visibleOrder.length) merged.push(visibleOrder[i++]);
+          } else {
+            merged.push(id);                     // no visible: se queda donde estaba
+          }
+        }
+        while (i < visibleOrder.length) merged.push(visibleOrder[i++]);
+        state.projectRowOrder = merged;
+        state.projectManualOrder = true;
+        state.projectSort = null;                // el orden manual reemplaza al de columna
+        saveTablePrefs();
+        renderWorkspace();
+      }
+
       function sortProjectsForTable(projects, peopleById) {
         const s = state.projectSort;
+        // ORDEN MANUAL (2026-07-29): manda sobre cualquier otro criterio mientras
+        // el modo esté encendido. Las solicitudes que no estén en la lista guardada
+        // (nuevas, o nunca movidas) van al FINAL conservando su orden natural — así
+        // acomodar unas pocas no obliga a ordenar las 82.
+        if (state.projectManualOrder) {
+          const pos = new Map((state.projectRowOrder || []).map((id, i) => [id, i]));
+          return [...projects].sort((a, b) => {
+            const ia = pos.has(a.id) ? pos.get(a.id) : Number.MAX_SAFE_INTEGER;
+            const ib = pos.has(b.id) ? pos.get(b.id) : Number.MAX_SAFE_INTEGER;
+            return ia - ib;
+          });
+        }
         // Avanzada CON concepto semántico y sin orden de columna → por RELEVANCIA.
         // (Consulta de puro filtro, sin concepto → orden por defecto del backend.)
         if (!s && state.projectAdvanced && (state.projectSemConcept || "").trim()) {
@@ -823,22 +900,38 @@ export function createWorkspaceModule(ctx) {
           return `<p class="emptyText projectTableEmpty">No hay resultados con los filtros actuales.</p>`;
         }
         const cols = visibleColumns();
-        const colgroup = `<colgroup>${cols.map((c) => `<col style="width:${colWidth(c.key)}px" />`).join("")}<col style="width:32px" /></colgroup>`;
+        const manual = !!state.projectManualOrder;
+        // En modo manual se agrega una PRIMERA columna con el asa de arrastre y
+        // las flechas ↑/↓ (docs/06: todo drag & drop necesita alternativa visible).
+        const colgroup = `<colgroup>${manual ? `<col style="width:64px" />` : ""}${cols.map((c) => `<col style="width:${colWidth(c.key)}px" />`).join("")}<col style="width:32px" /></colgroup>`;
         const head = cols.map((c) => projSortTh(c.key, c.label, c.num ? "num" : "")).join("");
-        const rows = sortProjectsForTable(projects, peopleById).map((project) => {
+        const ordered = sortProjectsForTable(projects, peopleById);
+        const visibleIds = ordered.map((p) => p.id);
+        const rows = ordered.map((project, index) => {
           const selected = activeProject?.id === project.id;
           const cells = cols.map((c) => renderProjectCell(c.key, project, peopleById)).join("");
+          const handle = manual ? `
+            <td class="projOrderCell">
+              <span class="projDragHandle" draggable="true" data-project-drag="${project.id}" title="Arrastra para mover esta fila" aria-hidden="true">⠿</span>
+              <span class="projOrderBtns">
+                <button type="button" class="colMoveBtn" data-project-move-up="${project.id}" ${index === 0 ? "disabled" : ""} aria-label="Subir ${escapeAttribute(project.name)}" title="Subir">↑</button>
+                <button type="button" class="colMoveBtn" data-project-move-down="${project.id}" ${index === ordered.length - 1 ? "disabled" : ""} aria-label="Bajar ${escapeAttribute(project.name)}" title="Bajar">↓</button>
+              </span>
+            </td>` : "";
           return `
-            <tr class="projectRow ${selected ? "selected" : ""}" data-project-row="${project.id}" data-project-id="${project.id}" title="Ver detalle de ${escapeAttribute(project.name)}">
-              ${cells}
+            <tr class="projectRow ${selected ? "selected" : ""}${manual ? " manualOrder" : ""}" data-project-row="${project.id}" data-project-id="${project.id}" title="Ver detalle de ${escapeAttribute(project.name)}">
+              ${handle}${cells}
               <td class="projChevron" title="Ir al detalle">${selected ? "▾" : "›"}</td>
             </tr>`;
         }).join("");
+        // El orden visible se guarda para que los manejadores sepan sobre qué
+        // lista mover (con filtros puestos, mover es relativo a lo que se ve).
+        state._projectVisibleIds = visibleIds;
         return `
           <table class="projectTable resizable">
             ${colgroup}
             <thead>
-              <tr>${head}<th class="projChevronTh" aria-hidden="true"></th></tr>
+              <tr>${manual ? `<th class="projOrderTh" title="Orden manual">Orden</th>` : ""}${head}<th class="projChevronTh" aria-hidden="true"></th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>`;
@@ -2126,18 +2219,21 @@ export function createWorkspaceModule(ctx) {
           button.addEventListener("click", () => {
             const value = button.dataset.projectStatusFilter || "all";
             const current = state.projectStatusFilter || [];
+            const full = allStatusIds();
+            const showingAll = current.length === 0 || full.every((s) => current.includes(s));
             if (value === "all") {
-              // "Todos" ENCIENDE todos los chips (flujo "resta": luego se apagan
-              // los que no se quieren ver). Si ya estaban todos encendidos, vuelve
-              // a la vista limpia (solo "Todos" activo) — actúa como reinicio.
-              const full = allStatusIds();
-              const isFull = full.every((s) => current.includes(s));
-              state.projectStatusFilter = isFull ? [] : full;
+              state.projectStatusFilter = [];        // [] = todos (vista limpia)
+            } else if (showingAll) {
+              // Desde la vista completa, un clic AÍSLA ese estado (1 clic para el
+              // caso más frecuente: "quiero ver solo Activo").
+              state.projectStatusFilter = [value];
             } else {
-              // Toggle individual (OR entre los encendidos).
-              state.projectStatusFilter = current.includes(value)
+              const next = current.includes(value)
                 ? current.filter((s) => s !== value)
                 : [...current, value];
+              // Apagar el último chip volvería la tabla vacía sin explicación:
+              // se interpreta como "quitar el filtro" y regresa a todos.
+              state.projectStatusFilter = next.length ? next : [];
             }
             renderWorkspace();
           });
@@ -2208,6 +2304,67 @@ export function createWorkspaceModule(ctx) {
           state.projectSearch = "";
           renderWorkspace();
         });
+
+        // ── Orden manual de filas ─────────────────────────────────────────────
+        document.querySelector("#projectManualOrderBtn")?.addEventListener("click", () => {
+          state.projectManualOrder = !state.projectManualOrder;
+          if (state.projectManualOrder) {
+            state.projectSort = null;      // manual y orden por columna se excluyen
+            // Primera vez: se toma el orden que el usuario TIENE en pantalla como
+            // punto de partida (nada se mueve al encender el modo).
+            if (!(state.projectRowOrder || []).length) {
+              state.projectRowOrder = [...(state._projectVisibleIds || [])];
+            }
+          }
+          saveTablePrefs();
+          renderWorkspace();
+        });
+        for (const button of document.querySelectorAll("[data-project-move-up]")) {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();       // no seleccionar la fila al mover
+            moveProjectRow(button.dataset.projectMoveUp, -1, state._projectVisibleIds);
+          });
+        }
+        for (const button of document.querySelectorAll("[data-project-move-down]")) {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            moveProjectRow(button.dataset.projectMoveDown, 1, state._projectVisibleIds);
+          });
+        }
+        // Arrastre desde el asa (no la fila entera: la fila ya es zona de soltado
+        // para personas/tareas y clic para abrir el detalle).
+        for (const handle of document.querySelectorAll("[data-project-drag]")) {
+          handle.addEventListener("dragstart", (event) => {
+            event.dataTransfer.setData("text/plain", `projectRow:${handle.dataset.projectDrag}`);
+            event.dataTransfer.effectAllowed = "move";
+            handle.closest("tr")?.classList.add("dragging");
+          });
+          handle.addEventListener("dragend", () => {
+            handle.closest("tr")?.classList.remove("dragging");
+          });
+        }
+        if (state.projectManualOrder) {
+          for (const row of document.querySelectorAll("[data-project-row]")) {
+            row.addEventListener("dragover", (event) => {
+              const raw = event.dataTransfer.getData("text/plain") || "";
+              // En dragover el dato puede no estar disponible en algunos
+              // navegadores: se permite igual y se valida al soltar.
+              if (raw && !raw.startsWith("projectRow:")) return;
+              event.preventDefault();
+              row.classList.add("dropTarget");
+            });
+            row.addEventListener("dragleave", () => row.classList.remove("dropTarget"));
+            row.addEventListener("drop", (event) => {
+              row.classList.remove("dropTarget");
+              const raw = event.dataTransfer.getData("text/plain") || "";
+              if (!raw.startsWith("projectRow:")) return;   // otro arrastre (persona/tarea)
+              event.preventDefault();
+              event.stopPropagation();
+              dropProjectRow(raw.slice("projectRow:".length), row.dataset.projectRow,
+                             state._projectVisibleIds);
+            });
+          }
+        }
 
         // Menú "Columnas" (mostrar/ocultar) + cierre al hacer clic fuera.
         document.querySelector("#projectColumnsBtn")?.addEventListener("click", (event) => {

@@ -279,3 +279,40 @@
   @media (max-width: 640px) {
     .wsPendingBanner { left: 12px; right: 12px; bottom: 12px; justify-content: space-between; }
   }
+
+  /* ── Orden manual de filas (2026-07-29) ───────────────────────────────────
+     Columna extra con asa de arrastre + flechas ↑/↓ (alternativa visible al
+     drag & drop, regla docs/06). Solo existe con el modo encendido. */
+  .projectTable th.projOrderTh {
+    font-size: 0.7rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .projectTable td.projOrderCell {
+    white-space: nowrap;
+    padding-left: 8px;
+    padding-right: 4px;
+  }
+  .projDragHandle {
+    display: inline-block;
+    cursor: grab;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 2px 3px;
+    vertical-align: middle;
+    user-select: none;
+  }
+  .projDragHandle:active { cursor: grabbing; }
+  .projOrderBtns { display: inline-flex; gap: 2px; vertical-align: middle; margin-left: 2px; }
+  .projOrderCell .colMoveBtn { width: 20px; height: 20px; font-size: 0.68rem; }
+  /* Señales del arrastre: la fila que viaja se atenúa; el destino marca su borde. */
+  .projectRow.dragging { opacity: 0.45; }
+  .projectRow.dropTarget td { border-top: 2px solid var(--accent); }
+  /* El botón del modo activo se ve presionado (mismo tono de los chips activos). */
+  .tinyButton.ghost.active {
+    background: var(--accent-soft);
+    border-color: #9bcac4;
+    color: var(--accent-strong);
+    font-weight: 650;
+  }
