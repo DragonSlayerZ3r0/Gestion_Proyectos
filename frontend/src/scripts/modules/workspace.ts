@@ -304,6 +304,17 @@ export function createWorkspaceModule(ctx) {
         state.workspace = payload.data;
       }
 
+      // Igual que loadWorkspace pero SIN tocar el estado: se usa cuando el
+      // usuario está escribiendo y no se le puede repintar encima.
+      async function fetchWorkspaceData() {
+        try {
+          const payload = await apiRequest("api/workspace");
+          return payload.data;
+        } catch {
+          return null;
+        }
+      }
+
       function getVisibleProjects(projects, peopleById) {
         const query = normalizeSearch(state.projectSearch);
         const typeF = state.projectTypeFilter || "all";
@@ -3446,20 +3457,41 @@ export function createWorkspaceModule(ctx) {
       let versionTimer = null;
       let knownVersion = null;
 
+      // "Ocupado" = ESCRIBIENDO, no simplemente mirando. Tener una solicitud
+      // seleccionada NO cuenta: seleccionar una fila es la forma normal de
+      // trabajar, y contarlo como ocupado hacía que CUALQUIER cambio de
+      // CUALQUIER solicitud sacara el aviso todo el tiempo (2026-07-29).
       function isUserBusy() {
-        // Edición en curso: foco en un campo, formulario de detalle abierto o
-        // algún editor inline con contenido.
         const el = document.activeElement;
-        if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;
-        if (state.selectedDetail) return true;             // panel de detalle abierto
-        if (state.updateEditing || state.taskUpdateEditing) return true;
-        if (document.querySelector(".tlModal, .wsReportModal")) return true;  // modal abierto
+        if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;   // tecleando
+        if (state.updateEditing || state.taskUpdateEditing) return true;       // editando una entrada
+        if (state.showTaskForm || state.showPersonForm) return true;           // alta abierta
+        if (state.attachQueryFor || state.attachNoteFor) return true;          // adjunto/nota en curso
+        if (document.querySelector(".tlModal, .wsReportModal")) return true;   // modal abierto
         return false;
       }
 
+      // ¿El cambio remoto toca la solicitud que el usuario tiene abierta? Se
+      // compara el contenido de ESA solicitud entre lo que hay y lo que llegó:
+      // permite avisar con precisión en vez de un genérico "algo cambió".
+      function affectsOpenProject(freshData) {
+        const openId = state.selectedDetail?.projectId || state.activeProjectId;
+        if (!openId) return false;
+        const before = (state.workspace?.projects || []).find((p) => p.id === openId);
+        const after = (freshData?.projects || []).find((p) => p.id === openId);
+        return JSON.stringify(before) !== JSON.stringify(after);
+      }
+
       async function applyRemoteChanges() {
-        await loadWorkspace();
+        if (state.pendingWorkspace) {
+          state.workspace = state.pendingWorkspace;        // ya estaba bajado
+          state.pendingWorkspace = null;
+        } else {
+          await loadWorkspace();
+        }
         state.workspacePending = false;
+        state.pendingTouchesOpen = false;
+        document.querySelector("#wsPendingBanner")?.remove();
         renderWorkspace();
       }
 
@@ -3467,18 +3499,32 @@ export function createWorkspaceModule(ctx) {
         if (versionTimer) return;
         versionTimer = window.setInterval(async () => {
           if (state.activeModule !== "projects" || document.hidden) return;
+          // Si quedó un cambio pendiente y el usuario YA dejó de escribir, se
+          // aplica solo: sin esto el aviso se quedaba pegado, porque la versión
+          // ya coincidía y el ciclo salía antes de llegar a aplicarlo.
+          if (state.workspacePending && !isUserBusy()) {
+            await applyRemoteChanges();
+            return;
+          }
           try {
             const payload = await apiRequest("api/workspace/version");
             const version = payload.data?.version ?? 0;
             if (knownVersion === null) { knownVersion = version; return; }
             if (version === knownVersion) return;
             knownVersion = version;
-            if (isUserBusy()) {
-              state.workspacePending = true;               // se avisa, no se pisa
-              renderPendingBanner();
+            if (!isUserBusy()) {
+              await applyRemoteChanges();                  // repintado silencioso
               return;
             }
-            await applyRemoteChanges();
+            // Escribiendo: se BAJA el dato pero no se aplica. Así se puede decir
+            // si el cambio toca lo que tiene abierto, y aplicarlo en cuanto deje
+            // de escribir — sin pisarle nada.
+            const fresh = await fetchWorkspaceData();
+            if (!fresh) return;
+            state.pendingWorkspace = fresh;
+            state.workspacePending = true;
+            state.pendingTouchesOpen = affectsOpenProject(fresh);
+            renderPendingBanner();
           } catch { /* sin red: se reintenta al próximo tick */ }
         }, VERSION_POLL_MS);
       }
@@ -3494,7 +3540,12 @@ export function createWorkspaceModule(ctx) {
         const bar = document.createElement("div");
         bar.id = "wsPendingBanner";
         bar.className = "wsPendingBanner";
-        bar.innerHTML = `<span>Hay cambios nuevos de otra persona.</span>
+        // Mensaje concreto: no es lo mismo que hayan tocado LO QUE ESTÁS VIENDO
+        // que un cambio en otra solicitud del portafolio.
+        const texto = state.pendingTouchesOpen
+          ? "Actualizaron la solicitud que tienes abierta."
+          : "Hay cambios en otras solicitudes.";
+        bar.innerHTML = `<span>${escapeHtml(texto)}</span>
           <button type="button" class="tinyButton">Actualizar</button>`;
         bar.querySelector("button").addEventListener("click", async () => {
           bar.remove();
