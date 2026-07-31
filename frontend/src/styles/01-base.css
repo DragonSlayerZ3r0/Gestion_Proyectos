@@ -1320,6 +1320,24 @@
     color: var(--accent-strong);
   }
 
+  /* El chip que abre la fila de estados es una ACCIÓN («Todos» / «Ninguno»), no
+     un valor: sin relleno y con borde punteado para que el ojo separe de un
+     vistazo la acción de las casillas. Va DESPUÉS de .filterChip: misma
+     especificidad (0,1,0), gana el orden. */
+  .filterChip--action {
+    background: transparent;
+    border-style: dashed;
+    color: var(--muted);
+    /* Carril reservado (docs/06): la etiqueta alterna «Ninguno» (74.8 px) y
+       «Todos» (60 px). Sin ancho fijo, cada clic corría los ocho chips 15 px y
+       el siguiente clic caía sobre el estado equivocado. */
+    min-width: 78px;
+  }
+
+  .filterChip--action:hover:not(:disabled) {
+    color: var(--accent-strong);
+  }
+
   .filterChip[data-project-status-filter="planned"].active {
     border-color: #93c5fd;
     background: #eff6ff;

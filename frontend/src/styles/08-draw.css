@@ -45,6 +45,35 @@
      permite encogerse dentro del flex sin desbordar. */
   .drawEditorHost { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
   .drawLoadingHint { padding: 14px; }
+  /* Botón de pantalla completa: cuadrado mientras es solo el ícono ⛶, y libre de
+     crecer cuando adentro pasa a "⛶ Salir" (por eso min-width, no width). */
+  .drawFullBtn { min-width: 34px; }
+
+  /* ── Pantalla completa del tablero (2026-07-31) ────────────────────────────
+     draw.ts pone `.drawImmersive` en el SHELL (#app), no en el panel: el panel
+     se vuelve a dibujar al abrir «Compartir» y el modo se perdería. Empata en
+     especificidad (0,2,0) con `.shell.sidebarCollapsed`, pero 08-draw.css se
+     importa después de 01-base.css, así que gana el orden. */
+  /* `display: block` (no "primera columna a 0"): al ocultar el menú con
+     display:none deja de ser ítem del grid y `.main` CAE en la columna 1 — con
+     el ancho a 0 el lienzo quedaba de 20px. Misma salida que usa `.loginOnly`. */
+  .shell.drawImmersive { display: block; }
+  .shell.drawImmersive .sidebar,
+  .shell.drawImmersive .topbar,
+  .shell.drawImmersive .statusPanel { display: none; }
+  .shell.drawImmersive .main { max-width: none; padding: 0; }
+  /* min-height:0 anula el mínimo de 480px: en un teléfono acostado la pantalla
+     puede medir menos que eso y el lienzo se saldría por abajo. */
+  .shell.drawImmersive .drawEditorPanel {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    padding: 8px 10px;
+    border-width: 0;
+    border-radius: 0;
+  }
+  /* Pegado a los bordes de la pantalla: el marco redondeado ya no aporta. */
+  .shell.drawImmersive .drawEditorHost { border-radius: 0; }
 
   /* Panel Compartir: selector de usuario + chips con estado de la invitación. */
   .drawSharePanel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
@@ -58,6 +87,13 @@
   .drawShareRevoke:hover { background: var(--danger-soft); color: var(--danger); }
 
   /* Responsive (después de las reglas base, como manda docs/06). */
+  /* ≤560px el nombre del tablero pasa a su PROPIA línea: compartiendo fila con
+     Volver, ⛶, Compartir y Guardar se quedaba en ~10px de ancho — un pedazo de
+     letra que parece un defecto. Cuesta una línea de texto y se lee completo. */
+  @media (max-width: 560px) {
+    .drawEditorName { order: -1; flex-basis: 100%; }
+  }
+
   @media (max-width: 780px) {
     .drawListHead { align-items: stretch; flex-direction: column; }
     .drawModule .inlineForm { flex-wrap: wrap; }

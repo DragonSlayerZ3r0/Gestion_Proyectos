@@ -1,6 +1,28 @@
 # Estado de implementación
 
-## Último avance (2026-07-24: tareas con bitácora propia y % de avance)
+## Último avance (2026-07-28 al 30: Solicitudes — trabajo en equipo, tiempo y limpieza visual)
+
+**Trabajo compartido sin recargar**
+- **Búsqueda y filtros persistentes**: la búsqueda, su alcance y los 6 filtros sobreviven al F5 (`sessionStorage`, se limpian al cerrar sesión).
+- **Refresco en vivo**: item contador `WORKSPACE#META/VERSION` que sube en cada escritura; el frontend sondea `GET /api/workspace/version` (51 bytes) cada 20 s y solo baja el workspace completo cuando cambió. Si el usuario **está escribiendo** no se repinta: baja el dato, avisa si toca la solicitud abierta y lo aplica en cuanto deja de escribir.
+
+**Tiempo**
+- **Fechas de inicio/fin por tarea** (`startDate`/`endDate`, validación fin ≥ inicio contra el estado final) con aviso de vencida en la tarjeta.
+- **Línea de tiempo de la solicitud**: modal casi a pantalla completa con hitos derivados de las tareas, Horizontal/Vertical, Presentar (Fullscreen) y PDF. Portado de `pry_timeline` (DOM+CSS puro). `frontend/src/scripts/modules/timeline.ts` + `11-timeline.css`.
+- **Contexto temporal de HOY** en la barra global: `jue 30 jul · Q3 · sem 31` + panel con semestre, quincena, semana del mes, días hábiles restantes y último día hábil.
+
+**Orden y visual**
+- **Chips de estado coherentes**: sin filtro se encienden los 7 (es lo que muestra la tabla); un clic aísla, después suman/quitan.
+- **Orden manual de filas** con asa de arrastre y ↑/↓ (preferencia personal en localStorage; lo filtrado fuera conserva su posición).
+- **Crear separado de buscar**: crear detrás de «+ Nueva solicitud»; buscador siempre visible con lupa.
+- **Área de personas** = catálogo vivo `AREA` (crear/corregir/eliminar desde el selector; borrado protegido también por personas).
+- Correcciones visuales: títulos largos ya no pisan el clip de adjuntos; la acción de responsable en la tarjeta es botón-ícono.
+
+**Reporte ejecutivo**: el contexto incluye nivel TAREA (responsable, estado, %, fechas y seguimientos) + carga por persona y por área; se descarga en **PDF**.
+
+**Incidentes resueltos**: app congelada en "Cargando…" por HTML sin `Cache-Control` (+ `--delete` borrando el bundle) — arreglado en `deploy-frontend.sh`; TDZ reincidente por `const` declarada después de `boot()`; el aviso de cambios remotos salía constantemente; la búsqueda no se persistía por guardarse en el render y no en la mutación. Todo en la bitácora del 28 al 30 de julio.
+
+## Avance previo (2026-07-24: tareas con bitácora propia y % de avance)
 
 - **Seguimiento por tarea**: cada tarea del Kanban tiene su bitácora en el panel de detalle (misma mecánica que la de la solicitud); la tarjeta muestra el conteo. Item `TASK_UPDATE`, rutas bajo `/api/projects/{id}/tasks/{taskId}/updates`, cascada al borrar la tarea. Se indexa en el namespace `seguimiento`, así que la Búsqueda avanzada y el Reporte ejecutivo también la ven.
 - **% de avance por tarea**: campo manual (vacío ⇒ derivado del estado) con barra en la tarjeta; el % "por tareas" de la solicitud pasó a ser el promedio del % de cada tarea (compatible hacia atrás). Desplegado en dev y verificado E2E contra la API real. Ver `docs/08` y bitácora 2026-07-24.

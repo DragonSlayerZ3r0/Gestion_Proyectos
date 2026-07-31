@@ -73,6 +73,59 @@ export function createDrawModule(ctx) {
     excaliAPI = null;
   }
 
+  // ── Pantalla completa del tablero (2026-07-31) ────────────────────────────
+  // La clase vive en el SHELL (`#app`, igual que `.loginOnly`), NO en el panel
+  // del editor: el panel se vuelve a dibujar al abrir «Compartir» o al invitar,
+  // y si el modo colgara de él esas acciones te sacarían de pantalla completa.
+  // Además se pide la pantalla completa REAL del navegador cuando existe; en
+  // iPhone la API no aplica a elementos que no sean <video>, así que ahí queda
+  // el modo inmersivo — que es la mayor parte de lo que se gana (menú lateral y
+  // encabezado de la app).
+  function drawShell() {
+    return document.querySelector("#app");
+  }
+
+  function isImmersive() {
+    return !!drawShell()?.classList.contains("drawImmersive");
+  }
+
+  function setImmersive(on) {
+    drawShell()?.classList.toggle("drawImmersive", on);
+    if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    syncImmersiveButton();
+    // Excalidraw dimensiona su lienzo con el tamaño del contenedor: sin avisarle
+    // se queda con el alto anterior y deja una franja muerta. Dos avisos: uno
+    // inmediato y otro cuando termina la transición del menú lateral (260ms).
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 320);
+  }
+
+  function syncImmersiveButton() {
+    const button = document.querySelector("#drawFullBtn");
+    if (!button) return;
+    const on = isImmersive();
+    // Fuera: solo el ícono — la barra ya lleva Volver/Compartir/Guardar y en el
+    // teléfono cada palabra empuja una fila más, que se le resta al lienzo.
+    // Dentro: con texto, porque sin barras del navegador la salida tiene que
+    // ser evidente (regla docs/06: nada esencial detrás de un gesto).
+    button.textContent = on ? "⛶ Salir" : "⛶";
+    button.title = on ? "Salir de pantalla completa (Esc)" : "Pantalla completa";
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  // El usuario puede salir por su cuenta (Esc, F11, gesto del sistema): hay que
+  // devolverle el layout normal o quedaría sin menú ni encabezado.
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && isImmersive()) setImmersive(false);
+  });
+  // Esc cuando NO hay pantalla completa real (iPhone o navegador sin la API).
+  // Sin `capture`: si Excalidraw usa Esc para deseleccionar, corre primero.
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isImmersive() && !document.fullscreenElement) setImmersive(false);
+  });
+
   // ── Colaboración en vivo ───────────────────────────────────────────────────
   // Cada tablero abierto es una "sala" en la API WebSocket (serverless, dentro
   // de la cuenta — decisión 2026-07-08, ver bitácora). El servidor solo releva:
@@ -307,6 +360,9 @@ export function createDrawModule(ctx) {
       renderEditor();
       return;
     }
+    // Salir del editor («← Volver») devuelve el layout completo: quedarse en
+    // pantalla completa sobre la LISTA dejaría al usuario sin menú ni salida.
+    if (isImmersive()) setImmersive(false);
     unmountEditor();
     // La lista se REFRESCA en cada entrada (al abrir el módulo o volver del
     // editor): las INVITACIONES pendientes llegan aquí — con la carga única
@@ -516,6 +572,7 @@ export function createDrawModule(ctx) {
           <strong class="drawEditorName">${escapeHtml(drawing.name)}</strong>
           <span id="drawPresence" class="drawPresence" hidden></span>
           <div class="drawEditorActions">
+            <button class="tinyButton ghost drawFullBtn" type="button" id="drawFullBtn"></button>
             ${isOwner ? `<button class="tinyButton ghost" type="button" id="drawShareBtn">Compartir</button>` : ""}
             <button class="primaryButton compact" type="button" id="drawSaveBtn">Guardar</button>
           </div>
@@ -525,6 +582,9 @@ export function createDrawModule(ctx) {
         <div id="drawEditorHost" class="drawEditorHost"><p class="emptyText drawLoadingHint">Cargando el editor…</p></div>
       </section>`;
     bindEditorEvents(drawing, isOwner);
+    // El botón se rotula acá (una sola fuente de verdad): así conserva su estado
+    // cuando el panel se vuelve a dibujar por «Compartir» o por una invitación.
+    syncImmersiveButton();
     await mountExcalidraw(drawing);
   }
 
@@ -561,6 +621,7 @@ export function createDrawModule(ctx) {
       unmountEditor();
       render();
     });
+    document.querySelector("#drawFullBtn")?.addEventListener("click", () => setImmersive(!isImmersive()));
     document.querySelector("#drawSaveBtn")?.addEventListener("click", () => saveScene(drawing));
     document.querySelector("#drawShareBtn")?.addEventListener("click", async () => {
       state.drawShareOpen = !state.drawShareOpen;

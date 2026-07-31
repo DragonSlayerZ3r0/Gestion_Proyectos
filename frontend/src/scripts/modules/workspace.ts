@@ -445,42 +445,83 @@ export function createWorkspaceModule(ctx) {
         return ["none", ...projectStatusList().map((s) => s.id)];
       }
 
-      function renderProjectStatusFilters() {
-        // COHERENCIA VISUAL (2026-07-29, pedido del usuario): si la tabla muestra
-        // todos los estados, TODOS los chips deben verse encendidos. Antes el
-        // estado por defecto ([] = sin filtro) encendía solo "Todos" mientras la
-        // tabla listaba de todo — el dibujo contradecía al dato.
-        // Interacción elegida: desde "todos encendidos" un clic AÍSLA ese estado
-        // (el caso frecuente, 1 clic); después los chips suman/quitan; "Todos"
-        // regresa al conjunto completo. La etiqueta "Estado:" agrupa la fila.
+      // Marca explícita de "ningún estado seleccionado". Hace falta un valor
+      // distinto de [] porque [] ya significa "todos" (sin filtro) y así se
+      // persiste. El centinela no coincide con ninguna solicitud, de modo que
+      // la tabla queda vacía sola y la elección sobrevive a la recarga.
+      const NO_STATUS_SELECTED = "__ninguno__";
+
+      // Estados encendidos AHORA MISMO. Resuelve las tres representaciones
+      // posibles ([] = todos, [centinela] = ninguno, lista = esos) en una sola
+      // respuesta: es la única fuente para dibujar los chips y para calcular
+      // el siguiente estado al hacer clic.
+      function selectedStatusIds() {
         const stF = state.projectStatusFilter || [];
-        const showingAll = stF.length === 0 || allStatusIds().every((s) => stF.includes(s));
-        const options = [
-          ["all", "Todos"],
+        if (stF.includes(NO_STATUS_SELECTED)) return [];
+        const full = allStatusIds();
+        const on = stF.filter((s) => full.includes(s));
+        // Sin marcas útiles (o con estados ya borrados del catálogo): todos.
+        return on.length ? on : full;
+      }
+
+      function noStatusSelected() {
+        return (state.projectStatusFilter || []).includes(NO_STATUS_SELECTED);
+      }
+
+      // Con cero estados marcados la lista NO puede volver a mostrarlo todo por
+      // su cuenta: eso convertiría el clic del usuario en un no-op inexplicable.
+      // Se dice por qué está vacía y se ofrece la salida en el mismo lugar donde
+      // está mirando.
+      function noStatusNotice() {
+        return `<p class="emptyText projectTableEmpty">Ningún estado seleccionado. <button type="button" class="filterChip filterChip--action" data-project-status-filter="all">Ver todos</button></p>`;
+      }
+
+      function renderProjectStatusFilters() {
+        // COHERENCIA VISUAL (2026-07-29): si la tabla muestra todos los estados,
+        // TODOS los chips se ven encendidos — el dibujo no puede contradecir al dato.
+        //
+        // MODELO DE INTERACCIÓN (2026-07-30, tras revisar usabilidad): la fila es
+        // un juego de CASILLAS. Encendido = incluido; un clic SIEMPRE alterna ese
+        // estado. Antes el primer clic AISLABA (apagaba los otros siete), así que
+        // ocultar un solo estado —lo más frecuente en una bandeja larga: "sin los
+        // cerrados"— costaba siete clics. Ocho chips encendidos PARECEN casillas
+        // pero se comportaban como botones de radio: forma y conducta no
+        // coincidían, y esa es la molestia que reportó el usuario.
+        //
+        // El chip líder es una ACCIÓN, no un valor: dice lo que hará ("Ninguno"
+        // cuando están todos, "Todos" cuando falta alguno), así aislar cuesta 2
+        // clics (Ninguno → el que quieras) sin esconder nada tras un gesto.
+        // Se descartó el doble clic para aislar: es invisible (nadie lo descubre
+        // solo), no existe al tocar —el doble tap es zoom—, excluye a quien tiene
+        // poca motricidad fina, y sobre un interruptor son DOS alternancias que se
+        // cancelan: habría que retrasar cada clic ~250 ms o repintar en falso.
+        const full = allStatusIds();
+        const on = selectedStatusIds();
+        const showingAll = on.length === full.length;
+        const master = `
+            <button
+              class="filterChip filterChip--action"
+              type="button"
+              data-project-status-filter="all"
+              title="${showingAll ? "Quitar todos los estados" : "Ver todos los estados"}"
+            >${showingAll ? "Ninguno" : "Todos"}</button>`;
+        const chips = [
           ["none", "Sin estado"],
           ...projectStatusList().map((s) => [s.id, s.label])
-        ];
-        const chips = options
+        ]
           .map(([status, label]) => {
-            // Con la vista completa, todos los chips (incluido "Todos") van
-            // encendidos: es lo que el usuario está viendo.
-            const active = showingAll ? true : (status === "all" ? false : stF.includes(status));
-            const title = status === "all"
-              ? "Ver todos los estados"
-              : (showingAll
-                  ? `Ver solo ${label}`
-                  : (stF.includes(status) ? `Quitar ${label} del filtro` : `Agregar ${label} al filtro`));
+            const active = on.includes(status);
             return `
             <button
               class="filterChip ${active ? "active" : ""}"
               type="button"
               data-project-status-filter="${status}"
               aria-pressed="${active ? "true" : "false"}"
-              title="${escapeAttribute(title)}"
+              title="${escapeAttribute(active ? `Quitar ${label}` : `Agregar ${label}`)}"
             >${label}</button>`;
           })
           .join("");
-        return `<span class="projectFiltersLabel">Estado:</span>${chips}`;
+        return `<span class="projectFiltersLabel">Estado:</span>${master}${chips}`;
       }
 
       // Filtros por dimensión (dropdowns): Tipo, Área, Responsable. Las opciones
@@ -920,7 +961,11 @@ export function createWorkspaceModule(ctx) {
           const q = (state.projectSemQuery || "").trim();
           if (!q) return `<p class="emptyText projectTableEmpty">Escribe una idea o una condición y presiona <b>Enter</b> (o «Buscar»). Ej.: «solicitudes del responsable Diego», «lo que se habló de las APIs», «activas sobre fraude».</p>`;
           const banner = interpretationBanner();
-          if (!projects.length) return banner + `<p class="emptyText projectTableEmpty">Sin coincidencias para «${escapeHtml(q)}». Ajusta la consulta o revisa los filtros activos.</p>`;
+          if (!projects.length) {
+            return banner + (noStatusSelected()
+              ? noStatusNotice()
+              : `<p class="emptyText projectTableEmpty">Sin coincidencias para «${escapeHtml(q)}». Ajusta la consulta o revisa los filtros activos.</p>`);
+          }
           return banner + renderProjectTable(projects, activeProject, peopleById);
         }
         return renderProjectTable(projects, activeProject, peopleById);
@@ -928,6 +973,7 @@ export function createWorkspaceModule(ctx) {
 
       function renderProjectTable(projects, activeProject, peopleById) {
         if (!projects.length) {
+          if (noStatusSelected()) return noStatusNotice();
           return `<p class="emptyText projectTableEmpty">No hay resultados con los filtros actuales.</p>`;
         }
         const cols = visibleColumns();
@@ -1001,6 +1047,7 @@ export function createWorkspaceModule(ctx) {
       // y al clic el detalle "¿Qué falta? / ¿Cuándo?" (tareas pendientes + entrega).
       function renderProgressBoard(projects, peopleById) {
         if (!projects.length) {
+          if (noStatusSelected()) return noStatusNotice();
           return `<p class="emptyText projectTableEmpty">No hay solicitudes con los filtros actuales.</p>`;
         }
         // Estatus (como el "Estatus GAD" de los informes): conteo por estado.
@@ -2249,22 +2296,20 @@ export function createWorkspaceModule(ctx) {
         for (const button of document.querySelectorAll("[data-project-status-filter]")) {
           button.addEventListener("click", () => {
             const value = button.dataset.projectStatusFilter || "all";
-            const current = state.projectStatusFilter || [];
             const full = allStatusIds();
-            const showingAll = current.length === 0 || full.every((s) => current.includes(s));
+            const on = selectedStatusIds();
             if (value === "all") {
-              state.projectStatusFilter = [];        // [] = todos (vista limpia)
-            } else if (showingAll) {
-              // Desde la vista completa, un clic AÍSLA ese estado (1 clic para el
-              // caso más frecuente: "quiero ver solo Activo").
-              state.projectStatusFilter = [value];
+              // Maestro: si están todos, los apaga; si falta alguno, los enciende.
+              state.projectStatusFilter = on.length === full.length ? [NO_STATUS_SELECTED] : [];
             } else {
-              const next = current.includes(value)
-                ? current.filter((s) => s !== value)
-                : [...current, value];
-              // Apagar el último chip volvería la tabla vacía sin explicación:
-              // se interpreta como "quitar el filtro" y regresa a todos.
-              state.projectStatusFilter = next.length ? next : [];
+              const next = on.includes(value)
+                ? on.filter((s) => s !== value)
+                : [...on, value];
+              // Se guarda en forma canónica para que el resto del módulo (filtro,
+              // «Limpiar», prefs guardadas) siga leyendo [] como "sin filtro".
+              state.projectStatusFilter = next.length === full.length
+                ? []
+                : (next.length ? next : [NO_STATUS_SELECTED]);
             }
             renderWorkspace();
           });
