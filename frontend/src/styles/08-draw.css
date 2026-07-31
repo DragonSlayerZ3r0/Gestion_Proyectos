@@ -50,8 +50,10 @@
   .drawFullBtn { min-width: 34px; }
 
   /* ── Pantalla completa del tablero (2026-07-31) ────────────────────────────
-     draw.ts pone `.drawImmersive` en el SHELL (#app), no en el panel: el panel
-     se vuelve a dibujar al abrir «Compartir» y el modo se perdería. Empata en
+     draw.ts pone `.drawImmersive` en el SHELL (#app), no en el panel: el menú
+     lateral y el encabezado están FUERA del panel, y así el modo sobrevive a
+     cualquier redibujado (cuando se decidió, abrir «Compartir» redibujaba el
+     panel entero; desde el 2026-07-31 ya no — ver `paintSharePanel`). Empata en
      especificidad (0,2,0) con `.shell.sidebarCollapsed`, pero 08-draw.css se
      importa después de 01-base.css, así que gana el orden. */
   /* `display: block` (no "primera columna a 0"): al ocultar el menú con
@@ -75,7 +77,14 @@
   /* Pegado a los bordes de la pantalla: el marco redondeado ya no aporta. */
   .shell.drawImmersive .drawEditorHost { border-radius: 0; }
 
-  /* Panel Compartir: selector de usuario + chips con estado de la invitación. */
+  /* Panel Compartir: selector de usuario + chips con estado de la invitación.
+     Vive en su PROPIO contenedor (#drawShareHost) para que abrirlo y cerrarlo no
+     obligue a repintar el editor —eso desmontaría Excalidraw y perdería lo no
+     guardado—. Vacío se quita del flujo: si no, el `gap` del panel lo cuenta como
+     un ítem más y deja 10px de aire fantasma bajo la barra. `flex: none` para que
+     el lienzo (flex:1) sea el único que cede espacio. */
+  .drawShareHost { flex: none; }
+  .drawShareHost:empty { display: none; }
   .drawSharePanel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
   .drawShareForm { display: flex; gap: 8px; }
   .drawShareForm select { font: inherit; font-size: 0.84rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; max-width: 280px; }

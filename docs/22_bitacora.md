@@ -10,6 +10,14 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-07-31 · incidente — Pizarra: abrir «Compartir» borraba el dibujo no guardado
+
+**Bug preexistente reportado por el usuario.** Los handlers de Compartir/Invitar/Revocar llamaban a `renderEditor()`, que reescribe el panel entero con `innerHTML`: eso **desmontaba Excalidraw** y lo remontaba desde `loadScene()` —un fetch de la escena en S3—, así que se perdía todo lo dibujado desde el último autoguardado (corre cada 20 s). **Y era peor de lo que parecía:** en una pizarra recién creada NO hay escena en S3 todavía (`loadScene` devuelve `null`), o sea que el lienzo volvía **vacío** — el flujo más natural del módulo (crear → dibujar → compartir) borraba el dibujo completo. De paso reciclaba el WebSocket de la sala (`leave`+`join` para los demás, y un `init-request` que hacía viajar la escena entera) y reiniciaba el reloj del autosave. **Arreglo (opción elegida entre 2):** el panel Compartir vive en **su propio contenedor** (`#drawShareHost`) y se pinta solo — abrir, cerrar, invitar y revocar ya no tocan el editor; se descartó "guardar y esperar antes de repintar" porque además evita rebajar ~1 MB de escena y el parpadeo del lienzo. **Complemento:** «← Volver» ahora **guarda antes de desmontar** (`saveScene` pasa a devolver si el trabajo quedó a salvo) y, si el guardado falla, pregunta en vez de perderlo en silencio.
+
+**Verificación** en harness con el módulo REAL y el Excalidraw real de `/vendor/`, sustituyendo solo `apiRequest` y el WebSocket, y con el GET de la escena respondiendo 404 (el peor caso: pizarra sin escena guardada). Sondas: **píxeles pintados en el canvas** y contadores de sockets/descargas de escena. Ciclo completo (abrir → cerrar → abrir → invitar → revocar): tinta constante en **15001 px** y **1 socket / 1 descarga de escena** — antes habrían sido 5 y 5. También el camino de fallo al salir (PUT 500 → pregunta → cancelar deja el editor intacto) y responsive a 1280/768/390.
+
+**Deja obsoleta una premisa de la entrada de más abajo (pantalla completa, mismo día):** ahí el punto (2) dice que el panel «se vuelve a dibujar al abrir Compartir». Desde hoy **ya no**. La decisión que se tomó por eso —colgar la clase del shell `#app`— **se mantiene igual de válida**, porque el menú lateral y el encabezado están fuera del panel y solo desde el shell se pueden esconder. Docs: `06` #15 (regla nueva, cara complementaria de la #14), excepción en `AGENTS.md`, funcional en `02`.
+
 ## 2026-07-31 · decisión — Pizarra a pantalla completa (y la trampa del grid al ocultar el menú)
 
 **Pedido:** "en el módulo de pizarra no veo la opción para ver modo pantalla completa, ¿existe?". No existía — solo la línea de tiempo de Solicitudes tenía «Presentar». El editor vivía en un panel de alto fijo (`calc(100dvh - 170px)`) con el menú lateral, el encabezado de la app y la barra del navegador comiéndose el espacio.
