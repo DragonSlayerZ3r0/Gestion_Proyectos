@@ -56,6 +56,7 @@
         workspace: null,
         activeProjectId: null,
         selectedDetail: null,
+        showProjectForm: false,   // crear solicitud: colapsado (se abre con «+ Nueva solicitud»)
         showPersonForm: false,
         showTaskForm: false,
         taskFormProjectId: null,
@@ -282,6 +283,8 @@
         userLabel: document.querySelector("#userLabel"),
         userEmailLabel: document.querySelector("#userEmailLabel"),
         environmentLabel: document.querySelector("#environmentLabel"),
+        todayContext: document.querySelector("#todayContext"),
+        todayPanel: document.querySelector("#todayPanel"),
         statusPanel: document.querySelector("#statusPanel"),
         contentPanel: document.querySelector("#contentPanel"),
         viewTitle: document.querySelector("#viewTitle"),
@@ -304,10 +307,22 @@
       // (ReferenceError silencioso que deja la app en "Cargando…", 2026-07-23).
       const GEAR_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
 
+      // MISMA TRAMPA QUE GEAR_SVG (y ya van dos veces, 2026-07-23 y 2026-07-29):
+      // `boot()` llama a renderTodayContext(), que usa estos arreglos. Las
+      // FUNCIONES se hoistean, pero un `const` declarado más abajo NO: quedaría
+      // en zona muerta temporal y reventaría en silencio (promesa rechazada, sin
+      // error en consola). Toda constante que use el arranque va ARRIBA de esta línea.
+      const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+      const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
       boot();
 
       async function boot() {
         renderDefaultNav();
+        renderTodayContext();
+        // La pestaña puede quedar abierta días: se repinta para que no muestre
+        // la fecha de ayer tras la medianoche.
+        setInterval(renderTodayContext, 600000);
         state.config = await loadConfig();
         elements.environmentLabel.textContent = state.config.environment || "dev";
         elements.loginLandingEnvironment.textContent = state.config.environment || "dev";
@@ -332,6 +347,18 @@
           state.activeModule = "staff";
           renderApp();
           if (changed) animateViewEnter();
+        });
+        elements.todayContext?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          setTodayPanelOpen(elements.todayPanel.hidden);
+        });
+        document.addEventListener("click", (event) => {
+          if (!elements.todayPanel?.hidden && !event.target.closest?.(".todayContextWrap")) {
+            setTodayPanelOpen(false);
+          }
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") setTodayPanelOpen(false);
         });
         elements.userMenuButton.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -1181,6 +1208,100 @@
           else if (mod === 2) out += `<pre class="llmCode">${escapeHtml(parts[i].trimEnd())}</pre>`;
         }
         return out;
+      }
+
+      // ── Contexto temporal de HOY ────────────────────────────────────────────
+      // "¿En qué Q vamos?, ¿qué semana es?" son preguntas constantes al planificar.
+      // Todo se DERIVA de la fecha; no hay dato que capturar. Hora de Guatemala
+      // fija (regla docs/18): el periodo debe ser el del usuario, no el del UTC.
+
+      // Semana ISO 8601 (1-53, empieza en lunes): es la de Excel/Power BI y la de
+      // los calendarios corporativos. La "semana del mes" va aparte en el detalle
+      // porque son cosas distintas y confundirlas descuadra los reportes.
+      function isoWeek(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const day = d.getUTCDay() || 7;              // domingo = 7
+        d.setUTCDate(d.getUTCDate() + 4 - day);      // jueves de esa semana
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return { week: Math.ceil(((d - yearStart) / 86400000 + 1) / 7), year: d.getUTCFullYear() };
+      }
+
+      // Días HÁBILES (lunes a viernes) que quedan del mes, incluido hoy — hoy
+      // todavía se trabaja, así que para planificar cuenta. La duda "¿incluye
+      // hoy?" NO se resuelve con una aclaración entre paréntesis (se leía como si
+      // nombrara los días: "lun-vie"); se resuelve mostrando al lado el ÚLTIMO
+      // día hábil, que deja el rango a la vista (2026-07-30).
+      // DECISIÓN del usuario (2026-07-29): NO se descuentan asuetos — se usa la
+      // fecha real del calendario y punto. Se evaluó conectarlo con el catálogo
+      // de asuetos del módulo Personal y se descartó por simplicidad; por eso la
+      // etiqueta dice "(lun-vie)", para que el número no se malinterprete.
+      // Último día hábil (lun-vie) del mes: mostrarlo hace innecesario aclarar si
+      // el conteo incluye hoy — el usuario lo verifica de un vistazo.
+      function ultimoDiaHabilDelMes(date) {
+        const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+        for (let d = last; d >= 1; d--) {
+          const wd = new Date(date.getFullYear(), date.getMonth(), d).getDay();
+          if (wd !== 0 && wd !== 6) return { day: d, weekday: wd };
+        }
+        return null;
+      }
+
+      function diasHabilesRestantesDelMes(date) {
+        const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+        let n = 0;
+        for (let d = date.getDate(); d <= last; d++) {
+          const wd = new Date(date.getFullYear(), date.getMonth(), d).getDay();
+          if (wd !== 0 && wd !== 6) n++;
+        }
+        return n;
+      }
+
+      function renderTodayContext() {
+        const el = elements.todayContext;
+        if (!el) return;
+        // "en-CA" da AAAA-MM-DD; se reconstruye la fecha en hora de Guatemala.
+        const gt = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+        const [y, m, d] = gt.split("-").map(Number);
+        const hoy = new Date(y, m - 1, d);
+        const q = Math.floor((m - 1) / 3) + 1;
+        const semestre = m <= 6 ? 1 : 2;
+        const { week } = isoWeek(hoy);
+        const semanaDelMes = Math.ceil((d + new Date(y, m - 1, 1).getDay()) / 7);
+        const quincena = d <= 15 ? 1 : 2;
+        const habiles = diasHabilesRestantesDelMes(hoy);
+        const ultimo = ultimoDiaHabilDelMes(hoy);
+
+        el.hidden = false;
+        el.innerHTML = `<span class="todayDate">${DIAS[hoy.getDay()]} ${d} ${MESES[m - 1]}</span>` +
+          `<span class="todaySep" aria-hidden="true">·</span><span class="todayQ">Q${q}</span>` +
+          `<span class="todaySep" aria-hidden="true">·</span><span class="todayWeek">sem ${week}</span>` +
+          `<span class="todayCaret" aria-hidden="true">▾</span>`;
+
+        // El desglose va en un PANEL propio, no en el `title` nativo: ese tarda
+        // ~1 s en escritorio (lo controla el navegador, no se puede acelerar) y
+        // en pantallas táctiles NO EXISTE — al tocar no pasaba nada (2026-07-30).
+        // Un panel se abre al instante y funciona igual con dedo o con mouse.
+        const filas = [
+          ["Fecha", `${DIAS[hoy.getDay()]} ${d} de ${MESES[m - 1]} de ${y}`],
+          ["Trimestre", `Q${q} ${y}`],
+          ["Semestre", `S${semestre}`],
+          ["Semana ISO", String(week)],
+          ["Semana del mes", String(semanaDelMes)],
+          ["Quincena", `${quincena}.ª`],
+          ["Días hábiles restantes", String(habiles)],
+          ["Último día hábil del mes", ultimo ? `${DIAS[ultimo.weekday]} ${ultimo.day}` : "—"],
+        ];
+        elements.todayPanel.innerHTML =
+          `<p class="todayPanelTitle">Periodo actual</p>` +
+          filas.map(([k, v]) =>
+            `<div class="todayRow"><span>${k}</span><strong>${v}</strong></div>`).join("") +
+          `<p class="todayPanelFoot">Hora de Guatemala</p>`;
+      }
+
+      function setTodayPanelOpen(open) {
+        if (!elements.todayPanel) return;
+        elements.todayPanel.hidden = !open;
+        elements.todayContext?.setAttribute("aria-expanded", open ? "true" : "false");
       }
 
       function renderStatus(title, message) {

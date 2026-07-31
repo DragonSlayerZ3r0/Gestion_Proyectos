@@ -189,16 +189,36 @@ export function createWorkspaceModule(ctx) {
                 ${viewToggle}
               </div>
               ${isBoard ? "" : `
+              <!-- CREAR vs BUSCAR (2026-07-29): dos trabajos distintos NO pueden
+                   verse igual. Crear es ocasional → vive detrás de un botón
+                   primario que abre el formulario (mismo patrón que "Registrar
+                   persona"/"Crear tarea" de este módulo). Buscar es constante →
+                   se queda siempre visible, con lupa. La diferencia es de FORMA
+                   y peso, no de color: se lee igual en escala de grises. -->
+              <div class="wsCreateRow">
+                <!-- Abierto, el botón pasa a SECUNDARIO: "Cancelar" no puede
+                     competir con "Crear" (dos rellenos de acento apilados en
+                     móvil se leían como dos acciones principales). -->
+                <button type="button" id="projectCreateToggle"
+                  class="${state.showProjectForm ? "secondaryButton" : "primaryButton"} compact"
+                  aria-expanded="${state.showProjectForm ? "true" : "false"}">
+                  ${state.showProjectForm ? "Cancelar" : "+ Nueva solicitud"}
+                </button>
+              </div>
+              ${state.showProjectForm ? `
               <form id="projectQuickForm" class="projectCreateForm">
-                <input name="name" type="text" placeholder="Nueva solicitud" required />
+                <input name="name" type="text" placeholder="Nombre de la solicitud" required />
                 <select name="requestType" aria-label="Tipo de solicitud">
                   ${requestTypes().map((t) => `<option value="${t.key}">${escapeHtml(t.label)}</option>`).join("")}
                 </select>
-                <button class="primaryButton" type="submit">Nuevo</button>
-              </form>`}
-              <div class="workspaceControls">
+                <button class="primaryButton" type="submit">Crear</button>
+              </form>` : ""}`}
+              <div class="workspaceControls wsSearchBlock">
                 <div class="wsSearchRow">
-                  <input id="projectSearch" class="searchInput" type="search" placeholder="${state.projectAdvanced ? "Escribe una idea y presiona Enter…" : "Buscar por nombre, descripción, persona…"}" value="${escapeAttribute(state.projectSearch)}" />
+                  <span class="wsSearchIcon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>
+                  </span>
+                  <input id="projectSearch" class="searchInput hasIcon" type="search" placeholder="${state.projectAdvanced ? "Escribe una idea y presiona Enter…" : "Buscar por nombre, descripción, persona…"}" value="${escapeAttribute(state.projectSearch)}" />
                   ${state.projectAdvanced ? `<button type="button" id="projectSemGoBtn" class="wsSemGoBtn" title="Buscar por significado (Enter)"><span aria-hidden="true">≈</span> Buscar</button>` : ""}
                   <button type="button" id="projectAdvancedToggle" class="wsAdvancedToggle${state.projectAdvanced ? " active" : ""}" title="Búsqueda avanzada: por significado, incluye lo escrito en los seguimientos (encuentra aunque la palabra no sea exacta)"><span aria-hidden="true">≈</span> Avanzada</button>
                 </div>
@@ -2316,6 +2336,16 @@ export function createWorkspaceModule(ctx) {
           renderWorkspace();
         });
 
+        // Crear solicitud: colapsado por defecto (separa "crear" de "buscar").
+        document.querySelector("#projectCreateToggle")?.addEventListener("click", () => {
+          state.showProjectForm = !state.showProjectForm;
+          renderWorkspace();
+          if (state.showProjectForm) {
+            requestAnimationFrame(() =>
+              document.querySelector("#projectQuickForm input[name='name']")?.focus());
+          }
+        });
+
         // ── Orden manual de filas ─────────────────────────────────────────────
         document.querySelector("#projectManualOrderBtn")?.addEventListener("click", () => {
           state.projectManualOrder = !state.projectManualOrder;
@@ -2681,7 +2711,11 @@ export function createWorkspaceModule(ctx) {
         // Empty state guiado: lleva el foco al formulario de crear proyecto.
         const emptyCta = document.querySelector("#emptyCreateFocus");
         if (emptyCta) emptyCta.addEventListener("click", () => {
-          document.querySelector("#projectQuickForm input[name='name']")?.focus();
+          // El formulario ahora está colapsado: hay que ABRIRLO y luego enfocar.
+          state.showProjectForm = true;
+          renderWorkspace();
+          requestAnimationFrame(() =>
+            document.querySelector("#projectQuickForm input[name='name']")?.focus());
         });
 
         for (const card of document.querySelectorAll("[data-person-id]")) {
@@ -2879,6 +2913,7 @@ export function createWorkspaceModule(ctx) {
           state.activeProjectId = payload.data.id;
           state.selectedDetail = { type: "project", id: payload.data.id };
           state.saveNotice = { target: `project-create:${payload.data.id}`, message: "Solicitud creada." };
+          state.showProjectForm = false;      // vuelve al botón: crear es ocasional
           target.reset();
           await refreshWorkspace();
         } catch (error) {

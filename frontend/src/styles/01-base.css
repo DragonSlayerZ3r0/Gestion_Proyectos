@@ -452,6 +452,88 @@
     background: #f9fbfb;
   }
 
+  /* Contexto temporal de HOY en la barra global (2026-07-29): fecha · Q · semana
+     ISO. Tono tenue: es REFERENCIA, no acción — no debe competir con el título ni
+     con el menú de usuario. El desglose completo (semestre, quincena, semana del
+     mes, días hábiles restantes) va en el tooltip: está cuando se necesita y no
+     ocupa espacio cuando no. */
+  .todayContext {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    cursor: default;
+    white-space: nowrap;
+  }
+  .todayContext { cursor: pointer; }
+  .todayContext:hover { color: var(--text-soft); }
+  .todayContext[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-strong); }
+  .todayCaret { font-size: 0.62rem; opacity: 0.6; }
+  .todayDate { font-weight: 650; color: var(--text-soft); }
+  .todayQ { font-weight: 700; color: var(--accent-strong); }
+  .todaySep { opacity: 0.5; }
+  /* En pantallas angostas se reduce a Q · semana: la fecha del día ya la da el
+     sistema operativo del teléfono. */
+  @media (max-width: 720px) {
+    .todayContext { padding: 0 10px; }
+    .todayContext .todayDate,
+    .todayContext .todaySep:first-of-type { display: none; }
+  }
+
+  /* Panel del periodo actual. Reemplaza al tooltip NATIVO (`title`), que tardaba
+     ~1 s en abrir en escritorio y en pantallas TÁCTILES no aparece nunca: al
+     tocar el chip no pasaba nada (2026-07-30). Un panel se abre al instante y
+     funciona igual con dedo o con mouse. */
+  .todayContextWrap { position: relative; display: inline-flex; }
+  .todayPanel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    min-width: 260px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(15, 31, 38, 0.16);
+  }
+  .todayPanel[hidden] { display: none; }
+  .todayPanelTitle {
+    margin: 0 0 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .todayRow {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 3px 0;
+    font-size: 0.82rem;
+    color: var(--text-soft);
+  }
+  .todayRow strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .todayPanelFoot {
+    margin: 7px 0 0;
+    padding-top: 6px;
+    border-top: 1px solid var(--line);
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+  /* En móvil el panel se ancla al ancho de la pantalla, no al chip. */
+  @media (max-width: 560px) {
+    .todayPanel { position: fixed; left: 12px; right: 12px; top: 64px; min-width: 0; }
+  }
+
   .main {
     width: 100%;
     max-width: 1440px;

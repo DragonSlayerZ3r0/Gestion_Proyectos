@@ -81,6 +81,16 @@ import "../styles/11-timeline.css";
             <h1 id="viewTitle">Inicio</h1>
           </div>
           <div class="session">
+            <!-- Contexto temporal de HOY (2026-07-29): en qué periodo estamos.
+                 Va en la barra GLOBAL porque no depende del módulo; al pasar el
+                 mouse muestra el desglose completo. -->
+            <div class="todayContextWrap">
+              <button id="todayContext" class="todayContext" type="button" hidden
+                aria-haspopup="true" aria-expanded="false"
+                aria-label="Fecha y periodo actual"></button>
+              <div id="todayPanel" class="todayPanel" role="dialog"
+                aria-label="Detalle del periodo actual" hidden></div>
+            </div>
             <button id="loginButton" type="button">Ingresar</button>
             <div id="userMenu" class="userMenu" hidden>
               <button

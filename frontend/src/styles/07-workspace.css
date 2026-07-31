@@ -316,3 +316,33 @@
     color: var(--accent-strong);
     font-weight: 650;
   }
+
+  /* ── Crear vs Buscar: separación por FORMA, no por color (2026-07-29) ─────
+     Crear es ocasional → un botón primario que abre el formulario. Buscar es
+     constante → campo siempre visible con lupa. Antes ambos eran dos campos de
+     texto idénticos y contiguos (en móvil, apilados), y se confundían. */
+  .wsCreateRow { display: flex; justify-content: flex-end; margin: 4px 0 2px; }
+  @media (max-width: 720px) {
+    .wsCreateRow { justify-content: stretch; }
+    .wsCreateRow .primaryButton, .wsCreateRow .secondaryButton { width: 100%; }
+  }
+  /* El bloque de búsqueda se separa del encabezado con su propio respiro y una
+     línea sutil: son zonas distintas, no una lista de campos. */
+  .wsSearchBlock {
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  /* Lupa dentro del campo: señal universal de "esto busca", legible en gris. */
+  .wsSearchRow { position: relative; }
+  .wsSearchIcon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .wsSearchIcon svg { width: 16px; height: 16px; }
+  .searchInput.hasIcon { padding-left: 34px; }
