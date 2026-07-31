@@ -516,19 +516,37 @@ export function createDrawModule(ctx) {
           <strong class="drawEditorName">${escapeHtml(drawing.name)}</strong>
           <span id="drawPresence" class="drawPresence" hidden></span>
           <div class="drawEditorActions">
-            ${isOwner ? `<button class="tinyButton ghost" type="button" id="drawShareBtn">Compartir</button>` : ""}
+            ${isOwner ? `<button class="tinyButton ghost" type="button" id="drawShareBtn" aria-expanded="false">Compartir</button>` : ""}
             <button class="primaryButton compact" type="button" id="drawSaveBtn">Guardar</button>
           </div>
         </div>
-        ${state.drawShareOpen && isOwner ? renderSharePanel(drawing) : ""}
+        <div id="drawShareHost" class="drawShareHost"></div>
         <p id="drawEditorStatus" class="attachStatus" role="status" hidden></p>
         <div id="drawEditorHost" class="drawEditorHost"><p class="emptyText drawLoadingHint">Cargando el editor…</p></div>
       </section>`;
     bindEditorEvents(drawing, isOwner);
+    paintSharePanel(drawing, isOwner);
     await mountExcalidraw(drawing);
   }
 
-  function renderSharePanel(drawing) {
+  // El panel Compartir tiene CONTENEDOR PROPIO y se pinta solo — abrirlo, cerrarlo,
+  // invitar o revocar NUNCA repinta el editor. Antes llamaban a renderEditor(), que
+  // reescribe el panel entero: eso desmontaba Excalidraw y lo remontaba desde la
+  // escena de S3, o sea que se perdía todo lo que el autoguardado (cada 20 s) aún
+  // no había subido — y en una pizarra RECIÉN CREADA no hay escena en S3 todavía,
+  // así que el lienzo volvía vacío: se perdía el dibujo completo. De paso reciclaba
+  // el socket de la sala en vivo (leave+join para los demás) y recargaba ~1 MB de
+  // escena. Bug preexistente corregido el 2026-07-31.
+  function paintSharePanel(drawing, isOwner) {
+    const host = document.querySelector("#drawShareHost");
+    if (!host) return;
+    const open = Boolean(state.drawShareOpen && isOwner);
+    host.innerHTML = open ? sharePanelHtml(drawing) : "";
+    document.querySelector("#drawShareBtn")?.setAttribute("aria-expanded", String(open));
+    if (open) bindShareEvents(host, drawing, isOwner);
+  }
+
+  function sharePanelHtml(drawing) {
     const people = state.drawPeople || [];
     const shared = new Set(drawing.shares.map((s) => s.userId));
     const options = people.filter((p) => !shared.has(p.email));
@@ -554,7 +572,17 @@ export function createDrawModule(ctx) {
   }
 
   function bindEditorEvents(drawing, isOwner) {
-    document.querySelector("#drawBackBtn")?.addEventListener("click", () => {
+    document.querySelector("#drawBackBtn")?.addEventListener("click", async (event) => {
+      // Salir es un punto de PÉRDIDA: desmontar destruye la API de Excalidraw y
+      // con ella lo que no alcanzó a subir el autoguardado. Se persiste ANTES de
+      // desmontar; si el guardado falla, el usuario decide si sale igual.
+      const backBtn = event.currentTarget;
+      backBtn.disabled = true;
+      backBtn.textContent = "Guardando…";
+      const saved = await saveScene(drawing, true);
+      backBtn.disabled = false;
+      backBtn.textContent = "← Volver";
+      if (!saved && !window.confirm("No se pudo guardar la pizarra. ¿Salir de todos modos? Se perderán los últimos cambios.")) return;
       state.drawView = "list";
       state.drawActive = null;
       state.drawShareOpen = false;
@@ -573,29 +601,34 @@ export function createDrawModule(ctx) {
           state.drawShareOpen = false;
         }
       }
-      renderEditor();
+      paintSharePanel(drawing, isOwner);
     });
-    document.querySelector("#drawShareInvite")?.addEventListener("click", async () => {
-      const select = document.querySelector("#drawShareSelect");
+  }
+
+  // Eventos del panel Compartir: se revinculan en CADA pintada del panel (su HTML
+  // se rehace al invitar o revocar), acotados a su contenedor.
+  function bindShareEvents(host, drawing, isOwner) {
+    host.querySelector("#drawShareInvite")?.addEventListener("click", async () => {
+      const select = host.querySelector("#drawShareSelect");
       const email = select?.value || "";
       if (!email) return;
       try {
         const payload = await apiRequest(`api/draw/${drawing.id}/shares`, { method: "POST", body: JSON.stringify({ email }) });
         const person = (state.drawPeople || []).find((p) => p.email === email);
         drawing.shares.push({ ...payload.data, userName: person?.name || email });
-        renderEditor();
+        paintSharePanel(drawing, isOwner);
       } catch (error) {
         alert(error.message);
       }
     });
-    for (const btn of document.querySelectorAll("[data-draw-revoke]")) {
+    for (const btn of host.querySelectorAll("[data-draw-revoke]")) {
       btn.addEventListener("click", async () => {
         const email = btn.dataset.drawRevoke;
         if (!window.confirm("¿Quitar el acceso de este usuario a la pizarra?")) return;
         try {
           await apiRequest(`api/draw/${drawing.id}/shares/${encodeURIComponent(email)}`, { method: "DELETE" });
           drawing.shares = drawing.shares.filter((s) => s.userId !== email);
-          renderEditor();
+          paintSharePanel(drawing, isOwner);
         } catch (error) {
           alert(error.message);
         }
@@ -658,8 +691,10 @@ export function createDrawModule(ctx) {
     }
   }
 
+  // Devuelve si el trabajo quedó A SALVO (true también cuando no hay nada que
+  // guardar): quien sale del editor lo usa para no desmontar a ciegas.
   async function saveScene(drawing, silent = false) {
-    if (!excaliAPI || !window.ExcalidrawLib) return;
+    if (!excaliAPI || !window.ExcalidrawLib) return true;
     const statusEl = document.querySelector("#drawEditorStatus");
     const saveBtn = silent ? null : document.querySelector("#drawSaveBtn");
     const show = (text, isError) => {
@@ -682,9 +717,11 @@ export function createDrawModule(ctx) {
       drawing.updatedAt = new Date().toISOString();
       show("✓ Guardado", false);
       setTimeout(() => { if (statusEl && !silent) statusEl.hidden = true; }, 2500);
+      return true;
     } catch (error) {
-      if (silent) { collabDirty = true; return; } // reintentará el próximo autosave
+      if (silent) { collabDirty = true; return false; } // reintentará el próximo autosave
       show(error.message, true);
+      return false;
     } finally {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Guardar"; }
     }

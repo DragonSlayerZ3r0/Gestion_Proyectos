@@ -46,7 +46,14 @@
   .drawEditorHost { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
   .drawLoadingHint { padding: 14px; }
 
-  /* Panel Compartir: selector de usuario + chips con estado de la invitación. */
+  /* Panel Compartir: selector de usuario + chips con estado de la invitación.
+     Vive en su PROPIO contenedor (#drawShareHost) para que abrirlo y cerrarlo no
+     obligue a repintar el editor —eso desmontaría Excalidraw y perdería lo no
+     guardado—. Vacío se quita del flujo: si no, el `gap` del panel lo cuenta como
+     un ítem más y deja 10px de aire fantasma bajo la barra. `flex: none` para que
+     el lienzo (flex:1) sea el único que cede espacio. */
+  .drawShareHost { flex: none; }
+  .drawShareHost:empty { display: none; }
   .drawSharePanel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
   .drawShareForm { display: flex; gap: 8px; }
   .drawShareForm select { font: inherit; font-size: 0.84rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; max-width: 280px; }
