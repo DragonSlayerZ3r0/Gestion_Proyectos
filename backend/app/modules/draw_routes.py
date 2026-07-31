@@ -32,6 +32,16 @@ def _save_url(req: Request):
     return success(DrawingService().save_url(req.params.get("drawingId") or "", req.identity))
 
 
+def _file_load_url(req: Request):
+    return success(DrawingService().file_load_url(
+        req.params.get("drawingId") or "", req.params.get("fileId") or "", req.identity))
+
+
+def _file_save_url(req: Request):
+    return success(DrawingService().file_save_url(
+        req.params.get("drawingId") or "", req.params.get("fileId") or "", req.identity))
+
+
 def _share(req: Request):
     drawing_id = req.params.get("drawingId") or ""
     return success(DrawingService().share(drawing_id, req.body(), req.identity), 201)
@@ -62,6 +72,10 @@ def register(router: Router) -> None:
                error_msg="Error inesperado al abrir la pizarra.")
     router.add(["POST"], "/api/draw/{drawingId}/save-url", _save_url, modules=D,
                error_msg="Error inesperado al guardar la pizarra.")
+    router.add(["GET"], "/api/draw/{drawingId}/files/{fileId}/url", _file_load_url, modules=D,
+               error_msg="Error inesperado al cargar la imagen de la pizarra.")
+    router.add(["POST"], "/api/draw/{drawingId}/files/{fileId}/save-url", _file_save_url, modules=D,
+               error_msg="Error inesperado al compartir la imagen de la pizarra.")
     router.add(["POST"], "/api/draw/{drawingId}/shares", _share, modules=D,
                error_msg="Error inesperado al compartir la pizarra.")
     router.add(["DELETE"], "/api/draw/{drawingId}/shares/{email}", _revoke_share, modules=D,

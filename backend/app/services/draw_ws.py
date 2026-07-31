@@ -21,6 +21,7 @@ con `GetUser` (sin librerías de cripto). El acceso al tablero reusa el modelo d
 compartir existente (dueño o invitado que aceptó).
 """
 import json
+import logging
 from typing import Any
 
 import boto3
@@ -28,6 +29,8 @@ import boto3
 from repositories.draw_ws import DrawWsRepository
 from repositories.drawings import DrawingsRepository
 from services.name_directory import NameDirectory
+
+logger = logging.getLogger(__name__)
 
 _REGION = "us-east-1"
 
@@ -155,5 +158,12 @@ class DrawWsService:
             meta = DrawWsRepository().get_connection(connection_id)  # conexión muerta → limpiar
             if meta:
                 DrawWsRepository().remove_connection(meta.get("drawingId", ""), connection_id)
+        except client.exceptions.PayloadTooLargeException:
+            # API Gateway corta en 128 KB por mensaje. Esto SIEMPRE es un defecto
+            # del emisor (algo que debía trocearse o subirse a S3 y no se hizo):
+            # si se traga en silencio, al otro lado le falta escena sin aviso —
+            # así se perdieron las imágenes pegadas hasta el 2026-07-31.
+            logger.warning("Mensaje de %s bytes descartado (tipo %s): supera el límite de API Gateway",
+                           len(data), payload.get("type", "?"))
         except Exception:  # noqa: BLE001 — un envío fallido no debe tumbar el resto del fan-out
-            pass
+            logger.warning("No se pudo entregar el mensaje a %s", connection_id, exc_info=True)

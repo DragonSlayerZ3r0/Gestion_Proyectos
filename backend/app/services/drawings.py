@@ -10,8 +10,16 @@ Almacenamiento: la escena (JSON formato .excalidraw, puede pesar MB si pegan
 imágenes) vive en S3 — mismo bucket compartido de adjuntos, prefijo
 `drawings/` — vía URLs prefirmadas (el JSON nunca pasa por la Lambda). La
 metadata (DRAWING) y las invitaciones (DRAWING_SHARE) viven en DynamoDB.
+
+Las imágenes pegadas se guardan ADEMÁS como objeto propio
+(`drawings/{id}/files/{fileId}.json`, el `BinaryFileData` de Excalidraw tal
+cual): en la sala en vivo por el WebSocket viaja solo el `fileId` y cada
+navegador baja el archivo de aquí. El base64 no cabe en un mensaje de API
+Gateway (32 KB por frame, 128 KB por mensaje) — ver bitácora 2026-07-31.
 """
+import logging
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -24,11 +32,18 @@ from repositories.drawings import DrawingsRepository
 from repositories.users import UsersRepository
 from services.name_directory import NameDirectory
 
+logger = logging.getLogger(__name__)
+
 _PRESIGN_PUT_TTL = 120
 _PRESIGN_GET_TTL = 300
 _REGION = "us-east-1"
 _NAME_MAX = 120
 _SCENE_CONTENT_TYPE = "application/json"
+_FILE_CONTENT_TYPE = "application/json"
+# El fileId lo inventa el navegador y termina siendo parte de la llave en S3:
+# se acota a lo que Excalidraw genera (hex/base64url) para que no pueda salirse
+# del prefijo de la pizarra con `../`.
+_FILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class DrawingService:
@@ -45,6 +60,13 @@ class DrawingService:
     def _scene_key(self, drawing_id: str) -> str:
         prefix = os.environ.get("ATTACHMENTS_PREFIX", "gestion-proyectos/")
         return f"{prefix}drawings/{drawing_id}.excalidraw"
+
+    def _files_prefix(self, drawing_id: str) -> str:
+        prefix = os.environ.get("ATTACHMENTS_PREFIX", "gestion-proyectos/")
+        return f"{prefix}drawings/{drawing_id}/files/"
+
+    def _file_key(self, drawing_id: str, file_id: str) -> str:
+        return f"{self._files_prefix(drawing_id)}{file_id}.json"
 
     def _storage(self):
         return boto3.client("s3", region_name=_REGION, config=Config(signature_version="s3v4"))
@@ -146,8 +168,23 @@ class DrawingService:
             self._storage().delete_object(Bucket=self._bucket(), Key=drawing["storageKey"])
         except Exception:  # noqa: BLE001 — sin escena guardada aún, o ya borrada
             pass
+        self._delete_files(drawing_id)
         self._repository.delete_drawing(drawing_id)
         return {"drawingId": drawing_id, "removed": True}
+
+    def _delete_files(self, drawing_id: str) -> None:
+        """Las imágenes viven bajo su propio prefijo: se borran con la pizarra o
+        quedarían pagando almacenamiento para siempre."""
+        client = self._storage()
+        try:
+            pages = client.get_paginator("list_objects_v2").paginate(
+                Bucket=self._bucket(), Prefix=self._files_prefix(drawing_id))
+            for page in pages:
+                keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+                if keys:
+                    client.delete_objects(Bucket=self._bucket(), Delete={"Objects": keys})
+        except Exception:  # noqa: BLE001 — no dejar a medias el borrado de la pizarra
+            logger.warning("No se pudieron borrar las imágenes de la pizarra %s", drawing_id, exc_info=True)
 
     # ── Escena: cargar (GET) y guardar (PUT) con URLs prefirmadas ─────────────
     def load_url(self, drawing_id: str, identity: dict[str, str]) -> dict[str, Any]:
@@ -173,6 +210,34 @@ class DrawingService:
         self._repository.update_drawing(drawing_id, {
             "updatedAt": self._now(), "updatedBy": identity["userId"]})
         return {"url": url, "contentType": _SCENE_CONTENT_TYPE, "expiresIn": _PRESIGN_PUT_TTL}
+
+    # ── Imágenes de la escena: una URL prefirmada por archivo ─────────────────
+    # Mismo permiso que la escena (dueño o invitado que aceptó): quien puede ver
+    # la pizarra puede ver y subir sus imágenes.
+    def file_load_url(self, drawing_id: str, file_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        drawing = self._require_drawing(drawing_id)
+        self._ensure_access(drawing, identity)
+        url = self._storage().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket(), "Key": self._file_key(drawing_id, self._valid_file_id(file_id))},
+            ExpiresIn=_PRESIGN_GET_TTL)
+        return {"url": url, "expiresIn": _PRESIGN_GET_TTL}
+
+    def file_save_url(self, drawing_id: str, file_id: str, identity: dict[str, str]) -> dict[str, Any]:
+        drawing = self._require_drawing(drawing_id)
+        self._ensure_access(drawing, identity)
+        url = self._storage().generate_presigned_url(
+            "put_object",
+            Params={"Bucket": self._bucket(), "Key": self._file_key(drawing_id, self._valid_file_id(file_id)),
+                    "ContentType": _FILE_CONTENT_TYPE},
+            ExpiresIn=_PRESIGN_PUT_TTL)
+        return {"url": url, "contentType": _FILE_CONTENT_TYPE, "expiresIn": _PRESIGN_PUT_TTL}
+
+    def _valid_file_id(self, value: Any) -> str:
+        file_id = str(value or "").strip()
+        if not _FILE_ID_RE.match(file_id):
+            raise ValidationError("Identificador de imagen inválido.")
+        return file_id
 
     # ── Compartir: invitar / revocar / responder ──────────────────────────────
     def share(self, drawing_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:

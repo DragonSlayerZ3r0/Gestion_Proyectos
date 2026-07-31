@@ -154,10 +154,41 @@ export function createDrawModule(ctx) {
     return CURSOR_COLORS[h % CURSOR_COLORS.length];
   }
 
+  // Devuelve si el mensaje SALIÓ: quien difunde elementos lo usa para no darlos
+  // por sincronizados cuando no se mandaron (antes se marcaban igual y el cambio
+  // no se reintentaba nunca).
   function wsSend(payload) {
     if (collabReady && collabSocket?.readyState === WebSocket.OPEN) {
-      try { collabSocket.send(JSON.stringify(payload)); } catch {}
+      try {
+        collabSocket.send(JSON.stringify(payload));
+        return true;
+      } catch {}
     }
+    return false;
+  }
+
+  // API Gateway corta el mensaje en 128 KB (y el frame en 32 KB): un envío
+  // pasado de tamaño se pierde ENTERO y en silencio. Los elementos se mandan en
+  // tandas que quepan; el margen cubre los campos que agrega el servidor
+  // (senderId/senderName/senderConn) y los caracteres multibyte del texto.
+  const WS_MAX_CHARS = 90 * 1024;
+
+  function sendElements(base, elements, onSent) {
+    let batch = [];
+    let size = 0;
+    const flush = () => {
+      if (!batch.length) return;
+      if (wsSend({ ...base, elements: batch }) && onSent) onSent(batch);
+      batch = [];
+      size = 0;
+    };
+    for (const el of elements) {
+      const elSize = JSON.stringify(el).length;
+      if (batch.length && size + elSize > WS_MAX_CHARS) flush();
+      batch.push(el);
+      size += elSize;
+    }
+    flush();
   }
 
   function setCollabStatus(text, isError) {
@@ -174,6 +205,128 @@ export function createDrawModule(ctx) {
     el.className = "drawPresence live";
     el.textContent = others ? `● ${others + 1} en vivo` : "● Solo tú";
     el.title = [...collaborators.values()].map((c) => c.username).filter(Boolean).join(", ");
+  }
+
+  // ── Imágenes de la escena ─────────────────────────────────────────────────
+  // El base64 de una imagen NO cabe en un mensaje del WebSocket. Hasta el
+  // 2026-07-31 viajaba dentro del propio mensaje `scene` (`files: getFiles()`) y
+  // el envío moría en silencio: a los demás les llegaba el ELEMENTO —que solo
+  // trae el `fileId`— pero nunca el archivo, y Excalidraw dibuja eso como un
+  // RECUADRO GRIS. Ahora cada imagen sube a S3 con URL prefirmada (igual que la
+  // escena, sin pasar por la Lambda) y por el socket viaja solo el `fileId`.
+  //
+  // Se resuelve por RECONCILIACIÓN, no por aviso: si a un navegador le llega un
+  // elemento con un `fileId` que no tiene, lo baja — sin importar si alcanzó a
+  // oír el aviso. Así también lo ve quien estaba desconectado en ese momento o
+  // quien entra después (mismo criterio que la reconciliación de elementos).
+  const knownFiles = new Set();    // fileIds que este navegador ya tiene o subió
+  const fetchingFiles = new Set(); // descargas en curso (no pedir dos veces lo mismo)
+
+  function shareNewFiles(files) {
+    const drawingId = state.drawActive?.id;
+    if (!drawingId) return;
+    for (const [fileId, file] of Object.entries(files || {})) {
+      // Se marca ANTES de subir: si no, cada `onChange` mientras sube la
+      // encolaría de nuevo. Y quien la RECIBE también la marca, para no
+      // devolverla a S3 en cuanto Excalidraw le avise del cambio.
+      if (!fileId || knownFiles.has(fileId)) continue;
+      knownFiles.add(fileId);
+      uploadFile(drawingId, fileId, file);
+    }
+  }
+
+  // Se sube aunque la sala en vivo esté caída: el archivo tiene que estar en S3
+  // para quien abra la pizarra después. El aviso por el socket es lo opcional.
+  async function uploadFile(drawingId, fileId, file) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const presign = await apiRequest(
+          `api/draw/${drawingId}/files/${encodeURIComponent(fileId)}/save-url`, { method: "POST" });
+        const put = await fetch(presign.data.url, {
+          method: "PUT",
+          headers: { "content-type": presign.data.contentType },
+          body: JSON.stringify(file),
+        });
+        if (!put.ok) throw new Error(`El almacenamiento respondió ${put.status}.`);
+        wsSend({ type: "file", fileId });
+        return true;
+      } catch {
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+      }
+    }
+    // Falló de verdad: el usuario tiene que enterarse. La imagen NO se pierde
+    // (se guarda dentro de la escena), pero los demás no la verán en vivo.
+    showEditorStatus("No se pudo compartir una imagen en vivo. Queda guardada en la pizarra: "
+      + "los demás la verán al volver a abrirla.", true);
+    return false;
+  }
+
+  function requestFile(fileId) {
+    if (!fileId || !excaliAPI || !collabDrawingId) return;
+    if (fetchingFiles.has(fileId)) return;
+    const have = excaliAPI.getFiles ? excaliAPI.getFiles() : {};
+    if (have[fileId]) return;
+    fetchingFiles.add(fileId);
+    downloadFile(collabDrawingId, fileId);
+  }
+
+  function ensureFiles(elements) {
+    for (const el of elements || []) {
+      if (el?.fileId) requestFile(el.fileId);
+    }
+  }
+
+  // Esperas crecientes: el elemento puede llegar ANTES de que termine de subirse
+  // su archivo (van por caminos distintos), así que un 404 no es un fracaso —
+  // es "todavía no".
+  async function downloadFile(drawingId, fileId) {
+    const waits = [0, 400, 1000, 2000, 4000, 8000];
+    for (const wait of waits) {
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      if (collabDrawingId !== drawingId || !excaliAPI) break; // se cerró la pizarra
+      try {
+        const presign = await apiRequest(`api/draw/${drawingId}/files/${encodeURIComponent(fileId)}/url`);
+        const response = await fetch(presign.data.url);
+        if (!response.ok) continue;
+        const file = await response.json();
+        addFile(fileId, file);
+        fetchingFiles.delete(fileId);
+        return;
+      } catch {}
+    }
+    // Última carta: la escena guardada TAMBIÉN lleva las imágenes dentro. Ahí
+    // viven las de antes de este cambio (que nunca se subieron sueltas) y ahí
+    // acaba también la que no se haya podido subir.
+    const fromScene = (await loadSceneFiles(drawingId))[fileId];
+    if (fromScene) addFile(fileId, fromScene);
+    fetchingFiles.delete(fileId);
+  }
+
+  function addFile(fileId, file) {
+    if (!excaliAPI) return;
+    knownFiles.add(fileId); // ya es mío: no devolverlo a S3 en el próximo onChange
+    try { excaliAPI.addFiles([file]); } catch {}
+  }
+
+  // Una sola descarga de la escena aunque falten varias imágenes a la vez.
+  let sceneFilesPromise = null;
+  function loadSceneFiles(drawingId) {
+    if (!sceneFilesPromise) {
+      sceneFilesPromise = (async () => {
+        if (state.drawActive?.id !== drawingId) return {};
+        const scene = await loadScene(state.drawActive);
+        return scene?.files || {};
+      })().catch(() => ({})).finally(() => { sceneFilesPromise = null; });
+    }
+    return sceneFilesPromise;
+  }
+
+  function showEditorStatus(text, isError) {
+    const statusEl = document.querySelector("#drawEditorStatus");
+    if (!statusEl) return;
+    statusEl.hidden = false;
+    statusEl.textContent = text;
+    statusEl.className = `attachStatus${isError ? " error" : ""}`;
   }
 
   function joinCollab(drawing) {
@@ -221,6 +374,10 @@ export function createDrawModule(ctx) {
     collaborators.clear();
     presenceIds.clear();
     syncedVersions.clear();
+    knownFiles.clear();
+    fetchingFiles.clear();
+    pendingScenes.length = 0;
+    pendingInitFor.length = 0;
     collabDirty = false;
     if (collabSocket) {
       const socket = collabSocket;
@@ -260,15 +417,20 @@ export function createDrawModule(ctx) {
         setCollabStatus();
         break;
       case "init-request":
-        // Un recién llegado necesita la escena: se la mando directo (vía servidor).
+        // Un recién llegado necesita la escena: se la mando directo (vía servidor),
+        // en tandas por tamaño y SIN archivos — las imágenes las baja él de S3
+        // por su fileId (una escena con imágenes no cabía en un solo mensaje, así
+        // que antes el recién llegado se quedaba sin nada).
         if (excaliAPI) {
-          wsSend({
-            type: "init-response",
-            to: msg.from,
-            elements: excaliAPI.getSceneElements(),
-            files: excaliAPI.getFiles(),
-          });
+          sendElements({ type: "init-response", to: msg.from }, excaliAPI.getSceneElements());
+        } else if (msg.from) {
+          pendingInitFor.push(msg.from); // todavía montando: se le responde al terminar
         }
+        break;
+      case "file":
+        // Aviso de que hay una imagen nueva en S3. Es solo un atajo: si el aviso
+        // se pierde, igual se baja al reconciliar el elemento que la usa.
+        requestFile(msg.fileId);
         break;
       case "init-response":
       case "scene":
@@ -299,11 +461,30 @@ export function createDrawModule(ctx) {
     }, 60);
   }
 
+  // Lo que llega de la sala puede llegar ANTES de que Excalidraw termine de
+  // montar: el saludo de la sala y el montaje corren en paralelo. Antes se
+  // descartaba en silencio y nadie lo volvía a mandar — el recién llegado se
+  // quedaba con la pizarra VACÍA (medido: su `init-response` llegaba con el
+  // editor a medio montar). Ahora se guarda y se aplica al terminar de montar.
+  const pendingScenes = [];   // escenas recibidas antes de tiempo
+  const pendingInitFor = [];  // quiénes me pidieron la escena antes de tiempo
+
+  function flushPending() {
+    if (!excaliAPI) return;
+    for (const msg of pendingScenes.splice(0)) applyRemoteScene(msg);
+    for (const to of pendingInitFor.splice(0)) {
+      sendElements({ type: "init-response", to }, excaliAPI.getSceneElements());
+    }
+  }
+
   // Reconciliación: por elemento gana la versión mayor (a igual versión, el
   // versionNonce menor — mismo criterio que Excalidraw). Nada se interpreta:
   // los borrados viajan como isDeleted=true.
   function applyRemoteScene(msg) {
-    if (!excaliAPI) return;
+    if (!excaliAPI) {
+      if (pendingScenes.length < 200) pendingScenes.push(msg);
+      return;
+    }
     const remote = msg.elements || [];
     if (!remote.length && !msg.files) return;
     const local = excaliAPI.getSceneElementsIncludingDeleted
@@ -325,18 +506,30 @@ export function createDrawModule(ctx) {
       const known = syncedVersions.get(el.id) || 0;
       syncedVersions.set(el.id, Math.max(known, el.version || 0));
     }
+    // `files` en el mensaje ya no se usa (las imágenes van por S3), pero se
+    // sigue aceptando: durante un despliegue puede quedar alguna pestaña vieja
+    // difundiendo a la manera anterior.
     if (msg.files && Object.keys(msg.files).length) {
-      try { excaliAPI.addFiles(Object.values(msg.files)); } catch {}
+      try {
+        for (const id of Object.keys(msg.files)) knownFiles.add(id);
+        excaliAPI.addFiles(Object.values(msg.files));
+      } catch {}
     }
     if (changed) {
       try { excaliAPI.updateScene({ elements: [...byId.values()], commitToHistory: false }); } catch {}
       collabDirty = true; // para que el autoguardado persista lo convergido
     }
+    // Imágenes que este navegador todavía no tiene: se bajan de S3. Va DESPUÉS
+    // de updateScene para no retrasar el dibujo del resto de la escena.
+    ensureFiles(remote);
   }
 
   // Cambios locales → difundir SOLO los elementos con versión nueva (throttle
   // con cola: nunca se pierde el último estado).
   function onLocalChange(elements, _appState, files) {
+    // Las imágenes nuevas suben a S3 SIEMPRE, aunque la sala esté caída: tienen
+    // que estar ahí para quien abra la pizarra después.
+    shareNewFiles(files);
     if (!collabReady) return;
     let dirty = false;
     for (const el of elements) {
@@ -355,8 +548,11 @@ export function createDrawModule(ctx) {
         : excaliAPI.getSceneElements();
       const changedEls = all.filter((el) => (syncedVersions.get(el.id) || 0) < (el.version || 0));
       if (!changedEls.length) return;
-      for (const el of changedEls) syncedVersions.set(el.id, el.version || 0);
-      wsSend({ type: "scene", elements: changedEls, files: excaliAPI.getFiles ? excaliAPI.getFiles() : undefined });
+      // Solo se dan por sincronizados los que SALIERON (y por tanda: si una no
+      // sale, sus elementos se reintentan en el siguiente cambio).
+      sendElements({ type: "scene" }, changedEls, (sent) => {
+        for (const el of sent) syncedVersions.set(el.id, el.version || 0);
+      });
     }, Math.max(0, 120 - elapsed));
   }
 
@@ -737,11 +933,20 @@ export function createDrawModule(ctx) {
       // primer onChange difundiría la escena completa a la sala.
       syncedVersions.clear();
       for (const el of initialData?.elements || []) syncedVersions.set(el.id, el.version || 0);
+      // Las imágenes que ya venían DENTRO de la escena no se vuelven a subir:
+      // todo el que abra la pizarra las recibe con ella (esto incluye las de
+      // antes del cambio, que solo existen ahí).
+      knownFiles.clear();
+      fetchingFiles.clear();
+      for (const id of Object.keys(initialData?.files || {})) knownFiles.add(id);
       excaliRoot = window.ReactDOM.createRoot(host);
       excaliRoot.render(window.React.createElement(window.ExcalidrawLib.Excalidraw, {
         langCode: "es-ES",
         initialData,
-        excalidrawAPI: (api) => { excaliAPI = api; },
+        // El vaciado va en la macrotarea siguiente: Excalidraw entrega su API
+        // MIENTRAS monta, y un `updateScene` en ese mismo tick se pierde
+        // (medido: al recién llegado le entraba el archivo pero no el elemento).
+        excalidrawAPI: (api) => { excaliAPI = api; setTimeout(flushPending, 0); },
         onChange: onLocalChange,
         onPointerUpdate,
       }));
