@@ -97,11 +97,24 @@ export function createDrawModule(ctx) {
     if (on) document.documentElement.requestFullscreen?.().catch(() => {});
     else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     syncImmersiveButton();
-    // Excalidraw dimensiona su lienzo con el tamaño del contenedor: sin avisarle
-    // se queda con el alto anterior y deja una franja muerta. Dos avisos: uno
-    // inmediato y otro cuando termina la transición del menú lateral (260ms).
-    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
-    setTimeout(() => window.dispatchEvent(new Event("resize")), 320);
+    notifyCanvasResize(true);
+  }
+
+  // Excalidraw NO observa el tamaño de su contenedor: se remide con el evento
+  // `resize` de la VENTANA. Cualquier cosa que cambie el alto del host —entrar o
+  // salir de pantalla completa, abrir o cerrar el panel Compartir— tiene que
+  // avisárselo, o el lienzo se queda con la medida anterior: se desborda por
+  // abajo (invisible, lo tapa el overflow) y el puntero queda desfasado de lo
+  // que se ve. Medido: canvas de 526px dentro de un host de 431px.
+  function notifyCanvasResize(afterTransition) {
+    // El aviso NO puede salir en el mismo tick que el cambio de DOM: dentro de un
+    // `requestAnimationFrame` el navegador todavía no aplicó el layout nuevo y
+    // Excalidraw remide el alto VIEJO (probado: el desfase seguía igual). Por eso
+    // va en la siguiente macrotarea, cuando el alto del host ya es el definitivo.
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
+    // Al entrar o salir de pantalla completa hay que esperar además a que termine
+    // la transición del menú lateral (260ms), que es la que va moviendo el ancho.
+    if (afterTransition) setTimeout(() => window.dispatchEvent(new Event("resize")), 320);
   }
 
   function syncImmersiveButton() {
@@ -607,6 +620,8 @@ export function createDrawModule(ctx) {
     host.innerHTML = open ? sharePanelHtml(drawing) : "";
     document.querySelector("#drawShareBtn")?.setAttribute("aria-expanded", String(open));
     if (open) bindShareEvents(host, drawing, isOwner);
+    // El panel le quita (o le devuelve) alto al lienzo: hay que avisarle.
+    notifyCanvasResize();
   }
 
   function sharePanelHtml(drawing) {
