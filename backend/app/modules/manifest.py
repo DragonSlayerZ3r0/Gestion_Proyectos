@@ -39,6 +39,15 @@ MODULE_KEYS = [m["key"] for m in MODULES]
 # es el mismo de HOME_TABS pero para capacidades, no pestañas.
 MODULE_SUBPERMS = [
     {"key": "wiki_editor", "label": "Editor (crear y editar páginas)", "parent": "wiki"},
+    # 2026-07-31: crear/corregir/eliminar ÁREAS y ESTADOS desde los selectores de
+    # Solicitudes deja de estar abierto a cualquiera con el módulo. Estaba
+    # confundiendo a los usuarios y el catálogo se ensució solo: llegó a tener
+    # «Plataforma Digitales», «Plataformas Digitales» y «Gerencia de Plataformas
+    # Digitales» como áreas distintas, lo que parte a una misma área en tres en
+    # los filtros, el Tablero de avance y el reporte ejecutivo. Sin este permiso
+    # el usuario solo ELIGE de la lista.
+    {"key": "projects_catalogos", "label": "Administrar catálogos (áreas y estados)",
+     "parent": "projects"},
 ]
 
 SUBPERM_KEYS = [s["key"] for s in MODULE_SUBPERMS]
@@ -106,11 +115,17 @@ def admin_module_groups() -> list[dict]:
                     for t in HOME_TABS
                 ],
             })
-        elif key in _MERGED_GROUPS:
-            g = _MERGED_GROUPS[key]
-            groups.append({"key": key, "label": g["label"], "keys": list(g["keys"])})
         else:
-            group: dict = {"key": key, "label": m["label"], "keys": [key]}
+            # Los grupos FUSIONADOS (Solicitudes = projects + tasks) también
+            # admiten sub-permisos: antes esta rama los ignoraba y un sub-permiso
+            # con parent="projects" no salía en la matriz de Administración — o
+            # sea, imposible de asignar (2026-07-31, al agregar projects_catalogos).
+            merged = _MERGED_GROUPS.get(key)
+            group: dict = {
+                "key": key,
+                "label": merged["label"] if merged else m["label"],
+                "keys": list(merged["keys"]) if merged else [key],
+            }
             if key in subperms_by_parent:
                 group["children"] = subperms_by_parent[key]
             groups.append(group)

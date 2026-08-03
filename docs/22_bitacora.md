@@ -38,6 +38,18 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 **Deja obsoleta una premisa de la entrada de más abajo (pantalla completa, mismo día):** ahí el punto (2) dice que el panel «se vuelve a dibujar al abrir Compartir». Desde hoy **ya no**. La decisión que se tomó por eso —colgar la clase del shell `#app`— **se mantiene igual de válida**, porque el menú lateral y el encabezado están fuera del panel y solo desde el shell se pueden esconder. Docs: `06` #15 (regla nueva, cara complementaria de la #14), excepción en `AGENTS.md`, funcional en `02`.
 
+## 2026-07-31 · decisión — Los catálogos de Solicitudes pasan a ser un permiso
+
+**Reporte del usuario:** "en varios input está la opción de agregar nuevo según el campo que sea… algunos usuarios se confunden. Esa funcionalidad está muy bien, pero déjala solo para los usuarios admin". El dato le da la razón: el catálogo real de dev tenía **30 áreas** con duplicados creados a mano — «Plataforma Digitales», «Plataformas Digitales» y «Gerencia de Plataformas Digitales» como tres áreas distintas; «Analítica de Datos» vs «Gerencia de Analítica de Datos»; «Infrastructura GAD» mal escrito; y entradas que no son áreas sino roles (BI, UX, Warehouse). Una misma área partida en tres arruina los filtros, el agrupamiento del Tablero de avance y el reporte ejecutivo.
+
+**Decisión (elegida por el usuario entre dos opciones):** sub-permiso **asignable** `projects_catalogos` en vez de amarrarlo al rol admin, siguiendo el patrón de `wiki_editor`. Así un admin puede delegar la curaduría del catálogo a una o dos personas **sin** entregarles la pantalla de usuarios y permisos completa. Alcance: **solo Área y Estado**; crear solicitudes, tareas, seguimientos y registrar personas siguen abiertos (restringir el alta de personas volvería al admin un cuello de botella en el trabajo diario).
+
+**Diferencia deliberada con `wiki_editor`:** el guard lleva `["projects_catalogos", "admin"]` — `ensure_module_access` evalúa con OR, así que los admins conservan la capacidad sin que nadie tenga que asignarles nada. `wiki_editor` repartía una capacidad NUEVA; este QUITA una que ya estaba abierta, y sin la salida por `admin` el despliegue habría dejado a todo el mundo sin poder crear un área.
+
+**Bug encontrado al verificar:** el sub-permiso NO aparecía bajo Solicitudes en la matriz de Administración — o sea, imposible de asignar. `admin_module_groups()` tenía una rama aparte para los grupos FUSIONADOS (Solicitudes = projects + tasks) que nunca adjuntaba `children`. Se unificó con la rama normal. Lección: al agregar un sub-permiso, **verificar que salga en `admin_module_groups()`**, no solo que esté en la lista.
+
+**Verificado:** los 5 perfiles (admin, con sub-permiso, usuario normal, admin desactivado, perfil vacío) con la lógica REAL extraída del fuente — y en todos el selector conserva sus áreas: nadie pierde el campo, solo las acciones. Y contra el Lambda YA DESPLEGADO (se bajó el paquete de `gestion-proyectos-dev-api` y se corrió su `admin_module_groups()`). Docs: `02` y `AGENTS.md`.
+
 ## 2026-07-31 · decisión — Pizarra a pantalla completa (y la trampa del grid al ocultar el menú)
 
 **Pedido:** "en el módulo de pizarra no veo la opción para ver modo pantalla completa, ¿existe?". No existía — solo la línea de tiempo de Solicitudes tenía «Presentar». El editor vivía en un panel de alto fijo (`calc(100dvh - 170px)`) con el menú lateral, el encabezado de la app y la barra del navegador comiéndose el espacio.

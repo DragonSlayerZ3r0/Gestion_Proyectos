@@ -717,6 +717,17 @@ export function createWorkspaceModule(ctx) {
       // Área solicitante: catálogo vivo (quién pide la solicitud). Las solicitudes
       // guardan el id; el nombre se resuelve aquí, así corregir un área mal escrita
       // corrige todas las solicitudes que la usan.
+      // ¿Puede MANTENER los catálogos (crear/corregir/eliminar áreas y estados)?
+      // Sub-permiso `projects_catalogos` o el módulo Administración — el mismo OR
+      // que evalúa el guard del backend en workspace_routes. Sin esto el usuario
+      // solo ELIGE de la lista: ocultar la opción evita ofrecer algo que sería un
+      // 403, pero la autoridad real siempre es el backend.
+      function canManageCatalogs() {
+        const profile = state.profile;
+        if ((profile?.capabilities || []).includes("projects_catalogos")) return true;
+        return (profile?.modules || []).some((m) => m.key === "admin" && m.enabled !== false);
+      }
+
       const AREA_EXAMPLE = "p. ej. Gerencia de Canales Digitales";
       function areaName(areaId) {
         return state.workspace?.areas?.find((area) => area.id === areaId)?.name || "";
@@ -731,7 +742,9 @@ export function createWorkspaceModule(ctx) {
         for (const area of areas) {
           options.push(`<option value="${area.id}" ${area.id === selectedId ? "selected" : ""}>${escapeHtml(area.name)}</option>`);
         }
-        options.push(`<option value="__new__">+ Agregar área nueva…</option>`);
+        if (canManageCatalogs()) {
+          options.push(`<option value="__new__">+ Agregar área nueva…</option>`);
+        }
         return options.join("");
       }
 
@@ -739,6 +752,10 @@ export function createWorkspaceModule(ctx) {
       // el MISMO catálogo AREA): selector + lápiz (corregir) + papelera (eliminar, el
       // backend la protege si está en uso) + mini-formulario inline.
       function renderAreaField(name, label, selectedId) {
+        // Sin permiso de catálogo el campo es SOLO un selector: ni lápiz ni
+        // mini-formulario. No se dejan escondidos en el DOM — el cableado se
+        // salta el campo cuando no hay formulario (mismo criterio que Estado).
+        const manage = canManageCatalogs();
         return `
           <div class="areaField" data-area-field>
             <label>${escapeHtml(label)}
@@ -746,9 +763,10 @@ export function createWorkspaceModule(ctx) {
                 <select name="${name}" data-area-select>
                   ${areaOptions(selectedId)}
                 </select>
-                ${renderEditIconButton("Corregir o eliminar el área", "data-area-fix hidden")}
+                ${manage ? renderEditIconButton("Corregir o eliminar el área", "data-area-fix hidden") : ""}
               </div>
             </label>
+            ${manage ? `
             <div class="areaInlineForm" data-area-form data-mode="create" hidden>
               <input type="text" data-area-input placeholder="${escapeAttribute(AREA_EXAMPLE)}" aria-label="Nombre del área" />
               <div class="areaInlineActions">
@@ -756,7 +774,7 @@ export function createWorkspaceModule(ctx) {
                 <button type="button" class="tinyButton ghost" data-area-cancel>Cancelar</button>
                 <button type="button" class="tinyButton danger" data-area-del hidden>Eliminar área</button>
               </div>
-            </div>
+            </div>` : ""}
           </div>`;
       }
 
@@ -1721,9 +1739,10 @@ export function createWorkspaceModule(ctx) {
                   <select name="status" data-status-select>
                     ${projectStatusOptions(project.status)}
                   </select>
-                  ${renderEditIconButton("Corregir o eliminar el estado", "data-status-fix hidden")}
+                  ${canManageCatalogs() ? renderEditIconButton("Corregir o eliminar el estado", "data-status-fix hidden") : ""}
                 </div>
               </label>
+              ${canManageCatalogs() ? `
               <div class="areaInlineForm statusInlineForm" data-status-form data-mode="create" data-color="" hidden>
                 <input type="text" data-status-input placeholder="Nombre del estado (p. ej. En revisión)" aria-label="Nombre del estado" />
                 <div class="statusSwatches" data-status-swatches role="group" aria-label="Color del estado">
@@ -1734,7 +1753,7 @@ export function createWorkspaceModule(ctx) {
                   <button type="button" class="tinyButton ghost" data-status-cancel>Cancelar</button>
                   <button type="button" class="tinyButton danger" data-status-del hidden>Eliminar estado</button>
                 </div>
-              </div>
+              </div>` : ""}
               <label>Responsable
                 <select name="ownerPersonId">
                   <option value="">Ninguno</option>
@@ -1894,7 +1913,9 @@ export function createWorkspaceModule(ctx) {
         for (const s of projectStatusList()) {
           opts.push(`<option value="${s.id}" ${s.id === currentStatus ? "selected" : ""}>${escapeHtml(s.label)}</option>`);
         }
-        opts.push(`<option value="__new__">+ Agregar estado…</option>`);
+        if (canManageCatalogs()) {
+          opts.push(`<option value="__new__">+ Agregar estado…</option>`);
+        }
         return opts.join("");
       }
 
@@ -2542,6 +2563,9 @@ export function createWorkspaceModule(ctx) {
         for (const areaField of document.querySelectorAll("[data-area-field]")) {
           const areaSelect = areaField.querySelector("select[data-area-select]");
           const areaForm = areaField.querySelector("[data-area-form]");
+          // Sin permiso de catálogo el campo se pinta sin formulario: no hay nada
+          // que cablear (mismo criterio que el bloque de Estado, más abajo).
+          if (!areaForm) continue;
           const areaFix = areaField.querySelector("[data-area-fix]");
           // "Eliminar" vive DENTRO del mini-formulario de edición (lápiz → formulario
           // → Eliminar): una papelera siempre visible junto al selector hacía ruido.

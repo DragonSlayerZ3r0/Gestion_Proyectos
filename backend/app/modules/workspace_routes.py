@@ -169,13 +169,22 @@ def register(router: Router) -> None:
     # Sondeo de cambios (refresco en vivo): lectura de 1 item, sin datos pesados.
     router.add(["GET"], "/api/workspace/version", _version, modules=["projects", "tasks"],
                error_msg="Error inesperado al consultar la versión.")
-    router.add(["POST"], "/api/areas", _create_area, modules=P,
+    # Catálogos (áreas y estados): mantenerlos ya NO es parte del trabajo diario.
+    # `ensure_module_access` evalúa la lista con OR, así que esto se lee como
+    # "tiene el sub-permiso O tiene Administración" — los admins conservan la
+    # capacidad sin que haya que asignarles nada, y pueden delegarla a quien cure
+    # el catálogo sin entregarle la pantalla de usuarios y permisos completa.
+    # (Difiere a propósito de wiki_editor, que no lleva la salida por `admin`:
+    # ahí el permiso ya estaba repartido; acá quitarlo de golpe dejaría a todo
+    # el mundo sin poder crear un área hasta ir a marcarlo.)
+    C = ["projects_catalogos", "admin"]
+    router.add(["POST"], "/api/areas", _create_area, modules=C,
                error_msg="Error inesperado al crear el área solicitante.")
-    router.add(["PATCH", "DELETE"], "/api/areas/{areaId}", _area_update, modules=P,
+    router.add(["PATCH", "DELETE"], "/api/areas/{areaId}", _area_update, modules=C,
                error_msg="Error inesperado al actualizar el área solicitante.")
-    router.add(["POST"], "/api/project-statuses", _create_status, modules=P,
+    router.add(["POST"], "/api/project-statuses", _create_status, modules=C,
                error_msg="Error inesperado al crear el estado.")
-    router.add(["PATCH", "DELETE"], "/api/project-statuses/{statusId}", _status_update, modules=P,
+    router.add(["PATCH", "DELETE"], "/api/project-statuses/{statusId}", _status_update, modules=C,
                error_msg="Error inesperado al actualizar el estado.")
     router.add(["POST"], "/api/people", _create_person, modules=P,
                error_msg="Error inesperado al crear el usuario.")
