@@ -32,11 +32,24 @@ from services.llm import LlmService
 from services.workspace import WorkspaceService
 
 MAX_PROMPT_CHARS = 500
-# Presupuesto de caracteres del contexto que viaja al redactor. Cota real de
-# escala: sin importar cuántas solicitudes haya, solo entran las más relevantes
-# hasta aquí (el resto se resume como conteo). Deja aire para prompt + system
-# dentro del tope de 60000 de la llamada.
-_CONTEXT_BUDGET_CHARS = 60000
+# Tope DURO que valida LlmService.converse (si se pasa, lanza ValidationError y
+# el usuario solo ve "No fue posible generar el reporte esta vez").
+_MAX_PROMPT_CHARS = 60000
+# Reserva para todo lo que se suma DESPUÉS de armar el contexto: el pedido del
+# usuario (≤ MAX_PROMPT_CHARS = 500), el separador "PEDIDO DEL USUARIO:", la
+# nota de alcance y los saltos de línea del join.
+#
+# INCIDENTE 2026-07-31: el presupuesto era EXACTAMENTE el tope (60000), así que
+# no quedaba aire ninguno — el comentario decía que sí, el número decía que no.
+# Cualquier pregunta AMPLIA ("porcentaje de participación por responsable",
+# "avance general") saturaba el presupuesto, se pasaba del tope por unos cientos
+# de caracteres y reventaba. Las preguntas acotadas (una persona, un estado)
+# armaban un contexto chico y funcionaban: de ahí el "a veces falla".
+_CONTEXT_RESERVE_CHARS = 2000
+# Presupuesto del contexto que viaja al redactor. Cota real de escala: sin
+# importar cuántas solicitudes haya, solo entran las más relevantes hasta aquí
+# (el resto se resume como conteo).
+_CONTEXT_BUDGET_CHARS = _MAX_PROMPT_CHARS - _CONTEXT_RESERVE_CHARS
 _MAX_UPDATES_PER_PROJECT = 12       # tope por solicitud para que una no acapare
 _UPDATE_SNIPPET_CHARS = 400
 # Detalle de TAREAS (2026-07-24): sin esto el modelo solo veía "tareas=2/7" y no
@@ -85,6 +98,11 @@ SYSTEM_PROMPT = (
     "confundas al responsable de la solicitud con el de una tarea. Si preguntan por "
     "carga de trabajo, usa los conteos por persona del PANORAMA y respáldalos con las "
     "tareas concretas. "
+    "REGLA DE CONTEO: para totales, porcentajes, rankings o 'cuántas por X' usa "
+    "SIEMPRE los conteos del PANORAMA, que cubren TODO el portafolio. NUNCA los "
+    "cuentes sumando las solicitudes listadas abajo: esa lista está recortada por "
+    "longitud (la nota de alcance dice cuántas quedaron fuera) y contarlas daría un "
+    "número equivocado. La lista sirve para ejemplos y detalle, no para contar. "
     "Estructura: un reporte en markdown breve y accionable (títulos, viñetas o tabla "
     "cuando aporte), pensado para leerse en 1 minuto. Al FINAL, si el pedido se "
     "presta a un diagrama, agrega UN bloque ```json con la especificación:\n"
@@ -157,9 +175,19 @@ class ExecReportService:
             ws = WorkspaceService().get_workspace()
             plan = self._plan(prompt, ws)                 # paso 1
             context = self._build_context(ws, plan)       # paso 2
+            message = f"{context}\n\nPEDIDO DEL USUARIO: {prompt}"
+            # Red de seguridad: si el contexto volviera a pasarse del tope, se
+            # RECORTA en vez de reventar. Un reporte con menos solicitudes es
+            # infinitamente mejor que "No fue posible generar el reporte", que no
+            # le dice nada al usuario ni le deja nada que hacer.
+            if len(message) > _MAX_PROMPT_CHARS:
+                sobra = len(message) - _MAX_PROMPT_CHARS
+                aviso = "\n(CONTEXTO RECORTADO POR LONGITUD: faltan solicitudes.)"
+                context = context[:max(0, len(context) - sobra - len(aviso))] + aviso
+                message = f"{context}\n\nPEDIDO DEL USUARIO: {prompt}"
             result = LlmService().converse(               # paso 3
-                [{"role": "user", "text": f"{context}\n\nPEDIDO DEL USUARIO: {prompt}"}],
-                system=SYSTEM_PROMPT, max_tokens=2200, max_prompt_chars=60000)
+                [{"role": "user", "text": message}],
+                system=SYSTEM_PROMPT, max_tokens=2200, max_prompt_chars=_MAX_PROMPT_CHARS)
             report_md, diagram = self._split_diagram(result["text"])
             if result.get("stopReason") == "max_tokens":
                 report_md += "\n\n*(El reporte se cortó por longitud; pide una versión más acotada.)*"
@@ -263,14 +291,16 @@ class ExecReportService:
             header.append(self._aggregates_block(projects, areas, statuses, people, task_statuses))
         header.append("SOLICITUDES RELEVANTES (de mayor a menor relación con el pedido):")
         lines = list(header)
-        used = sum(len(x) for x in lines)
+        # +1 por línea: el "\n" que mete el join también ocupa y también cuenta
+        # para el tope (con ~110 bloques eran ~110 caracteres invisibles).
+        used = sum(len(x) + 1 for x in lines)
         included = 0
         for _score, p in scored:
             block = self._project_block(p, areas, statuses, people, task_statuses)
-            if included > 0 and used + len(block) > _CONTEXT_BUDGET_CHARS:
+            if included > 0 and used + len(block) + 1 > _CONTEXT_BUDGET_CHARS:
                 break
             lines.append(block)
-            used += len(block)
+            used += len(block) + 1
             included += 1
         omitted = len(scored) - included
         if omitted > 0:
@@ -388,9 +418,19 @@ class ExecReportService:
                           statuses_task: dict[str, str] | None = None) -> str:
         """Conteos precalculados (para preguntas amplias/tendencias): mucho panorama
         en pocos caracteres, sin volcar cada solicitud."""
+        who = people or {}
         by_status: dict[str, int] = {}
         by_area: dict[str, int] = {}
         by_due_month: dict[str, int] = {}
+        # SOLICITUDES por responsable y por participante (2026-07-31). Antes solo
+        # existía la carga de TAREAS por persona, así que "porcentaje de
+        # participación por responsable de solicitudes" solo se podía contestar
+        # contando los bloques del contexto — y ahí caben ~63 de 147, o sea que
+        # el porcentaje salía sobre el 43% del portafolio. Contado en Python
+        # sobre TODAS, con el porcentaje ya calculado (los modelos son malos
+        # para la aritmética y esto no admite aproximaciones).
+        by_owner: dict[str, int] = {}
+        by_involved: dict[str, int] = {}
         for p in projects:
             st = statuses.get(p.get("status"), p.get("status") or "sin estado")
             by_status[st] = by_status.get(st, 0) + 1
@@ -399,14 +439,31 @@ class ExecReportService:
             due = str(p.get("dueDate") or "")[:7]
             if re.match(r"^\d{4}-\d{2}$", due):
                 by_due_month[due] = by_due_month.get(due, 0) + 1
+            owner_id = p.get("ownerPersonId") or ""
+            owner = who.get(owner_id, "sin responsable") if owner_id else "sin responsable"
+            by_owner[owner] = by_owner.get(owner, 0) + 1
+            # "Participa" = responsable O persona relacionada. Se cuenta UNA vez
+            # por solicitud aunque sea las dos cosas (de ahí el set).
+            for pid in {owner_id} | {m.get("personId") for m in (p.get("members") or [])}:
+                if not pid:
+                    continue
+                name = who.get(pid, pid)
+                by_involved[name] = by_involved.get(name, 0) + 1
+        total = len(projects) or 1
         def _fmt(d: dict[str, int]) -> str:
             return ", ".join(f"{k}: {v}" for k, v in sorted(d.items(), key=lambda kv: kv[1], reverse=True))
+        def _fmt_pct(d: dict[str, int]) -> str:
+            return ", ".join(f"{k}: {v} ({round(v * 100 / total)}%)"
+                             for k, v in sorted(d.items(), key=lambda kv: kv[1], reverse=True))
         return ("PANORAMA (conteos sobre TODO el portafolio):\n"
                 f"  total solicitudes: {len(projects)}\n"
                 f"  por estado: {_fmt(by_status)}\n"
                 f"  por área: {_fmt(by_area)}\n"
+                f"  SOLICITUDES POR RESPONSABLE (dueño, % sobre el total): {_fmt_pct(by_owner)}\n"
+                f"  PARTICIPACIÓN (responsable o persona relacionada, % sobre el total): "
+                f"{_fmt_pct(by_involved) or 'sin personas relacionadas'}\n"
                 f"  entregas por mes: {_fmt(by_due_month) or 'sin fechas de entrega'}\n"
-                + self._workload_block(projects, areas, people or {}, statuses_task or {}))
+                + self._workload_block(projects, areas, who, statuses_task or {}))
 
     def _workload_block(self, projects: list[dict[str, Any]], areas: dict[str, str],
                         people: dict[str, str], statuses_task: dict[str, str]) -> str:

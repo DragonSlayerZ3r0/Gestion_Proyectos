@@ -235,15 +235,40 @@ Luego:
    amplia queda ordenada por lo más movido primero.
 3. `soloActivas`: no excluye del todo las cerradas (permite "qué se entregó"); las
    ordena al final (heurística de estados cerrados: `done/delivered/cancelled/…`).
-4. **Recorte elegante a presupuesto** (`_CONTEXT_BUDGET_CHARS = 45000`): arma el
-   contexto agregando solicitudes por relevancia hasta llenar el presupuesto. Cada
-   bloque lleva el detalle + hasta 12 seguimientos (con autor). Si se quedan fuera,
-   añade una **nota de alcance**: "se incluyeron las X más relevantes de Y; Z
-   quedaron fuera por longitud". El modelo lo reporta en vez de fallar en silencio.
+4. **Recorte elegante a presupuesto**: arma el contexto agregando solicitudes por
+   relevancia hasta llenar el presupuesto. Cada bloque lleva el detalle + hasta 12
+   seguimientos (con autor) + hasta 15 tareas con sus seguimientos. Si se quedan
+   fuera, añade una **nota de alcance**: "se incluyeron las X más relevantes de Y;
+   Z quedaron fuera por longitud". El modelo lo reporta en vez de fallar en silencio.
+   **El presupuesto se DERIVA del tope duro, nunca se escribe a mano**
+   (`_CONTEXT_BUDGET_CHARS = _MAX_PROMPT_CHARS - _CONTEXT_RESERVE_CHARS`, hoy
+   60000 − 2000). La reserva cubre lo que se suma DESPUÉS del contexto: el pedido
+   del usuario (≤500), el separador "PEDIDO DEL USUARIO:", la nota de alcance y
+   los `\n` del join — que también ocupan y por eso se cuentan dentro del bucle
+   (`used += len(block) + 1`). Además, antes de llamar al modelo el mensaje se
+   **recorta** si aun así se pasara: un reporte con menos solicitudes es mejor que
+   un error. **Incidente 2026-07-31**: presupuesto y tope eran el mismo número
+   (60000) y con los datos reales el mensaje quedaba en 60012 — se pasaba por
+   **12 caracteres** y el usuario solo veía "No fue posible generar el reporte
+   esta vez". Ver bitácora. Si algún día hace falta más contexto, se sube
+   `_MAX_PROMPT_CHARS` y el presupuesto lo sigue solo.
 5. **Agregados** (`_aggregates_block`): si `agregados`, antepone conteos
-   precalculados (por estado, por área, por mes de entrega) — mucho panorama en
-   pocos caracteres, sin volcar cada solicitud. Es lo que responde bien "cómo vamos"
-   o tendencias.
+   precalculados **sobre TODO el portafolio** (por estado, por área, por mes de
+   entrega, **solicitudes por responsable**, **participación** = responsable o
+   persona relacionada, y carga de TAREAS por persona vía `_workload_block`) —
+   mucho panorama en pocos caracteres, sin volcar cada solicitud. Es lo que
+   responde bien "cómo vamos", tendencias y cualquier "cuántas por X".
+   **REGLA (2026-07-31): contar es trabajo del PANORAMA, no del modelo.** En el
+   volumen real solo entran ~59 de 147 solicitudes en la lista de abajo; si el
+   modelo cuenta ahí, el porcentaje sale sobre el 40% del portafolio y se ve
+   creíble. Por eso: (a) todo agregado que una pregunta pueda pedir se precalcula
+   en Python sobre el universo completo, **con el porcentaje ya resuelto** (los
+   modelos son malos para la aritmética); (b) el SYSTEM_PROMPT lleva una REGLA DE
+   CONTEO que prohíbe explícitamente contar sumando la lista. Subir
+   `_MAX_PROMPT_CHARS` para que quepan todas **no** es la salida: harían falta
+   ~150.000 caracteres (2.5× tokens, más costo y latencia, y contexto largo donde
+   el modelo pierde precisión) para que igual cuente a mano lo que Python cuenta
+   exacto y gratis. Si falta un agregado, se agrega aquí — no se agranda el tope.
 
 **Cota de escala:** sin importar cuántas solicitudes existan, al modelo solo entran
 las más relevantes hasta 45K chars; el resto se resume como conteo. El costo por
