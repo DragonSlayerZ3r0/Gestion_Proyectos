@@ -136,23 +136,22 @@
      solicitud (archivos S3 + queries) con su etiqueta de origen; zona para
      arrastrar/pegar y crear queries. Mismo look de bloque que Seguimiento. */
   .attachBlock { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); padding: 12px; }
-  .attachGrid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-  .attachItem { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 4px 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 0.8rem; }
-  .attachItem.query { background: var(--surface-muted); }
-  .attachOpen { display: inline-flex; align-items: center; gap: 6px; min-width: 0; border: none; background: transparent; font: inherit; color: var(--text); cursor: pointer; padding: 2px 2px; }
-  .attachOpen:hover { color: var(--accent-strong); }
-  .attachIcon { flex: none; font-size: 0.9rem; line-height: 1; }
-  .attachName { min-width: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Aquí vivían las píldoras del listado PLANO de adjuntos (.attachGrid,
+     .attachItem, .attachOpen y el tope de 200px de .attachName). Se borraron el
+     2026-08-04 junto con `renderAttachmentItem`, la función que las pintaba y
+     que ya nadie llamaba desde que existe el árbol de carpetas. `.attachName` y
+     `.attachIcon` NO se redeclaran aquí: sus reglas vivas son las del árbol, más
+     abajo — tener la misma clase definida en dos bloques fue justo lo que causó
+     el bug del recorte a 200px. */
   /* Selector "Relacionar con" por adjunto (General / seguimiento / + Nueva nota). */
   .attachRelate { flex: none; max-width: 200px; font: inherit; font-size: 0.72rem; color: var(--muted); background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; padding: 2px 4px; cursor: pointer; }
-  /* Papelera de adjuntos: NEUTRA por defecto y roja solo al hover (el peligro se
-     revela con la intención — el rojo permanente hacía ruido para una acción
-     rara), y separada del selector "Relacionar con" (control frecuente pegado a
-     uno destructivo = clics falsos, ley de Fitts). */
-  .attachItem .iconTinyButton { flex: none; margin-left: 6px; width: 22px; height: 22px; border-radius: 6px; }
-  .attachItem .iconTinyButton svg { width: 12px; height: 12px; }
-  .attachItem .iconTinyButton--danger { color: var(--muted); }
-  .attachItem .iconTinyButton--danger:hover { color: var(--danger); background: var(--danger-soft); }
+  /* OJO (2026-08-04): aquí había cuatro reglas `.attachItem .iconTinyButton…`
+     que hacían la papelera NEUTRA por defecto y roja solo al hover. Se borraron
+     con el resto de la píldora, pero la intención NUNCA llegó al árbol: sus
+     filas son `.attachRow`, así que siempre tomaron la regla global
+     `.iconTinyButton--danger`, que es roja de entrada. O sea que ese criterio
+     («el peligro se revela con la intención») quedaba documentado sin estar
+     aplicado. Si se quiere de verdad, va sobre `.attachRow`, no aquí. */
   /* Zona para arrastrar/pegar + acciones de alta. */
   .attachDropzone { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--panel); }
   .attachDropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
@@ -169,8 +168,14 @@
   /* Chips SOLO-vista de adjuntos DENTRO de una entrada de seguimiento (contexto);
      se agregan/relacionan desde la franja, aquí solo se abren. */
   .attachInline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
-  .attachChip { display: inline-flex; align-items: center; gap: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font: inherit; font-size: 0.74rem; color: var(--text); cursor: pointer; }
+  /* El recorte va en el NOMBRE, no en el chip: en un contenedor flex el
+     text-overflow del padre NO aplica al texto de los hijos, así que el nombre
+     se cortaba en seco (sin «…») y al chip de carpeta se le comía el conteo,
+     que es justo lo que lo distingue de un archivo suelto (2026-08-04). */
+  .attachChip { display: inline-flex; align-items: center; gap: 4px; max-width: 260px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font: inherit; font-size: 0.74rem; color: var(--text); cursor: pointer; }
   .attachChip:hover { color: var(--accent-strong); border-color: var(--accent); }
+  .attachChipIcon, .attachChip em { flex: none; }
+  .attachChipName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Responsive de la tabla de Solicitudes (va DESPUÉS de las reglas base para
      poder sobreescribirlas en pantallas chicas). */
@@ -205,6 +210,12 @@
   /* Campos de área (solicitante/destino, catálogo compartido): selector con
      acciones inline + mini-formulario para crear/corregir sin salir del editor. */
   .areaField { display: grid; gap: 9px; min-width: 0; }
+  /* "+ Registrar persona nueva…" dentro del selector de miembros: mismo lenguaje
+     visual que el mini-formulario de Área (borde punteado = algo en curso). */
+  .memberCreateForm { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-muted); }
+  .memberCreateForm input { width: 100%; box-sizing: border-box; }
+  .memberCreateForm .helperText { margin: 0; }
+  .memberCreateActions { display: flex; gap: 8px; flex-wrap: wrap; }
   .areaInlineForm { display: flex; flex-direction: column; gap: 8px; margin: -2px 0 8px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-muted); }
   .areaInlineForm input { width: 100%; box-sizing: border-box; }
   .areaInlineActions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -216,9 +227,10 @@
 
   .peopleSection { padding: 10px 16px; }
   .peopleSectionHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .peopleToggle { display: inline-flex; align-items: center; gap: 8px; border: none; background: none; padding: 6px 2px; cursor: pointer; font: inherit; color: #23333a; }
-  .peopleChev { display: inline-block; transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1); color: var(--accent-strong); }
-  .peopleSection.open .peopleChev { transform: rotate(90deg); }
+  /* Título de la vista Personas (ya no es un colapsable: el chevron y su botón
+     desaparecieron el 2026-08-04, cuando el directorio pasó a ser vista propia). */
+  .peopleViewTitle { display: inline-flex; align-items: center; gap: 8px; padding: 6px 2px; color: #23333a; }
+  .peopleViewTitle strong { font-size: 1.02rem; }
   .countPill.subtle { background: var(--surface-muted, #f1f5f9); color: var(--muted); }
   .peopleBody { display: grid; gap: 10px; padding-top: 10px; }
   .peopleHint { margin: 0; color: var(--muted); font-size: 0.76rem; }
@@ -455,3 +467,91 @@
     padding: 3px 10px;
     white-space: nowrap;
   }
+
+  /* ── Árbol de adjuntos (2026-07-31) ───────────────────────────────────────
+     Techo de altura con scroll propio: sin él, una solicitud con 200 archivos
+     empujaría Personas, Tareas y Seguimiento al fondo de la página. Misma
+     lección del tablero y de la tabla de solicitudes. */
+  .attachTree {
+    max-height: 320px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 4px;
+    background: var(--panel);
+  }
+  .attachSearch { width: 100%; margin-bottom: 8px; }
+  .attachRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+  }
+  .attachRow:hover { background: var(--surface-muted); }
+  .attachRow.isSel { background: var(--accent-soft); }
+  .attachCheck {
+    border: 0; background: none; padding: 0; cursor: pointer; line-height: 1;
+    font-size: 0.95rem; color: var(--muted); flex: none;
+  }
+  .attachCheck.todas, .attachCheck.parcial { color: var(--accent-strong); }
+  .attachFolderBtn, .attachOpenBtn {
+    display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+    border: 0; background: none; padding: 0; font: inherit; text-align: left; cursor: pointer;
+  }
+  .attachFolderBtn:hover:not(:disabled), .attachOpenBtn:hover:not(:disabled) { transform: none; }
+  .attachChevron { color: var(--muted); font-size: 0.7rem; flex: none; width: 10px; }
+  /* Carpeta y archivo tienen que distinguirse SIN leer: la carpeta va en el tono
+     de acento y el archivo en gris, además de las siluetas distintas. */
+  .attachFolderIcon, .attachIcon { flex: none; width: 15px; height: 15px; color: var(--muted); }
+  .attachFolderIcon { color: var(--accent-strong); }
+  .attachIcon.isQuery { width: auto; height: auto; font-size: 0.9rem; line-height: 1; }
+  .attachFolderName { font-weight: 650; color: var(--text); }
+  /* Guía vertical por nivel: con seis niveles de anidamiento la sangría sola no
+     dice qué cuelga de qué. La línea nace bajo el icono de su carpeta madre
+     (--guia la calcula el render con la misma fórmula de la sangría). */
+  .attachKids { position: relative; }
+  .attachKids::before {
+    content: ""; position: absolute; left: var(--guia); top: 0; bottom: 4px;
+    width: 1px; background: var(--line);
+  }
+  .attachName {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--text);
+  }
+  .attachPath { color: var(--muted); font-size: 0.74rem; }
+  .attachCount, .attachMeta {
+    font-size: 0.72rem; color: var(--muted); white-space: nowrap; flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Marca de referenciado en un seguimiento: sin ella, borrar desde el árbol
+     haría desaparecer un chip de la bitácora sin aviso previo. */
+  .attachRefMark { margin-left: 5px; font-size: 0.72rem; }
+  .attachFoot { margin: 8px 2px 0; font-size: 0.74rem; color: var(--muted); }
+  .attachSelBar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap; margin-bottom: 8px; padding: 8px 12px;
+    background: var(--accent-soft); border-radius: 8px;
+    font-size: 0.8rem; color: var(--accent-strong);
+  }
+  .attachSelActions { display: flex; gap: 8px; }
+  .attachProgress { margin-top: 10px; padding: 10px 12px; background: var(--panel-soft); border-radius: 8px; }
+  .attachProgressHead { font-size: 0.8rem; margin-bottom: 6px; color: var(--text-soft); }
+  .attachProgressTrack { height: 6px; background: var(--surface-muted); border-radius: 999px; overflow: hidden; }
+  .attachProgressTrack > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .attachProgressFail { margin: 8px 0 0; font-size: 0.76rem; color: var(--danger); }
+
+  @media (max-width: 640px) {
+    /* La fila se aprieta: el meta (autor · fecha · peso) pasa a segunda línea. */
+    .attachRow { flex-wrap: wrap; }
+    .attachMeta { width: 100%; padding-left: 26px; }
+  }
+
+  /* Selector para relacionar TODA una carpeta con un seguimiento: más angosto
+     que el de archivo, porque va en la fila de la carpeta junto al conteo. */
+  .attachRelateFolder { max-width: 190px; }
+  /* Chip resumen en la bitácora: «🗀 Carpeta 89» en vez de 89 chips sueltos. */
+  .attachChipFolder { background: var(--surface-muted); border-color: var(--line); }
+  .attachChipFolder em { font-style: normal; font-weight: 700; color: var(--muted); }

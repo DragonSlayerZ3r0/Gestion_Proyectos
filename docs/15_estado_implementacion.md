@@ -1,5 +1,17 @@
 # Estado de implementación
 
+## Último avance (2026-07-31: Solicitudes — entregables, adjuntos con carpetas y escala visual)
+
+**Entregables (nivel opcional).** Las solicitudes grandes ya pueden agrupar tareas en entregables — el término correcto: un *hito* es un punto en el tiempo sin trabajo, un *entregable* es el producto que SÍ agrupa tareas, y su fecha hace de hito. Franja arriba del tablero con nombre, fecha, avance y hechas/total; clic filtra el tablero. **Opcional a propósito**: de 147 solicitudes solo 41 tienen tareas y 30 de esas tienen entre 1 y 3, así que una solicitud sin entregables se ve y funciona igual que antes. Borrar un entregable no borra trabajo: sus tareas quedan sin entregable. La **Línea de tiempo** pasó a tener nivel de entregables con sus tareas desplegables, y el PDF sale con el nivel que se está viendo.
+
+**Adjuntos con carpetas.** Subida de carpetas completas (botón y arrastre) conservando la estructura, vista de **árbol** plegable con buscador, selección múltiple y **descarga en .zip armada en el navegador**. Cada fila muestra autor, fecha y tamaño. El seguimiento se relaciona con la **carpeta entera**, no archivo por archivo, y en la bitácora esos adjuntos se resumen en un chip por carpeta. Cambio de fondo: la lista de adjuntos **dejó de viajar en `/api/workspace`** (solo el conteo) — con carpetas de 50 archivos habría sumado más de 1 MB a cada carga y a cada refresco.
+
+**Permisos y limpieza.** Mantener los catálogos de Área y Estado pasó a exigir el sub-permiso `projects_catalogos` (o Administración): estaba abierto a cualquiera y el catálogo se ensució solo, con tres variantes de «Plataformas Digitales». Los chips de estado se volvieron casillas puras (quitar un estado costaba 7 clics), los controles de tareas se mudaron a su tarjeta, cada sección del detalle tiene su ícono, y la solicitud recién creada queda anclada para que ningún filtro la esconda.
+
+**Escala visual.** El tablero pasó de 3,6 pantallas con 40 tareas a **0,6 fijas**: tope por columna con scroll propio, tarjeta más densa y el hint de arrastre una sola vez en vez de en cada tarjeta. El árbol de adjuntos nace con el mismo techo.
+
+**Incidentes resueltos.** El Reporte ejecutivo fallaba por **12 caracteres** (el presupuesto de contexto era igual al tope) y además calculaba porcentajes sobre el 40% del portafolio, ahora resuelto con agregados precalculados. Arrastrar una carpeta daba «El archivo está vacío» (hay que recorrerla con la API de entradas, y `readEntries` devuelve por tandas de 100). Y «+ Entregable» no hacía nada visible dos veces seguidas: primero porque la franja no se dibujaba sin entregables, después porque su formulario aparecía fuera de la pantalla.
+
 ## Último avance (2026-07-28 al 30: Solicitudes — trabajo en equipo, tiempo y limpieza visual)
 
 **Trabajo compartido sin recargar**

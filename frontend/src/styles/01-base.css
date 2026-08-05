@@ -1439,13 +1439,24 @@
     grid-row: 1 / span 2;
   }
 
+  /* El techo y el alto de fila salen de la MISMA variable, y por eso ya no pueden
+     separarse. Antes el techo era un 96px fijo con el comentario "2 filas de 42px
+     · nunca se corta un chip a la mitad": la tarjeta creció a 46 (manda el lápiz
+     de 32 + 12 de padding + 2 de borde), así que entraban 1.8 filas y SIEMPRE se
+     partía una — 6 tarjetas cortadas con 26 personas (2026-08-05). `grid-auto-rows`
+     fija la fila para que la cuenta sea exacta aunque cambie el contenido.
+     6 filas: con las 26 personas de hoy (5 filas) cabe todo sin scroll interno,
+     y un directorio grande sigue acotado en vez de estirar la página. */
   .peopleStrip {
+    --filaAlto: 46px;
+    --filaGap: 8px;
+    --filasVisibles: 6;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 8px;
-    /* 2 filas completas de chips (42px c/u + gap); el resto con scroll — nunca
-       se corta un chip a la mitad. */
-    max-height: 96px;
+    grid-auto-rows: var(--filaAlto);
+    gap: var(--filaGap);
+    max-height: calc(var(--filasVisibles) * var(--filaAlto)
+                     + (var(--filasVisibles) - 1) * var(--filaGap));
     overflow: auto;
     padding-right: 2px;
     scrollbar-gutter: stable;
@@ -2140,11 +2151,20 @@
     color: var(--muted);
   }
 
+  /* ALTURA TOPE POR COLUMNA (2026-07-31): sin esto la columna más alta definía
+     el alto de TODO el tablero y las demás se estiraban vacías — medido: con 15
+     tareas el tablero llegaba a 1.324px (1,5 pantallas) y «En revisión», con UNA
+     tarjeta, medía 1.309px. Con 40 tareas eran 3,6 pantallas. Mismo patrón que
+     ya usa la tabla de solicitudes: tope + scroll interno, así el tablero cabe
+     en una pantalla tenga 15 tareas o 100. */
   .taskDropZone {
     display: grid;
     align-content: start;
     gap: 10px;
     padding: 10px;
+    max-height: 460px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     min-width: 0;
   }
 
@@ -2163,6 +2183,17 @@
     gap: 6px;
     align-items: center;
     justify-content: flex-start;
+  }
+
+  /* Fila única de la tarjeta compacta: el chip del entregable y las fechas ya no
+     ocupan renglón propio, entran aquí y envuelven solos si no caben. */
+  .taskMeta > .entTag,
+  .taskMeta > .taskDates {
+    margin: 0;
+  }
+  .taskMeta > .taskDates {
+    gap: 8px;
+    color: var(--muted);
   }
 
   .emptyText {
@@ -2401,6 +2432,16 @@
     .kanbanBoard {
       grid-template-columns: minmax(220px, 1fr);
       overflow: visible;
+    }
+
+    /* Apiladas, el tope de altura sobra y estorba: la página YA se desplaza, y
+       una zona con scroll propio dentro de una página que también se desplaza
+       atrapa el gesto (te mueves por la página y de pronto scrollea la columna).
+       El tope existe para que la columna más alta no estire a las de al lado —
+       problema que solo existe cuando están lado a lado (2026-07-31). */
+    .taskDropZone {
+      max-height: none;
+      overflow-y: visible;
     }
 
     .panelHeader {

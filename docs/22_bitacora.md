@@ -10,6 +10,48 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-08-05 · incidente — El directorio de personas cortaba tarjetas a la mitad: un techo en px que dejó de cuadrar
+
+**Reportado por el usuario** con captura: filas partidas arriba y abajo en la vista Personas. `.peopleStrip` tenía `max-height: 96px` con el comentario *«2 filas completas de chips (42px c/u + gap) — nunca se corta un chip a la mitad»*. La promesa dejó de cumplirse cuando la tarjeta creció a **46px** (manda el lápiz de 32 + 12 de padding + 2 de borde, no el avatar de 28): 96px son **1.8 filas**, así que siempre se partía una. Medido: 6 tarjetas cortadas con las 26 personas reales.
+
+**Arreglo — que el techo no pueda volver a separarse del contenido:** el alto de fila y el techo salen de las MISMAS variables (`--filaAlto`, `--filaGap`, `--filasVisibles`) y `grid-auto-rows` fija la fila, así la cuenta es exacta aunque cambie el contenido. Con 6 filas visibles: las 26 personas de hoy (5 filas) caben **sin scroll interno**, y un directorio grande queda acotado en vez de estirar la página. Verificado con 26/60/200 personas y en 1280/768/390: **cero tarjetas cortadas en reposo** y sin desborde horizontal. (Al arrastrar el scroll a media rueda sí quedan filas parciales en el borde — eso es inherente a cualquier lista con scroll, no el defecto reportado.)
+
+**La lección, que es la de siempre en este repo:** un número mágico en px que describe otra cosa («2 filas de 42») es una promesa que caduca en silencio. Si dos medidas tienen que cuadrar entre sí, tienen que salir de la misma fuente. Docs: `docs/06` #12.
+
+## 2026-08-04 · estándar — Se borró `renderAttachmentItem` y su CSS: una clase declarada en dos bloques es una trampa
+
+**Limpieza del código muerto que causó el recorte a 200px** (ver la entrada de más abajo). `renderAttachmentItem` —el listado PLANO de adjuntos, anterior al árbol de carpetas— estaba definida y **nunca se llamaba**. Se eliminó junto con los estilos que solo ella usaba: `.attachGrid`, `.attachItem`, `.attachItem.query`, `.attachOpen`, `.attachOpen:hover` y las cuatro `.attachItem .iconTinyButton…`.
+
+**Cuidado al buscar usos:** `.attachOpen` parecía viva en un grep, pero la coincidencia era `button.dataset.attachOpen` — el **atributo** `data-attach-open`, que sigue en uso; la clase CSS no. Igual con `attachName`, que es a la vez clase y **función** (`attachName(att)`). Grep con `\b` tampoco basta: `attachOpen` es prefijo de `attachOpenBtn`, que sí vive en el árbol. Hay que comparar contra los límites reales de la función antes de borrar.
+
+**También se borraron las declaraciones base de `.attachName` y `.attachIcon`** que quedaban en ese bloque: las reglas vivas son las del árbol, más abajo, y tener la MISMA clase declarada en dos bloques distintos fue exactamente lo que produjo el bug del recorte. Verificado con un A/B real (mismo árbol y los 89 archivos reales, con la CSS desplegada vs. la nueva): idénticos salvo `font-size`/`line-height` del icono de archivo, que es un SVG de 15×15 fijos — la caja mide lo mismo en ambos. El icono de query (`{ }`, que sí es texto) no cambia porque `.attachIcon.isQuery` los redeclara.
+
+**Hallazgo suelto que conviene saber:** las reglas borradas hacían la papelera **neutra por defecto y roja solo al hover**, con su comentario explicando el porqué. Pero estaban acotadas a `.attachItem`, y las filas del árbol son `.attachRow` — así que **esa intención nunca se aplicó al árbol**, que siempre tomó la regla global `.iconTinyButton--danger` (roja de entrada). Quedó anotado en el CSS: si se quiere de verdad, va sobre `.attachRow`.
+
+## 2026-08-04 · incidente — El árbol de adjuntos saltaba al inicio, y sus nombres se recortaban a 200px sin motivo
+
+**Reportado por el usuario:** *"al tener desplegado un directorio y más abajo intento desplegar otro, me regresa arriba… tengo que bajar nuevamente para verlo"*. Causa: desplegar una carpeta llamaba a `renderWorkspace()`, que reconstruye el módulo entero; el contenedor `.attachTree` (con `max-height:320px` y scroll propio) **nacía de nuevo con `scrollTop` 0**. Medido en el arnés: con el árbol a 2687px, el render completo lo devolvía a 0. Arreglo: `repintarArbol()` reemplaza solo el `innerHTML` del árbol —el nodo sobrevive y conserva la posición— y `renderWorkspace` guarda/restaura `scrollTop` para los gestos que sí tocan cosas de afuera (seleccionar, borrar). Verificado: a 2687px la carpeta pulsada se queda en el mismo píxel.
+
+**Hallazgo al revisar lo visual:** los nombres se cortaban tan temprano («Certificación de reporte de rec…») **no por falta de espacio sino por un `max-width: 200px`** de la regla `.attachName` de las píldoras del listado plano, que se filtraba al árbol por no estar acotada — y encima esa regla solo existe para `renderAttachmentItem`, que es **código muerto** (definido y nunca llamado). Con la regla acotada a `.attachItem`, el nombre pasa de 200px a 529px en un contenedor de 794 y los archivos reales dejan de recortarse.
+
+**Además:** los iconos 🗀 y 🗎 (U+1F5C0/U+1F5CE) están mal soportados y se dibujaban casi idénticos — no se distinguía carpeta de archivo de un vistazo. Ahora son SVG inline (carpeta en tono de acento, archivo en gris) y se agregaron **guías verticales por nivel**, que con seis niveles de anidamiento hacen falta: la sangría sola no dice qué cuelga de qué. Docs: `docs/02`, `docs/06` #11.
+
+## 2026-08-04 · decisión — «Personas registradas» pasa a ser una vista, no la cola del detalle
+
+**Planteado por el usuario:** *"no veo muy coherente que hasta abajo del detalle de la solicitud esté la parte de personas registradas"*. Tenía razón, y el motivo de fondo no era la posición: al recorrer el detalle se pasaba por **«Personas relacionadas»** (las de ESA solicitud) y unos centímetros después aparecía **«Personas registradas»** (las 26 de toda la plataforma). Dos alcances distintos con el mismo nombre, apilados y sin nada que avisara del cambio de nivel. Datos que lo respaldan: 26 personas y 120 asignaciones — registrar a alguien es rarísimo, pero ocupaba el cierre del flujo más usado.
+
+**Primera recomendación DESCARTADA por el usuario, y con razón:** propuse mover el directorio a la vista **Personal**, leyéndola como "la casa de las personas". Él corrigió la premisa: Personal es el **control administrativo** (ausencias, vacaciones, asuetos) y el directorio de Solicitudes existe justo para que **cualquier usuario dé de alta a un externo (proveedor) sin depender de un administrador**. Mover el alta ahí habría roto el caso de uso que motiva la función. Queda como recordatorio de que la intención de un módulo no siempre se lee en sus guards: `GET /api/staff` está abierto a todos, pero su propósito es otro.
+
+**Lo que se hizo:** tercer segmento **«Personas»** junto a Gestión y Tablero de avance — el directorio deja de ser la cola de una solicitud y pasa a ser hermano de la lista, con el alcance evidente y a un clic. Sigue en el módulo Solicitudes (sin admin de por medio) y `POST /api/people` se deja abierto, como decidió el usuario; el backend ya bloquea nombres duplicados. Además, **«+ Registrar persona nueva…» dentro del selector «Agregar persona»** del detalle: registra y asigna en un gesto, que es el caso real (estoy llenando la solicitud y necesito un proveedor que aún no existe). Si el alta funciona pero la asignación falla, el aviso **dice que la persona ya quedó registrada** en vez de fingir que no pasó nada. Se perdió un atajo de arrastre (desasignar soltando la ficha en el panel): imposible ya que el directorio no convive con solicitudes; la × del chip sigue siendo la vía visible. Docs: `docs/02`, `docs/06` #10.
+
+## 2026-08-04 · incidente — El chip de carpeta en la bitácora era un botón muerto (y el CSS lo disfrazaba)
+
+**Reportado por el usuario:** *"presiono el botón, pero no hace nada"*, sobre el chip que aparece bajo un seguimiento con adjuntos. Eran **dos defectos que se tapaban entre sí**. (1) El chip de carpeta se emitía como `<span>` —solo los de archivo eran `<button>`— pero heredaba `cursor: pointer`, borde y `:hover` de la clase compartida `.attachChip`: parecía botón sin serlo. (2) `.attachChip` llevaba `text-overflow: ellipsis`, que **en un contenedor flex no aplica al texto de los hijos**, así que el nombre se cortaba en seco y se comía el conteo del final — justo la única señal («89») que distinguía un chip de carpeta de uno de archivo. Sin esa señal, ni el usuario ni yo podíamos ver que era otra cosa.
+
+**Arreglo:** el recorte se movió a un `<span class="attachChipName">` propio (`min-width:0` + `overflow:hidden` + `ellipsis`), con `flex: none` en icono y conteo para que nunca se recorten; y el chip de carpeta pasó a ser `<button>` que **lleva a esa carpeta ya desplegada** en la franja Adjuntos: limpia el buscador (que aplana el árbol y escondería la carpeta), la marca abierta, desplaza y destella. Funciona porque la llave del chip es la MISMA del árbol (`projectId::ruta`) — verificado contra los 89 adjuntos reales del proyecto de Reciprocidad.
+
+**Regla que deja:** lo que se ve pulsable debe hacer algo, y si un elemento **resume** un conjunto («89 archivos»), el clic tiene que llevar a ese conjunto. Un `<span>` decorativo dentro de una familia de chips clicables se reporta siempre como «no hace nada». Docs: `docs/02` (Adjuntos), `docs/06` #9 (regla del `ellipsis` en flex), `AGENTS.md` (convención icono/texto).
+
 ## 2026-07-31 · incidente — Pizarra: la imagen pegada por uno le salía a los demás como un recuadro gris
 
 **Reportado por el usuario.** El base64 de la imagen viajaba dentro del mismo mensaje del WebSocket que los elementos (`files: getFiles()` en el `scene`), y **API Gateway corta en 32 KB por frame / 128 KB por mensaje**: una captura pegada pesa cientos de KB, así que el mensaje se descartaba. Nadie se enteraba porque las dos puntas se tragaban el error (`try/catch` mudo en el cliente, `except Exception: pass` en el relevo). Al resto le llegaba el **elemento** —que solo trae el `fileId`— pero nunca el archivo: eso es el recuadro gris. Peor: `getFiles()` devuelve TODOS los archivos, así que con una imagen en el tablero cada mensaje posterior seguía pasado de tamaño, y el `init-response` al recién llegado también.
@@ -37,6 +79,52 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 **Segundo hallazgo, al verificar el resultado ya integrado con pantalla completa:** quitar el repintado destapó que **Excalidraw no observa el tamaño de su contenedor** — se remide con el evento `resize` de la VENTANA (por eso el modo inmersivo ya lo disparaba a mano). Sin repintado, el panel Compartir le robaba alto al lienzo sin avisarle: canvas de 526px dentro de un host de 431px, o sea 95px de lienzo desbordado (invisible, lo tapa el `overflow`) y el puntero desfasado de lo que se ve. Se extrajo `notifyCanvasResize()`, usada por ambos. **Detalle que costó una vuelta:** el aviso dentro de un `requestAnimationFrame` NO sirve —corre antes de que el navegador aplique el layout nuevo, así que Excalidraw remide el alto viejo—; va en la siguiente **macrotarea** (`setTimeout 0`). Verificado en 8 pasos encadenados (abrir/cerrar panel, entrar/salir de pantalla completa, invitar): desfase de −2px (el borde) en todos. Queda pendiente aparte el mismo desfase **al redimensionar la ventana**, que es preexistente y no depende de esto.
 
 **Deja obsoleta una premisa de la entrada de más abajo (pantalla completa, mismo día):** ahí el punto (2) dice que el panel «se vuelve a dibujar al abrir Compartir». Desde hoy **ya no**. La decisión que se tomó por eso —colgar la clase del shell `#app`— **se mantiene igual de válida**, porque el menú lateral y el encabezado están fuera del panel y solo desde el shell se pueden esconder. Docs: `06` #15 (regla nueva, cara complementaria de la #14), excepción en `AGENTS.md`, funcional en `02`.
+
+## 2026-07-31 · decisión — El seguimiento se relaciona con la CARPETA, no con cada archivo
+
+**Pedido del usuario tras subir su carpeta real (89 archivos, 35 MB):** *"quisiera solo comentar la carpeta ya que es solo un seguimiento, no a todos los archivos"*. Tiene razón: el seguimiento documenta la **entrega**, no cada archivo. Con 89 selectores «Relacionar con» la función era inusable.
+
+**Arreglo:** selector en la fila de la CARPETA que relaciona todo su contenido —subcarpetas incluidas— en **una sola llamada** (`POST /attachments/relate-folder`), no 89. Si sus archivos ya apuntan todos a la misma entrada el selector lo refleja; si están mezclados muestra «Varios» y no toca nada hasta que se elija. Confirma diciendo cuántos archivos se van a relacionar, porque es una escritura masiva. Sigue existiendo el selector por archivo para los casos sueltos.
+
+**El efecto secundario que había que atender:** relacionar 89 archivos con una entrada haría que esa entrada de la bitácora pintara **89 chips** — una pared ilegible. Ahora los adjuntos de una entrada se **agrupan por carpeta en un chip resumen** («🗀 Reporte Reciprocidad 89») y solo los sueltos se muestran uno a uno.
+
+**Verificado** con 7 casos sobre el servicio real: relaciona la carpeta y sus subcarpetas, no toca los archivos sueltos de la raíz, permite volver a «General», rechaza un seguimiento inexistente, y **no arrastra carpetas con prefijo parecido** (relacionar «Reporte» no toca «Reporte2» — el bug clásico de comparar por prefijo sin la barra).
+
+## 2026-07-31 · incidente — Arrastrar una carpeta daba «El archivo está vacío»
+
+**Reporte del usuario, al primer intento:** arrastró su carpeta a la zona de adjuntos y salió ese error. **Fallo mío**: en la propuesta dije que se podría arrastrar la carpeta y solo implementé el botón «+ Carpeta». Peor que faltar: el arrastre quedó dando un error confuso en vez de no hacer nada.
+
+**Causa técnica:** al soltar una carpeta, `dataTransfer.files` NO trae su contenido — entrega la carpeta como un "archivo" de 0 bytes, que la validación rechazaba por vacío. El contenido solo se alcanza con la API de entradas (`webkitGetAsEntry()`) recorriendo el árbol.
+
+**Arreglo:** recorrido recursivo que devuelve `[{file, path}]`, y el mismo camino de subida que ya usa el botón. Si lo soltado son archivos sueltos, sigue por la ruta de siempre; si es una carpeta vacía, lo dice en vez de fallar.
+
+**La trampa dentro de la trampa:** `readEntries` devuelve **por tandas de máximo 100**. Con una sola llamada, una carpeta de 250 archivos se habría subido truncada a 100 — en silencio, que es lo peor. Hay que llamarlo hasta que devuelva vacío. Está cubierto por una prueba con 250 archivos simulados, junto con las rutas relativas anidadas, los archivos sueltos y la carpeta vacía.
+
+## 2026-07-31 · decisión — Adjuntos con carpetas: árbol, carga diferida y zip en el navegador
+
+**Pedido:** subir una carpeta con subdirectorios y archivos de todo tipo (documentación de proyectos grandes), con vista de árbol. Los archivos están en máquinas locales — **no hay SharePoint ni unidad de red**, así que la plataforma es la fuente única y subir a S3 es lo correcto (si hubiera un repositorio corporativo, copiar habría creado dos fuentes de verdad que se separan en semanas).
+
+**La ruta es un CAMPO, no una entidad.** Cada adjunto guarda su ruta relativa (`04 - PRUEBAS/MANUALES`) y el árbol se deriva de ella al dibujar. No hay entidad «carpeta»: una carpeta sin archivos no existe, renombrar es cambiar un prefijo y borrarla es borrar sus archivos — inventarla traería sincronización y huérfanos a cambio de nada (es también por lo que S3 no tiene carpetas). La ruta **no entra en la llave de S3** (esa sigue siendo por id): así no hay que lidiar con acentos, espacios ni colisiones en el almacenamiento. Se valida contra `..`, profundidad (10) y largo (400) porque se usa al armar el zip.
+
+**El cambio habilitante, medido antes de hacerlo:** los adjuntos de TODAS las solicitudes viajaban en `/api/workspace`. Con 1.156 bytes de metadata por adjunto, veinte solicitudes con una carpeta de 50 archivos sumarían **más de 1 MB a cada carga y a cada refresco automático**. Ahora el workspace lleva solo `attachmentsCount` (proyección mínima en Dynamo) y la lista se pide al abrir la solicitud (`GET /api/projects/{id}/attachments`). Esto acelera el módulo para todos, tengan carpetas o no.
+
+**La duda del usuario que evitó un bug:** *"¿qué pasa con los que ya tienen un seguimiento agregado a un archivo?"* — eran **20 de 65 adjuntos, el 30%**. Ruta y `updateId` son **ejes independientes**: dónde vive el archivo y qué entrada de la bitácora documenta. Los 20 quedan en la raíz del árbol con sus chips intactos, sin migración. Pero por eso se agregó una **marca de «referenciado»** en su fila: sin ella, borrar desde el árbol haría desaparecer un chip de la bitácora sin que nadie lo previera.
+
+**Zip en el NAVEGADOR, no en el backend:** se bajan los archivos con las URLs prefirmadas que ya existen y se comprime local. En Lambda habría que descargar todo de S3, comprimir y volver a subir — doble transferencia, cómputo por cada descarga y riesgo de timeout. JSZip va auto-hospedado en `/vendor/` (regla: nada de CDNs externos). Aviso si la selección supera 200 MB.
+
+**Escala visual, aplicando la lección del tablero del mismo día:** el árbol tiene **techo de 320px con scroll propio**, abre solo el primer nivel, y con más de 8 adjuntos aparece un **buscador que aplana los resultados mostrando su ruta** — con 200 archivos nadie navega un árbol, busca. Un pie fijo dice «N carpetas · N archivos · peso». La subida va de 4 en 4 con progreso, tope de 300 archivos por carga, y al terminar reporta los que fallaron sin perder los demás. **Verificado**: 9 casos de la validación de rutas en Python (incluidos `..` y profundidad), 9 del armado del árbol en JS con las funciones reales —incluido que los 65 adjuntos actuales sin ruta caen en la raíz—, y contra el Lambda y el bundle ya desplegados. Docs: `02`, `04`.
+
+## 2026-07-31 · estándar — El tablero a escala: de 3,6 pantallas a 0,6
+
+**Duda del usuario:** cómo se vería el tablero con demasiadas tareas. Se midió con la tarjeta REAL en vez de opinar: con 15 tareas (la solicitud más grande de dev) el tablero medía **1.324px = 1,5 pantallas**; con 40, **3.255px = 3,6 pantallas**. Tres problemas concretos:
+
+1. **«Arrastra para cambiar estado.» repetido en CADA tarjeta** — 15 veces hoy, 40 mañana: ~300px del tablero eran la misma frase. Una instrucción se lee UNA vez; a partir de la segunda compite con el título. Ahora va **una sola vez** arriba del tablero (y menciona la alternativa desde el detalle). En la tarjeta queda solo lo suyo: el conteo de seguimientos.
+2. **Columnas sin tope**: la más alta definía el alto de TODO y las demás se estiraban vacías — medido: «En revisión», con UNA tarjeta, medía 1.309px. Ahora `max-height: 460px` + scroll interno, el mismo patrón que ya usaba la tabla de solicitudes.
+3. **Tarjeta poco densa**: entregable, prioridad/responsable y fechas ocupaban tres renglones propios. Ahora comparten una fila que envuelve sola.
+
+**Resultado medido:** el tablero pasa a **517px (0,6 pantallas) tenga 15 tareas o 40** — deja de crecer con el volumen. La tarjeta baja de 144-201px a **114-162px**.
+
+**Matiz responsive que salió al verificar:** en ≤780px las columnas se APILAN, y ahí el tope estorba en vez de ayudar — crea scroll anidado (te desplazas por la página y de pronto se mueve la columna). El tope existe para que una columna no estire a las de al lado, problema que solo existe lado a lado; apiladas se anula. Verificado a 1280, 768 y 390 sin desbordes. Docs: `06` #2.
 
 ## 2026-07-31 · estándar — Un ícono por sección: encontrar sin leer
 

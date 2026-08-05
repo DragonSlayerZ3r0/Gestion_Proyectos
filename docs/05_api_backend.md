@@ -127,6 +127,10 @@ PATCH /api/projects/{projectId}/updates/{updateId}
 DELETE /api/projects/{projectId}/updates/{updateId}
 POST /api/projects/{projectId}/attachments/presign
 POST /api/projects/{projectId}/attachments
+GET /api/projects/{projectId}/attachments                      (carga diferida, 2026-07-31)
+POST /api/projects/{projectId}/attachments/relate-folder       (relacionar carpeta, 2026-07-31)
+POST /api/projects/{projectId}/deliverables                    (entregables, 2026-07-31)
+PATCH|DELETE /api/projects/{projectId}/deliverables/{deliverableId}
 GET /api/projects/{projectId}/attachments/{attachmentId}/url
 PATCH /api/projects/{projectId}/attachments/{attachmentId}
 DELETE /api/projects/{projectId}/attachments/{attachmentId}
@@ -162,6 +166,10 @@ PATCH /api/admin/users/{email}
 DELETE /api/admin/users/{email}
 GET /api/admin/audit
 ```
+
+**Adjuntos: carpetas y carga diferida (2026-07-31):** el adjunto guarda su **ruta relativa** (`path`) y el árbol de la vista se deriva de ella — no hay entidad "carpeta" (ver `docs/04`); la ruta se valida contra `..`, 10 niveles y 400 caracteres, y NO entra en la llave de S3. `GET /attachments` devuelve la lista de UNA solicitud con el autor resuelto: la lista dejó de viajar en `/api/workspace` (solo va `attachmentsCount`) porque con carpetas de 50 archivos sumaba más de 1 MB a cada carga. `POST /attachments/relate-folder` relaciona **toda una carpeta** (y sus subcarpetas) con una entrada de seguimiento en una sola llamada — con 89 archivos, hacerlo uno por uno serían 89 peticiones; compara con `path == ruta or path.startswith(ruta + "/")`, la barra evita que «Reporte» arrastre a «Reporte2». El **zip de descarga se arma en el NAVEGADOR** (JSZip auto-hospedado en `/vendor/`), no en la Lambda: comprimir allá sería doble transferencia desde S3, cómputo por cada descarga y riesgo de timeout.
+
+**Entregables (2026-07-31):** nivel opcional que agrupa tareas dentro de una solicitud; item `DELIVERABLE` colgado del PK del proyecto y campo `deliverableId` en la tarea, validado contra los entregables de SU solicitud. Borrar un entregable NO borra tareas: se les vacía el `deliverableId` y la respuesta dice cuántas quedaron sueltas (`tasksReleased`). Guard de `tasks`: es trabajo diario, no catálogo compartido.
 
 **Adjuntos de solicitudes (2026-07-07):** el binario NUNCA pasa por la API (tope de 10 MB de API Gateway) — `presign` devuelve una URL prefirmada de subida (PUT directo del navegador a S3), `POST /attachments` confirma el archivo subido (`kind=file`) o crea una query de texto inline (`kind=query`), `GET …/url` devuelve una presigned GET corta para ver/descargar, `PATCH` cambia la relación (`updateId`: entrada de seguimiento o `""` = General) y `DELETE` borra item + binario. Validación en backend: **blocklist** de extensiones (2026-07-08: se acepta casi cualquier binario de trabajo — Excel, Word, parquet, zip…; se bloquean solo ejecutables/scripts y páginas activas html/svg, que ejecutan código al abrirse desde la presigned GET) y máx. 15 MB. Servicio: `services/attachments.py` (puerto BlobStore, adaptador S3 — bucket compartido `gad-storage-<env>` con prefijo por app).
 

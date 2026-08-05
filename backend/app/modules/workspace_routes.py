@@ -158,6 +158,19 @@ def _create_attachment(req: Request):
     return success(service.confirm_upload(project_id, body, req.identity), 201)
 
 
+def _relate_folder(req: Request):
+    # Relaciona toda una carpeta con una entrada de seguimiento en UNA llamada
+    # (con 89 archivos, hacerlo uno por uno serían 89 peticiones).
+    return success(AttachmentService().relate_folder(
+        req.params.get("projectId") or "", req.body(), req.identity))
+
+
+def _list_attachments(req: Request):
+    # Carga diferida: la lista se pide al ABRIR la solicitud, no con todo el
+    # espacio de trabajo (ver el porqué en services/attachments.list_for_project).
+    return success(AttachmentService().list_for_project(req.params.get("projectId") or ""))
+
+
 def _attachment_url(req: Request):
     project_id = req.params.get("projectId") or ""
     attachment_id = req.params.get("attachmentId") or ""
@@ -238,6 +251,10 @@ def register(router: Router) -> None:
                error_msg="Error inesperado al preparar la subida del adjunto.")
     router.add(["POST"], "/api/projects/{projectId}/attachments", _create_attachment, modules=P,
                error_msg="Error inesperado al guardar el adjunto.")
+    router.add(["GET"], "/api/projects/{projectId}/attachments", _list_attachments, modules=P,
+               error_msg="Error inesperado al cargar los adjuntos.")
+    router.add(["POST"], "/api/projects/{projectId}/attachments/relate-folder", _relate_folder, modules=P,
+               error_msg="Error inesperado al relacionar la carpeta.")
     router.add(["GET"], "/api/projects/{projectId}/attachments/{attachmentId}/url", _attachment_url, modules=P,
                error_msg="Error inesperado al abrir el adjunto.")
     router.add(["PATCH", "DELETE"], "/api/projects/{projectId}/attachments/{attachmentId}", _attachment_update, modules=P,

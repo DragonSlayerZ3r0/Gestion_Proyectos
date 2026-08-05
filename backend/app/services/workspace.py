@@ -152,26 +152,24 @@ class WorkspaceService:
                 self._normalize_deliverable(item))
         for items in deliverables_by.values():
             items.sort(key=lambda d: (d["dueDate"] == "", d["dueDate"], d["name"]))
-        # Adjuntos (archivos S3 + queries) agrupados por solicitud, mismo viaje único.
-        attach_service = AttachmentService(self._repository)
-        attachments_by: dict[str, list] = {}
-        all_attachments: list[dict[str, Any]] = []
-        for item in self._repository.list_all_attachments():
-            att = attach_service.normalize(item)
-            attachments_by.setdefault(item.get("projectId", ""), []).append(att)
-            all_attachments.append(att)
-
-        # Autor legible (createdBy correo → nombre): se resuelve UNA vez para
-        # seguimientos y adjuntos juntos (caché compartida con Athena). Sin autores,
-        # no se toca Identity Center ni la caché.
+        # Adjuntos: solo el CONTEO (2026-07-31). La lista se pide al abrir la
+        # solicitud (`GET /api/projects/{id}/attachments`). Mandarla completa no
+        # escalaba: 1.156 bytes de metadata por adjunto, y con carpetas de 50
+        # archivos veinte solicitudes sumaban más de 1 MB a CADA carga y a cada
+        # refresco automático. Acá solo se necesita el número para el clip de la
+        # tabla; el detalle lo carga quien de verdad lo abre.
+        attachments_count: dict[str, int] = {}
+        for item in self._repository.list_all_attachments_ids():
+            pid = item.get("projectId", "")
+            attachments_count[pid] = attachments_count.get(pid, 0) + 1
+        # Autor legible (createdBy correo → nombre) de los SEGUIMIENTOS. Los
+        # adjuntos ya no pasan por aquí: sus autores se resuelven en su propia
+        # carga (misma caché compartida, así que no cuesta una llamada extra).
         authors = [u["createdBy"] for u in all_updates if u["createdBy"]]
-        authors += [a["createdBy"] for a in all_attachments if a["createdBy"]]
         if authors:
             names = NameDirectory().resolve(authors)
             for update in all_updates:
                 update["createdByName"] = names.get(update["createdBy"], "")
-            for att in all_attachments:
-                att["createdByName"] = names.get(att["createdBy"], "")
 
         for project in projects:
             project["members"] = members_by.get(project["id"], [])
@@ -182,10 +180,8 @@ class WorkspaceService:
             project["updates"] = sorted(
                 updates_by.get(project["id"], []),
                 key=lambda u: (u["date"], u["createdAt"]), reverse=True)
-            # Adjuntos: lo más reciente primero.
-            project["attachments"] = sorted(
-                attachments_by.get(project["id"], []),
-                key=lambda a: a["createdAt"], reverse=True)
+            # Solo el conteo; la lista viaja aparte (ver arriba).
+            project["attachmentsCount"] = attachments_count.get(project["id"], 0)
 
         return {
             "areas": sorted((self._normalize_area(item) for item in self._repository.list_areas()),

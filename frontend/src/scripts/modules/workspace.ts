@@ -153,6 +153,9 @@ export function createWorkspaceModule(ctx) {
         }
 
         const activeProject = visibleProjects.find((project) => project.id === state.activeProjectId) || fallbackProject;
+        // Carga diferida de adjuntos: se piden al tener una solicitud abierta.
+        // No bloquea el pintado — llegan y se repinta la sección (2026-07-31).
+        if (activeProject) loadAttachments(activeProject.id);
         // El contador NO miente: si la anclada (recién creada) no casa con los
         // filtros, se muestra igual pero no se suma al conteo, y se dice por qué
         // aparece una fila que no cumple lo filtrado.
@@ -167,18 +170,33 @@ export function createWorkspaceModule(ctx) {
           ? `${visiblePeople.length} de ${workspace.people.length}`
           : String(workspace.people.length);
         const selectedPersonDetail = renderSelectedPersonDetail();
-        // Personas se auto-expande si hay algo en curso ahí (registro o edición).
-        const peopleOpen = state.peopleSectionOpen || !!selectedPersonDetail || state.showPersonForm || !!state.personSearch.trim();
+        // El árbol de adjuntos tiene scroll propio y este repintado lo reconstruye
+        // desde cero: sin guardar la posición, marcar un archivo de más abajo
+        // devolvía la vista al inicio. El caso de desplegar una carpeta ni pasa
+        // por aquí (usa repintarArbol), pero seleccionar y borrar sí (2026-08-04).
+        const arbolScroll = document.querySelector(".attachTree")?.scrollTop || 0;
 
-        // Dos vistas: "Gestión" (trabajar la lista: tabla, detalle, tareas) y
-        // "Tablero de avance" (reportar/presentar: barras, qué falta, cuándo).
-        // Comparten la MISMA barra de filtros — filtras en una, presentas en otra.
-        const isBoard = (state.workspaceView || "manage") === "board";
+        // TRES vistas: "Gestión" (trabajar la lista: tabla, detalle, tareas),
+        // "Tablero de avance" (reportar/presentar: barras, qué falta, cuándo) y
+        // "Personas" (el directorio completo). Gestión y Tablero comparten la
+        // MISMA barra de filtros — filtras en una, presentas en otra; Personas no
+        // los usa: filtran solicitudes, no gente.
+        // El directorio dejó de vivir al FINAL del detalle (2026-08-04): ahí caía
+        // pegado a "Personas relacionadas" —las de ESA solicitud— y las dos se
+        // leían como lo mismo. Como vista hermana el alcance es evidente, y se
+        // llega en un clic en vez de recorrer todo el detalle. Sigue en este
+        // módulo a propósito: dar de alta a un externo (proveedor) NO puede
+        // depender de un administrador; Personal es para el control de ausencias
+        // y vacaciones, que es otro trabajo.
+        const view = state.workspaceView || "manage";
+        const isBoard = view === "board";
+        const isPeople = view === "people";
         const viewToggle = `
           <div class="wsHeroActions">
             <div class="searchScope segmented wsViewToggle" role="group" aria-label="Vista de solicitudes">
-              <button type="button" class="scopeSeg ${!isBoard ? "active" : ""}" data-ws-view="manage">Gestión</button>
+              <button type="button" class="scopeSeg ${view === "manage" ? "active" : ""}" data-ws-view="manage">Gestión</button>
               <button type="button" class="scopeSeg ${isBoard ? "active" : ""}" data-ws-view="board">Tablero de avance</button>
+              <button type="button" class="scopeSeg ${isPeople ? "active" : ""}" data-ws-view="people">Personas</button>
             </div>
             <button type="button" id="wsReportBtn" class="wsReportBtn" title="Generar reporte ejecutivo con IA"><span aria-hidden="true">📊</span><span class="wsReportBtnLabel"> Reporte ejecutivo</span></button>
           </div>`;
@@ -190,11 +208,14 @@ export function createWorkspaceModule(ctx) {
                 <div class="workspaceHeroText">
                   <p class="eyebrow">Vista operativa</p>
                   <h2>Solicitudes</h2>
-                  <p>${isBoard ? "Avance por solicitud, listo para presentar. Usa los filtros para acotar lo que se muestra." : "Elige una solicitud de la lista para ver sus personas, tareas y seguimiento."}</p>
+                  <p>${isPeople
+                    ? "Directorio de todas las personas, internas y externas (proveedores). También puedes registrar a alguien sin salir de una solicitud, desde su selector «Agregar persona»."
+                    : isBoard ? "Avance por solicitud, listo para presentar. Usa los filtros para acotar lo que se muestra."
+                    : "Elige una solicitud de la lista para ver sus personas, tareas y seguimiento."}</p>
                 </div>
                 ${viewToggle}
               </div>
-              ${isBoard ? "" : `
+              ${isBoard || isPeople ? "" : `
               <!-- CREAR vs BUSCAR (2026-07-29): dos trabajos distintos NO pueden
                    verse igual. Crear es ocasional → vive detrás de un botón
                    primario que abre el formulario (mismo patrón que "Registrar
@@ -219,6 +240,7 @@ export function createWorkspaceModule(ctx) {
                 </select>
                 <button class="primaryButton" type="submit">Crear</button>
               </form>` : ""}`}
+              ${isPeople ? "" : `
               <div class="workspaceControls wsSearchBlock">
                 <div class="wsSearchRow">
                   <span class="wsSearchIcon" aria-hidden="true">
@@ -238,10 +260,11 @@ export function createWorkspaceModule(ctx) {
                     ${renderProjectSearchScopeButton("tasks", "Tareas")}
                   </div>
                 </div>`}
-              </div>
+              </div>`}
             </section>
 
-            ${isBoard ? `
+            ${isPeople ? renderPeopleView(workspace, personDirectory, peopleCountText,
+                                          personCreatedNotice, selectedPersonDetail) : isBoard ? `
             <section class="panel projectTablePanel">
               <div class="projectTableHead">
                 <div class="projectFilters" role="group" aria-label="Filtrar solicitudes por estado">
@@ -289,42 +312,50 @@ export function createWorkspaceModule(ctx) {
             </section>
 
             ${activeProject ? renderProjectCard(activeProject, true, peopleById) : ""}`}`}
-
-            ${isBoard ? "" : `
-            <section class="panel peopleSection ${peopleOpen ? "open" : ""}">
-              <div class="peopleSectionHead">
-                <button id="peopleSectionToggle" class="peopleToggle" type="button" aria-expanded="${peopleOpen ? "true" : "false"}">
-                  <span class="peopleChev">▸</span>
-                  <strong>Personas registradas</strong>
-                  <span class="countPill subtle">${peopleCountText}</span>
-                </button>
-                ${peopleOpen ? `<button id="togglePersonFormButton" class="secondaryButton compact" type="button">${state.showPersonForm ? "Cancelar" : "Registrar persona"}</button>` : ""}
-              </div>
-              ${peopleOpen ? `
-              <div class="peopleBody" data-people-drop-zone>
-                <form id="personQuickForm" class="personCreateForm" ${state.showPersonForm ? "" : "hidden"}>
-                  <input name="firstName" type="text" placeholder="Nombre completo o proveedor" required />
-                  <details class="optionalDetails">
-                    <summary>Más datos</summary>
-                    ${renderAreaField("areaId", "Área", "")}
-                    <textarea name="availabilityNotes" rows="2" placeholder="Vacaciones o disponibilidad"></textarea>
-                    <textarea name="notes" rows="2" placeholder="Notas"></textarea>
-                  </details>
-                  <button class="primaryButton" type="submit">Registrar persona</button>
-                </form>
-                ${personCreatedNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(personCreatedNotice)}</p>` : ""}
-                <input id="personSearch" class="searchInput personSearchInput" type="search" placeholder="Buscar persona" value="${escapeAttribute(state.personSearch)}" />
-                <div class="peopleStrip">
-                  ${personDirectory || renderPeopleEmptyState(workspace.people.length)}
-                </div>
-                <p class="peopleHint">Para agregar a alguien a una solicitud usa el selector "Agregar persona" de la solicitud; también puedes arrastrar su tarjeta hasta ella.</p>
-                ${selectedPersonDetail ? `<section class="detailDrawerSlot personDetailSlot">${selectedPersonDetail}</section>` : ""}
-              </div>` : ""}
-            </section>`}
           </section>
         `;
 
+        if (arbolScroll) {
+          const arbol = document.querySelector(".attachTree");
+          if (arbol) arbol.scrollTop = arbolScroll;
+        }
         bindWorkspaceEvents();
+      }
+
+      // Vista "Personas": el directorio completo. Ya NO es una sección colapsable
+      // al final del detalle (2026-08-04) — es la vista entera, así que va
+      // siempre abierta: el chevron no tenía nada que esconder aquí.
+      function renderPeopleView(workspace, personDirectory, peopleCountText,
+                                personCreatedNotice, selectedPersonDetail) {
+        return `
+          <section class="panel peopleSection peopleView open">
+            <div class="peopleSectionHead">
+              <div class="peopleViewTitle">
+                <strong>Personas registradas</strong>
+                <span class="countPill subtle">${peopleCountText}</span>
+              </div>
+              <button id="togglePersonFormButton" class="${state.showPersonForm ? "secondaryButton" : "primaryButton"} compact" type="button">${state.showPersonForm ? "Cancelar" : "+ Registrar persona"}</button>
+            </div>
+            <div class="peopleBody">
+              <form id="personQuickForm" class="personCreateForm" ${state.showPersonForm ? "" : "hidden"}>
+                <input name="firstName" type="text" placeholder="Nombre completo o proveedor" required />
+                <details class="optionalDetails">
+                  <summary>Más datos</summary>
+                  ${renderAreaField("areaId", "Área", "")}
+                  <textarea name="availabilityNotes" rows="2" placeholder="Vacaciones o disponibilidad"></textarea>
+                  <textarea name="notes" rows="2" placeholder="Notas"></textarea>
+                </details>
+                <button class="primaryButton" type="submit">Registrar persona</button>
+              </form>
+              ${personCreatedNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(personCreatedNotice)}</p>` : ""}
+              <input id="personSearch" class="searchInput personSearchInput" type="search" placeholder="Buscar persona" value="${escapeAttribute(state.personSearch)}" />
+              <div class="peopleStrip">
+                ${personDirectory || renderPeopleEmptyState(workspace.people.length)}
+              </div>
+              <p class="peopleHint">Para sumar a alguien a una solicitud, usa el selector «Agregar persona» de esa solicitud — ahí mismo puedes registrar a quien todavía no exista.</p>
+              ${selectedPersonDetail ? `<section class="detailDrawerSlot personDetailSlot">${selectedPersonDetail}</section>` : ""}
+            </div>
+          </section>`;
       }
 
       async function loadWorkspace() {
@@ -482,6 +513,11 @@ export function createWorkspaceModule(ctx) {
       // persiste. El centinela no coincide con ninguna solicitud, de modo que
       // la tabla queda vacía sola y la elección sobrevive a la recarga.
       const NO_STATUS_SELECTED = "__ninguno__";
+
+      // Disparador de "+ Registrar persona nueva…" en el selector de miembros.
+      // No es un id de persona: abre el mini-formulario (mismo papel que
+      // "__new__" en los selectores de Área y Estado).
+      const NEW_PERSON_OPTION = "__nueva_persona__";
 
       // Estados encendidos AHORA MISMO. Resuelve las tres representaciones
       // posibles ([] = todos, [centinela] = ninguno, lista = esos) en una sola
@@ -977,7 +1013,9 @@ export function createWorkspaceModule(ctx) {
           case "name": {
             // Clip discreto SOLO si hay adjuntos (patrón correo): monocromo tenue,
             // sin columna propia ni color — es un indicio, no un estado (docs/06).
-            const attCount = (project.attachments || []).length;
+            // El conteo viene en el workspace; la LISTA se carga al abrir la
+            // solicitud (2026-07-31), así el listado no arrastra su metadata.
+            const attCount = project.attachmentsCount || 0;
             // ANCLADO al borde derecho de la celda (no pegado al texto): con
             // nombres largos que envuelven, al final del texto quedaba en posición
             // variable y "se perdía"; antes del título rompería la alineación
@@ -1218,6 +1256,34 @@ export function createWorkspaceModule(ctx) {
           </div>`;
       }
 
+      // "Agregar persona" + "+ Registrar persona nueva…" en el MISMO selector
+      // (2026-08-04): el caso real es estar llenando la solicitud y necesitar un
+      // proveedor externo que aún no existe. Antes había que ir al directorio,
+      // registrarlo y volver a asignarlo. Es el patrón que ya usan Área y Estado.
+      // El selector se pinta SIEMPRE (aunque no queden personas libres): si no,
+      // la única puerta para registrar desaparecía justo cuando hacía falta.
+      function renderMemberPicker(project, availablePeople) {
+        const creating = state.memberCreateFor === project.id;
+        return `
+          <select class="projectMemberSelect inline" data-project-member="${project.id}" aria-label="Agregar persona a la solicitud">
+            <option value="">Agregar persona</option>
+            ${availablePeople.map((person) => `<option value="${person.id}">${escapeHtml(person.fullName)}</option>`).join("")}
+            <option value="${NEW_PERSON_OPTION}">+ Registrar persona nueva…</option>
+          </select>
+          ${!availablePeople.length && !creating
+            ? `<p class="emptyText helperText">Todas las personas registradas ya están en esta solicitud.</p>` : ""}
+          ${creating ? `
+          <div class="memberCreateForm" data-member-create="${project.id}">
+            <input type="text" data-member-create-input maxlength="120"
+              placeholder="Nombre completo o proveedor" aria-label="Nombre de la persona nueva" />
+            <div class="memberCreateActions">
+              <button type="button" class="tinyButton" data-member-create-save>Registrar y agregar</button>
+              <button type="button" class="tinyButton ghost" data-member-create-cancel>Cancelar</button>
+            </div>
+            <p class="emptyText helperText">Queda en el directorio de personas y agregada a esta solicitud.</p>
+          </div>` : ""}`;
+      }
+
       function renderPersonCard(person) {
         const isSelected = state.selectedDetail?.type === "person" && state.selectedDetail.id === person.id;
         // Chip de una sola línea: avatar de iniciales + nombre con elipsis (el
@@ -1319,12 +1385,7 @@ export function createWorkspaceModule(ctx) {
                   <div class="memberChipList spacious">
                     ${memberChips || `<span class="emptyText">Agrega personas a la solicitud.</span>`}
                   </div>
-                  ${availablePeople.length ? `
-                    <select class="projectMemberSelect inline" data-project-member="${project.id}" aria-label="Agregar persona al proyecto">
-                      <option value="">Agregar persona</option>
-                      ${availablePeople.map((person) => `<option value="${person.id}">${escapeHtml(person.fullName)}</option>`).join("")}
-                    </select>
-                  ` : `<p class="emptyText helperText">No hay personas disponibles para agregar.</p>`}
+                  ${renderMemberPicker(project, availablePeople)}
                 </section>
 
                 <section class="projectSummaryBlock">
@@ -1354,7 +1415,9 @@ export function createWorkspaceModule(ctx) {
 
               ${renderDeliverablesStrip(project)}
 
-              ${boardOpen ? `<div class="kanbanBoard compactBoard">${columns}</div>` : ""}
+              ${boardOpen ? `
+                <p class="boardHint">Arrastra una tarjeta de una columna a otra para cambiar su estado. También puedes hacerlo desde el detalle de la tarea.</p>
+                <div class="kanbanBoard compactBoard">${columns}</div>` : ""}
             </div>
             ${detailPanel ? `<section class="detailDrawerSlot">${detailPanel}</section>` : ""}
           </article>
@@ -1421,15 +1484,35 @@ export function createWorkspaceModule(ctx) {
         // Adjuntos ligados a ESTA entrada (contexto) — SOLO vista: se agregan y se
         // relacionan desde la franja "Adjuntos" (único lugar de subida). Aquí se ven
         // como chips clicables para abrirlos en su contexto de la bitácora.
-        const entryAtts = (project.attachments || []).filter((a) => a.updateId === u.id);
-        const attachChips = entryAtts.map((a) => {
+        const entryAtts = (attachmentsOf(project.id) || []).filter((a) => a.updateId === u.id);
+        // Si la entrada tiene una CARPETA relacionada, se resume en UN chip: al
+        // relacionar 89 archivos de golpe, pintar 89 chips convertiría la
+        // bitácora en una pared ilegible (2026-07-31). Los sueltos siguen igual.
+        const porCarpeta = new Map();
+        const sueltos = [];
+        for (const a of entryAtts) {
+          const raiz = (a.path || "").split("/")[0];
+          if (raiz) porCarpeta.set(raiz, (porCarpeta.get(raiz) || 0) + 1);
+          else sueltos.push(a);
+        }
+        // El chip de carpeta ES un botón y lleva a esa carpeta ya desplegada en la
+        // franja Adjuntos. Como <span> heredaba el cursor: pointer del chip, así
+        // que se veía clicable y no hacía nada: botón muerto (2026-08-04).
+        const folderChips = [...porCarpeta.entries()].map(([nombre, n]) =>
+          `<button type="button" class="attachChip attachChipFolder" data-attach-goto-folder="${
+            escapeAttribute(`${project.id}::${nombre}`)}" title="${escapeAttribute(
+            `${n} ${n === 1 ? "archivo" : "archivos"} en ${nombre} — abrir en Adjuntos`)}"` +
+          `><span class="attachChipIcon" aria-hidden="true">🗀</span><span class="attachChipName">${
+            escapeHtml(nombre)}</span><em>${n}</em></button>`).join("");
+        const attachChips = folderChips + sueltos.map((a) => {
           const isQuery = a.kind === "query";
           const open = isQuery
             ? `data-attach-query-view="${project.id}:${a.id}"`
             : `data-attach-open="${project.id}:${a.id}"`;
           const icon = isQuery ? "{ }" : (isImageName(a.fileName) ? "🖼" : "📄");
           const name = isQuery ? (a.title || "Query") : (a.fileName || "archivo");
-          return `<button type="button" class="attachChip attachChipOpen" ${open} title="Ver ${escapeAttribute(name)}"><span aria-hidden="true">${icon}</span> ${escapeHtml(name)}</button>`;
+          return `<button type="button" class="attachChip attachChipOpen" ${open} title="Ver ${escapeAttribute(name)}"` +
+            `><span class="attachChipIcon" aria-hidden="true">${icon}</span><span class="attachChipName">${escapeHtml(name)}</span></button>`;
         }).join("");
         // Meta ARRIBA del texto (no en línea): el texto ocupa todo el ancho y no
         // lo empuja un nombre largo; todos los renglones arrancan alineados.
@@ -1489,18 +1572,102 @@ export function createWorkspaceModule(ctx) {
       // los adjuntos de la solicitud (archivos + queries) con su etiqueta de origen.
       // Subir un adjunto "General" y crear queries se hace desde aquí; adjuntar CON
       // contexto se hace dentro de cada entrada de Seguimiento (renderUpdateRow).
+      // ── Adjuntos: carga diferida + árbol de carpetas (2026-07-31) ───────────
+      function attachmentsOf(projectId) {
+        return state.projectAttachments[projectId] || null;   // null = sin cargar
+      }
+
+      // Se pide al ABRIR la solicitud. Una sola vez por solicitud y sesión: si
+      // ya están en memoria no se vuelve a pedir (el guardado de un adjunto
+      // actualiza la lista en sitio).
+      async function loadAttachments(projectId) {
+        if (!projectId) return;
+        if (state.projectAttachments[projectId] || state.attachmentsLoading[projectId]) return;
+        state.attachmentsLoading[projectId] = true;
+        try {
+          const payload = await apiRequest(`api/projects/${projectId}/attachments`);
+          state.projectAttachments[projectId] = payload.data || [];
+        } catch (error) {
+          state.attachError = { ...(state.attachError || {}), [projectId]: error.message };
+          state.projectAttachments[projectId] = [];
+        } finally {
+          state.attachmentsLoading[projectId] = false;
+          renderWorkspace();
+        }
+      }
+
+      function attachName(att) {
+        return att.kind === "query" ? (att.title || "Query sin título") : (att.fileName || "archivo");
+      }
+
+      function pesoLegible(bytes) {
+        const n = Number(bytes || 0);
+        if (!n) return "";
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+        return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+      }
+
+      // Árbol derivado de las RUTAS: no hay entidad carpeta que mantener.
+      function buildAttachTree(atts) {
+        const raiz = { folders: new Map(), files: [] };
+        for (const att of atts) {
+          const partes = (att.path || "").split("/").filter(Boolean);
+          let nodo = raiz;
+          for (const parte of partes) {
+            if (!nodo.folders.has(parte)) nodo.folders.set(parte, { folders: new Map(), files: [] });
+            nodo = nodo.folders.get(parte);
+          }
+          nodo.files.push(att);
+        }
+        return raiz;
+      }
+
+      function contarNodo(nodo) {
+        let n = nodo.files.length;
+        for (const hijo of nodo.folders.values()) n += contarNodo(hijo);
+        return n;
+      }
+
+      function hojasDe(nodo, out = []) {
+        out.push(...nodo.files);
+        for (const hijo of nodo.folders.values()) hojasDe(hijo, out);
+        return out;
+      }
+
       function renderProjectAttachments(project) {
-        const atts = project.attachments || [];
+        const atts = attachmentsOf(project.id) || [];
         const queryOpen = state.attachQueryFor === project.id;
         const uploading = !!(state.attachUploading && state.attachUploading[project.id]);
         const error = state.attachError ? state.attachError[project.id] : "";
+        const cargando = !!state.attachmentsLoading[project.id];
+        const q = (state.attachSearch || "").trim().toLowerCase();
+        const marcados = atts.filter((a) => state.attachSelected[a.id]);
+        const pesoTotal = atts.reduce((s, a) => s + Number(a.size || 0), 0);
+        const carpetas = new Set(atts.map((a) => (a.path || "").split("/")[0]).filter(Boolean)).size;
         return `
-          <section class="attachBlock">
+          <section class="attachBlock" data-attach-project="${project.id}">
             ${blockHeaderHtml("adjuntos", "Adjuntos", atts.length)}
-            <div class="attachGrid">
-              ${atts.map((a) => renderAttachmentItem(project, a)).join("")
-                || `<span class="emptyText">Sin adjuntos. Agrega pantallazos, archivos o queries de la solicitud.</span>`}
+            ${atts.length > 8 || q ? `
+              <input type="text" class="attachSearch" data-attach-search
+                placeholder="Buscar por nombre de archivo o carpeta" value="${escapeAttribute(state.attachSearch || "")}" />` : ""}
+            ${marcados.length ? `
+              <div class="attachSelBar">
+                <span>${marcados.length} ${marcados.length === 1 ? "archivo seleccionado" : "archivos seleccionados"}</span>
+                <span class="attachSelActions">
+                  <button type="button" class="tinyButton" data-attach-zip="${project.id}">Descargar .zip</button>
+                  <button type="button" class="tinyButton ghost" data-attach-unselect>Quitar selección</button>
+                </span>
+              </div>` : ""}
+            <div class="attachTree">
+              ${cargando ? `<p class="emptyText">Cargando adjuntos…</p>`
+                : (atts.length ? renderAttachTree(project, atts, q)
+                  : `<span class="emptyText">Sin adjuntos. Agrega pantallazos, archivos o queries de la solicitud.</span>`)}
             </div>
+            ${atts.length ? `<p class="attachFoot">${
+              carpetas ? `${carpetas} ${carpetas === 1 ? "carpeta" : "carpetas"} · ` : ""
+            }${atts.length} ${atts.length === 1 ? "archivo" : "archivos"}${
+              pesoTotal ? ` · ${pesoLegible(pesoTotal)}` : ""}</p>` : ""}
             ${(state.attachNoteFor || "").startsWith(`${project.id}:`) ? `
             <form class="inlineForm attachNoteForm" data-attach-note-form="${state.attachNoteFor}">
               <input name="text" type="text" placeholder="Nota (se registra como seguimiento de hoy y se relaciona con el adjunto)" required maxlength="2000" />
@@ -1513,6 +1680,9 @@ export function createWorkspaceModule(ctx) {
                 <label class="tinyButton attachFileBtn">+ Archivo
                   <input type="file" data-attach-file="${project.id}" data-attach-update="" hidden multiple />
                 </label>
+                <label class="tinyButton attachFileBtn">+ Carpeta
+                  <input type="file" data-attach-folder-input="${project.id}" hidden multiple webkitdirectory directory />
+                </label>
                 <button type="button" class="tinyButton ghost" data-attach-query-toggle="${project.id}">${queryOpen ? "Cancelar" : "+ Query"}</button>
               </div>
             </div>
@@ -1522,35 +1692,115 @@ export function createWorkspaceModule(ctx) {
               <textarea name="text" rows="3" placeholder="Pega aquí el query o el texto" required maxlength="20000"></textarea>
               <button class="primaryButton" type="submit">Guardar query</button>
             </form>` : ""}
+            ${state.attachProgress && state.attachProgress.projectId === project.id ? `
+              <div class="attachProgress" role="status">
+                <div class="attachProgressHead">
+                  <span data-attach-progress-text>${
+                    state.attachProgress.hechos < state.attachProgress.total
+                      ? `Subiendo ${state.attachProgress.hechos} de ${state.attachProgress.total}`
+                      : `${state.attachProgress.total - state.attachProgress.fallidos.length} de ${state.attachProgress.total} subidos`}</span>
+                </div>
+                <div class="attachProgressTrack"><span data-attach-progress-bar style="width:${
+                  Math.round((state.attachProgress.hechos * 100) / state.attachProgress.total)}%"></span></div>
+                ${state.attachProgress.terminado && state.attachProgress.fallidos.length ? `
+                  <p class="attachProgressFail">${state.attachProgress.fallidos.length} ${
+                    state.attachProgress.fallidos.length === 1 ? "archivo falló" : "archivos fallaron"}:
+                    ${escapeHtml(state.attachProgress.fallidos.slice(0, 3).map((f) => f.nombre).join(", "))}${
+                      state.attachProgress.fallidos.length > 3 ? "…" : ""}
+                    <button type="button" class="tinyButton ghost" data-attach-progress-close>Entendido</button></p>` : ""}
+              </div>` : ""}
             ${uploading ? `<p class="attachStatus" role="status">Subiendo…</p>` : ""}
             ${error ? `<p class="attachStatus error" role="alert">${escapeHtml(error)}</p>` : ""}
           </section>`;
       }
 
-      function renderAttachmentItem(project, att) {
-        const del = renderDeleteIconButton("Eliminar adjunto", `data-attach-delete="${project.id}:${att.id}"`);
-        const relate = renderAttachRelate(project, att);
-        if (att.kind === "query") {
-          const label = att.title || "Query";
-          return `
-            <div class="attachItem query" data-attach-id="${att.id}">
-              <button type="button" class="attachOpen" data-attach-query-view="${project.id}:${att.id}" title="Ver query">
-                <span class="attachIcon" aria-hidden="true">{ }</span>
-                <span class="attachName">${escapeHtml(label)}</span>
-              </button>
-              ${relate}
-              ${del}
-            </div>`;
+      // Con búsqueda activa se APLANA: con muchos archivos nadie navega el
+      // árbol, busca — y cada resultado necesita su ruta para ubicarse.
+      function renderAttachTree(project, atts, q) {
+        if (q) {
+          const hits = atts.filter((a) =>
+            `${attachName(a)} ${a.path || ""}`.toLowerCase().includes(q));
+          if (!hits.length) {
+            return `<p class="emptyText">Ningún adjunto coincide con «${escapeHtml(q)}».</p>`;
+          }
+          return hits.map((a) => renderAttachRow(project, a, 0, a.path || "")).join("");
         }
-        const icon = isImageName(att.fileName) ? "🖼" : "📄";
+        return renderAttachNodo(project, buildAttachTree(atts), 0, "");
+      }
+
+      // Iconos del árbol en SVG inline. Antes eran los glifos 🗀 y 🗎 (U+1F5C0 /
+      // U+1F5CE): mal soportados, se dibujaban casi idénticos y con ellos no se
+      // distinguía una carpeta de un archivo de un vistazo (2026-08-04). El SVG
+      // hereda el color con currentColor y se ve igual en cualquier sistema.
+      const TREE_ICONS = {
+        carpeta: `<svg class="attachFolderIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+          fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path
+          d="M3 7.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.5.7l1.2 1.3H19a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
+        archivo: `<svg class="attachIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+          fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path
+          d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>`,
+      };
+
+      function renderAttachNodo(project, nodo, nivel, ruta) {
+        const carpetas = [...nodo.folders.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const archivos = [...nodo.files].sort((a, b) => attachName(a).localeCompare(attachName(b)));
+        const html = carpetas.map(([nombre, hijo]) => {
+          const rutaHija = ruta ? `${ruta}/${nombre}` : nombre;
+          // Solo el primer nivel abierto: con cinco carpetas ves la estructura
+          // completa en cinco renglones y el volumen no se te impone.
+          const clave = `${project.id}::${rutaHija}`;
+          const abierta = state.attachTreeOpen[clave] !== undefined
+            ? state.attachTreeOpen[clave]
+            : nivel === 0 && carpetas.length <= 1;
+          const hojas = hojasDe(hijo);
+          const marcadas = hojas.filter((a) => state.attachSelected[a.id]).length;
+          const estado = marcadas === 0 ? "vacia" : (marcadas === hojas.length ? "todas" : "parcial");
+          return `
+            <div class="attachNode">
+              <div class="attachRow attachFolder" style="padding-left:${8 + nivel * 18}px">
+                <button type="button" class="attachCheck ${estado}" data-attach-check-folder="${escapeAttribute(rutaHija)}"
+                  data-attach-check-project="${project.id}"
+                  aria-label="Seleccionar el contenido de ${escapeAttribute(nombre)}">${
+                    estado === "todas" ? "☑" : (estado === "parcial" ? "◪" : "☐")}</button>
+                <button type="button" class="attachFolderBtn" data-attach-folder="${escapeAttribute(clave)}">
+                  <span class="attachChevron">${abierta ? "▾" : "▸"}</span>
+                  ${TREE_ICONS.carpeta}
+                  <span class="attachFolderName">${escapeHtml(nombre)}</span>
+                  <span class="attachCount">${contarNodo(hijo)}</span>
+                </button>
+                ${renderFolderRelate(project, rutaHija, hojas)}
+              </div>
+              ${abierta ? `<div class="attachKids" style="--guia:${8 + nivel * 18 + 9}px">${
+                renderAttachNodo(project, hijo, nivel + 1, rutaHija)}</div>` : ""}
+            </div>`;
+        }).join("");
+        return html + archivos.map((a) => renderAttachRow(project, a, nivel, "")).join("");
+      }
+
+      function renderAttachRow(project, att, nivel, rutaVisible) {
+        const nombre = attachName(att);
+        const marcado = !!state.attachSelected[att.id];
+        const meta = [att.createdByName || att.createdBy, updateDateLabel(att.createdAt?.slice(0, 10)),
+                      pesoLegible(att.size)].filter(Boolean).join(" · ");
+        // Marca de referenciado: sin ella, borrar desde el árbol haría
+        // desaparecer un chip de la bitácora sin que nadie lo previera.
+        const ref = att.updateId
+          ? `<span class="attachRefMark" title="Referenciado en un seguimiento" aria-label="Referenciado en un seguimiento">🔗</span>`
+          : "";
         return `
-          <div class="attachItem file" data-attach-id="${att.id}">
-            <button type="button" class="attachOpen" data-attach-open="${project.id}:${att.id}" title="Ver ${escapeAttribute(att.fileName || "archivo")}">
-              <span class="attachIcon" aria-hidden="true">${icon}</span>
-              <span class="attachName">${escapeHtml(att.fileName || "archivo")}</span>
+          <div class="attachRow attachFile ${marcado ? "isSel" : ""}" style="padding-left:${8 + nivel * 18}px" data-attach-id="${att.id}">
+            <button type="button" class="attachCheck ${marcado ? "todas" : "vacia"}"
+              data-attach-check="${att.id}" aria-label="Seleccionar ${escapeAttribute(nombre)}">${marcado ? "☑" : "☐"}</button>
+            <button type="button" class="attachOpenBtn" ${att.kind === "query"
+              ? `data-attach-query-open="${project.id}:${att.id}"` : `data-attach-open="${project.id}:${att.id}"`}
+              title="${escapeAttribute(att.kind === "query" ? "Ver la query" : `Abrir ${nombre}`)}">
+              ${att.kind === "query" ? `<span class="attachIcon isQuery" aria-hidden="true">{ }</span>` : TREE_ICONS.archivo}
+              <span class="attachName">${escapeHtml(nombre)}${ref}${
+                rutaVisible ? `<span class="attachPath"> · ${escapeHtml(rutaVisible)}</span>` : ""}</span>
             </button>
-            ${relate}
-            ${del}
+            <span class="attachMeta">${escapeHtml(meta)}</span>
+            ${renderAttachRelate(project, att)}
+            ${renderDeleteIconButton("Eliminar adjunto", `data-attach-delete="${project.id}:${att.id}" data-attach-ref="${att.updateId ? "1" : ""}"`)}
           </div>`;
       }
 
@@ -1571,6 +1821,27 @@ export function createWorkspaceModule(ctx) {
         opts.push(`<option value="__newnote__">+ Nueva nota…</option>`);
         return `<select class="attachRelate" data-attach-relate="${ref}" aria-label="Relacionar adjunto con un seguimiento">${opts.join("")}</select>`;
       }
+      // Relacionar la CARPETA COMPLETA (2026-07-31). Con 89 archivos subidos de
+      // una vez, el seguimiento es de la ENTREGA, no de cada archivo: pedirlo
+      // uno por uno sería inviable. Si todos sus archivos ya apuntan a la misma
+      // entrada, el selector lo refleja; si están mezclados, muestra «Varios».
+      function renderFolderRelate(project, ruta, hojas) {
+        const updates = project.updates || [];
+        if (!updates.length || !hojas.length) return "";
+        const ids = new Set(hojas.map((a) => a.updateId || ""));
+        const comun = ids.size === 1 ? [...ids][0] : null;
+        const opts = [`<option value="" ${comun === "" ? "selected" : ""}>General</option>`];
+        for (const u of updates) {
+          const preview = attachTextPreview(u.text);
+          const label = `${updateDateLabel(u.date)}${preview ? ` · "${preview}"` : ""}`;
+          opts.push(`<option value="${u.id}" ${comun === u.id ? "selected" : ""}>${escapeHtml(label)}</option>`);
+        }
+        if (comun === null) opts.unshift(`<option value="__varios__" selected>Varios</option>`);
+        return `<select class="attachRelate attachRelateFolder" data-attach-relate-folder="${escapeAttribute(ruta)}"
+          data-attach-relate-project="${project.id}" data-attach-relate-count="${hojas.length}"
+          aria-label="Relacionar toda la carpeta con un seguimiento">${opts.join("")}</select>`;
+      }
+
       function attachTextPreview(text) {
         const t = (text || "").replace(/\s+/g, " ").trim();
         return t.length > 40 ? `${t.slice(0, 40)}…` : t;
@@ -1735,8 +2006,12 @@ export function createWorkspaceModule(ctx) {
               <strong>${escapeHtml(task.title)}</strong>
               ${renderEditIconButton("Editar tarea", `data-detail-task="${task.id}" data-detail-task-project="${task.projectId}"`)}
             </div>
-            ${renderTaskDeliverableTag(task)}
+            <!-- TARJETA COMPACTA (2026-07-31): entregable, prioridad, responsable
+                 y fechas iban en TRES renglones propios; con 15 tareas el tablero
+                 medía 1.324px (1,5 pantallas). Ahora comparten una sola fila que
+                 envuelve sola cuando no cabe. -->
             <div class="taskMeta">
+              ${renderTaskDeliverableTag(task)}
               ${task.priority ? `<span class="priorityBadge ${priorityClass(task.priority)}">${priorityLabel(task.priority)}</span>` : ""}
               ${assignee ? `
                 <span
@@ -1748,10 +2023,14 @@ export function createWorkspaceModule(ctx) {
                 >${escapeHtml(assignee.fullName)}</span>
               ` : `<small>Sin responsable</small>`}
               ${renderAssigneeIconButton(task, !!assignee)}
+              ${renderTaskDates(task)}
             </div>
-            ${renderTaskDates(task)}
             ${renderTaskProgressBar(task)}
-            <small>Arrastra para cambiar estado.${updatesCount ? ` · ${updatesCount} seguimiento${updatesCount === 1 ? "" : "s"}` : ""}</small>
+            <!-- El «Arrastra para cambiar estado» se repetía en CADA tarjeta: 15
+                 veces en la solicitud más grande, ~300px de puro texto igual. Una
+                 instrucción se lee UNA vez — ahora va sola arriba del tablero.
+                 Aquí queda solo lo que es de ESTA tarea. -->
+            ${updatesCount ? `<small>${updatesCount} seguimiento${updatesCount === 1 ? "" : "s"}</small>` : ""}
           </article>
         `;
       }
@@ -2421,9 +2700,17 @@ export function createWorkspaceModule(ctx) {
           const projectId = zone.dataset.attachDropzone;
           zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("dragging"); });
           zone.addEventListener("dragleave", () => zone.classList.remove("dragging"));
-          zone.addEventListener("drop", (event) => {
+          zone.addEventListener("drop", async (event) => {
             event.preventDefault();
             zone.classList.remove("dragging");
+            // Si lo soltado incluye CARPETAS hay que recorrerlas: dataTransfer.files
+            // entrega la carpeta como un archivo de 0 bytes (bug 2026-07-31).
+            const entradas = await entradasDeArrastre(event.dataTransfer);
+            if (entradas) {
+              if (entradas.length) uploadFolder(projectId, entradas);
+              else alert("La carpeta que soltaste está vacía.");
+              return;
+            }
             uploadAttachments(projectId, [...(event.dataTransfer?.files || [])], "");
           });
           zone.addEventListener("paste", (event) => {
@@ -2432,6 +2719,116 @@ export function createWorkspaceModule(ctx) {
           });
         }
         // "+ Query": abrir/cerrar el formulario de texto.
+        // ── Árbol de adjuntos: buscador, plegado y selección ─────────────────
+        const buscador = document.querySelector("[data-attach-search]");
+        if (buscador) {
+          buscador.addEventListener("input", (event) => {
+            state.attachSearch = event.target.value;
+            // Repintado PARCIAL: re-renderizar todo perdería el foco y el
+            // cursor del campo (misma trampa que el buscador de solicitudes).
+            repintarArbol();
+          });
+        }
+        // Repinta SOLO el árbol. Al desplegar una carpeta, `renderWorkspace()`
+        // reconstruía todo el módulo y el contenedor nacía con scrollTop 0: si la
+        // carpeta estaba abajo, la vista saltaba al inicio y había que volver a
+        // bajar para ver lo que se acababa de abrir (reportado 2026-08-04).
+        // Aquí el contenedor SOBREVIVE —solo cambia su contenido— así que
+        // conserva su posición. Además evita repintar tareas y seguimiento por
+        // un clic que no los toca.
+        function repintarArbol() {
+          const proyecto = (state.workspace?.projects || [])
+            .find((p) => p.id === state.activeProjectId);
+          const cont = document.querySelector(".attachTree");
+          if (!proyecto || !cont) { renderWorkspace(); return; }
+          const atts = attachmentsOf(proyecto.id) || [];
+          const q = (state.attachSearch || "").trim().toLowerCase();
+          cont.innerHTML = atts.length ? renderAttachTree(proyecto, atts, q) : "";
+          bindAttachTree();
+        }
+        function bindAttachTree() {
+          for (const b of document.querySelectorAll("[data-attach-folder]")) {
+            b.addEventListener("click", () => {
+              const clave = b.dataset.attachFolder;
+              const actual = state.attachTreeOpen[clave];
+              state.attachTreeOpen[clave] = actual === undefined ? false : !actual;
+              repintarArbol();          // conserva el scroll: ver repintarArbol()
+            });
+          }
+          for (const b of document.querySelectorAll("[data-attach-check]")) {
+            b.addEventListener("click", () => {
+              const id = b.dataset.attachCheck;
+              if (state.attachSelected[id]) delete state.attachSelected[id];
+              else state.attachSelected[id] = true;
+              renderWorkspace();
+            });
+          }
+          for (const b of document.querySelectorAll("[data-attach-check-folder]")) {
+            b.addEventListener("click", () => {
+              const ruta = b.dataset.attachCheckFolder;
+              const atts = (attachmentsOf(b.dataset.attachCheckProject) || [])
+                .filter((a) => (a.path || "") === ruta || (a.path || "").startsWith(`${ruta}/`));
+              const todas = atts.every((a) => state.attachSelected[a.id]);
+              for (const a of atts) {
+                if (todas) delete state.attachSelected[a.id];
+                else state.attachSelected[a.id] = true;
+              }
+              renderWorkspace();
+            });
+          }
+        }
+        bindAttachTree();
+        document.querySelector("[data-attach-unselect]")?.addEventListener("click", () => {
+          state.attachSelected = {};
+          renderWorkspace();
+        });
+        for (const sel of document.querySelectorAll("[data-attach-relate-folder]")) {
+          sel.addEventListener("change", async () => {
+            const ruta = sel.dataset.attachRelateFolder;
+            const projectId = sel.dataset.attachRelateProject;
+            const n = Number(sel.dataset.attachRelateCount || 0);
+            const updateId = sel.value === "__varios__" ? null : sel.value;
+            if (updateId === null) return;
+            const destino = sel.options[sel.selectedIndex].textContent.trim();
+            if (!window.confirm(`¿Relacionar los ${n} archivos de «${ruta}» con ${
+              updateId ? `el seguimiento «${destino}»` : "General"}?`)) {
+              renderWorkspace();     // devuelve el selector a su valor anterior
+              return;
+            }
+            sel.disabled = true;
+            try {
+              await apiRequest(`api/projects/${projectId}/attachments/relate-folder`, {
+                method: "POST", body: JSON.stringify({ path: ruta, updateId }),
+              });
+              // Se refresca la lista: la relación cambió en N archivos a la vez.
+              delete state.projectAttachments[projectId];
+              await loadAttachments(projectId);
+            } catch (error) {
+              sel.disabled = false;
+              alert(error.message);
+            }
+          });
+        }
+        document.querySelector("[data-attach-progress-close]")?.addEventListener("click", () => {
+          state.attachProgress = null;
+          renderWorkspace();
+        });
+        for (const input of document.querySelectorAll("[data-attach-folder-input]")) {
+          input.addEventListener("change", () => {
+            const entradas = [...(input.files || [])].map((file) => ({
+              file,
+              // webkitRelativePath = "Carpeta/Sub/archivo.pdf": se descarta el
+              // nombre y queda SOLO la ruta de carpetas.
+              path: (file.webkitRelativePath || file.name).split("/").slice(0, -1).join("/"),
+            }));
+            input.value = "";                       // permite re-subir la misma carpeta
+            uploadFolder(input.dataset.attachFolderInput, entradas);
+          });
+        }
+        for (const b of document.querySelectorAll("[data-attach-zip]")) {
+          b.addEventListener("click", () => descargarZip(b.dataset.attachZip, b));
+        }
+
         for (const button of document.querySelectorAll("[data-attach-query-toggle]")) {
           button.addEventListener("click", () => {
             const projectId = button.dataset.attachQueryToggle;
@@ -2445,6 +2842,10 @@ export function createWorkspaceModule(ctx) {
         // Ver archivo (abre la presigned GET en otra pestaña).
         for (const button of document.querySelectorAll("[data-attach-open]")) {
           button.addEventListener("click", () => openAttachment(button.dataset.attachOpen));
+        }
+        // Chip de carpeta de la bitácora → esa carpeta, abierta, en Adjuntos.
+        for (const button of document.querySelectorAll("[data-attach-goto-folder]")) {
+          button.addEventListener("click", () => irACarpetaAdjuntos(button.dataset.attachGotoFolder));
         }
         // Ver query (muestra el texto y permite copiarlo).
         for (const button of document.querySelectorAll("[data-attach-query-view]")) {
@@ -3066,14 +3467,6 @@ export function createWorkspaceModule(ctx) {
           });
         }
 
-        // Sección Personas (colapsable; el trabajo diario es sobre proyectos).
-        const peopleToggle = document.querySelector("#peopleSectionToggle");
-        if (peopleToggle) peopleToggle.addEventListener("click", () => {
-          state.peopleSectionOpen = !state.peopleSectionOpen;
-          if (!state.peopleSectionOpen) { state.showPersonForm = false; state.personSearch = ""; }
-          renderWorkspace();
-        });
-
         // Empty state guiado: lleva el foco al formulario de crear proyecto.
         const emptyCta = document.querySelector("#emptyCreateFocus");
         if (emptyCta) emptyCta.addEventListener("click", () => {
@@ -3122,11 +3515,10 @@ export function createWorkspaceModule(ctx) {
         }
 
         // (drop de persona en solicitud → bindProjectListHandlers, arriba)
-
-        for (const dropZone of document.querySelectorAll("[data-people-drop-zone]")) {
-          dropZone.addEventListener("dragover", allowDrop);
-          dropZone.addEventListener("drop", dropOnPeoplePanel);
-        }
+        // Ya NO hay zona de soltar sobre el directorio: al pasar Personas a vista
+        // propia (2026-08-04) el panel dejó de convivir con solicitudes y tareas,
+        // así que arrastrar una ficha hasta aquí para desasignar es imposible.
+        // La vía visible sigue intacta: la × del chip de la persona.
 
         for (const column of document.querySelectorAll("[data-task-status]")) {
           column.addEventListener("dragover", allowDrop);
@@ -3139,11 +3531,31 @@ export function createWorkspaceModule(ctx) {
             if (!select.value) {
               return;
             }
+            // "Registrar persona nueva…" no es un id: abre el mini-formulario.
+            if (select.value === NEW_PERSON_OPTION) {
+              state.memberCreateFor = select.dataset.projectMember;
+              renderWorkspace();
+              document.querySelector("[data-member-create-input]")?.focus({ preventScroll: true });
+              return;
+            }
             try {
               await addProjectMember(select.dataset.projectMember, select.value);
             } catch (error) {
               alert(error.message);
             }
+          });
+        }
+
+        for (const box of document.querySelectorAll("[data-member-create]")) {
+          const input = box.querySelector("[data-member-create-input]");
+          const cerrar = () => { state.memberCreateFor = null; renderWorkspace(); };
+          box.querySelector("[data-member-create-cancel]")?.addEventListener("click", cerrar);
+          box.querySelector("[data-member-create-save]")?.addEventListener("click",
+            () => createPersonAndAssign(box.dataset.memberCreate, input?.value, box));
+          // Enter guarda: es un campo único, pedir el clic sería un paso de más.
+          input?.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") { event.preventDefault(); createPersonAndAssign(box.dataset.memberCreate, input.value, box); }
+            if (event.key === "Escape") { event.preventDefault(); cerrar(); }
           });
         }
 
@@ -3538,6 +3950,181 @@ export function createWorkspaceModule(ctx) {
       // ── Adjuntos ────────────────────────────────────────────────────────────
       // Subir archivo(s): presign → PUT directo del navegador a S3 → confirm.
       // El binario NUNCA pasa por la API (evita el tope de 10 MB de API Gateway).
+      // ── Descarga en ZIP (2026-07-31) ────────────────────────────────────────
+      // El zip se arma EN EL NAVEGADOR: se bajan los archivos con las URLs
+      // prefirmadas que ya existen y se comprimen aquí. Hacerlo en el backend
+      // significaría que la Lambda descargue todo de S3, comprima y vuelva a
+      // subir — el doble de transferencia, tiempo de cómputo por cada descarga
+      // y riesgo de timeout. JSZip va AUTO-HOSPEDADO en /vendor/ (regla del
+      // proyecto: nada de CDNs externos, hay laptops que solo alcanzan AWS).
+      const ZIP_AVISO_BYTES = 200 * 1024 * 1024;
+      let zipLoad = null;
+
+      function cargarJSZip() {
+        if (window.JSZip) return Promise.resolve(window.JSZip);
+        if (!zipLoad) {
+          zipLoad = new Promise((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = "/vendor/jszip.min.js";
+            s.onload = () => resolve(window.JSZip);
+            s.onerror = () => reject(new Error("No se pudo cargar el compresor."));
+            document.head.appendChild(s);
+          });
+        }
+        return zipLoad;
+      }
+
+      async function descargarZip(projectId, boton) {
+        const todos = attachmentsOf(projectId) || [];
+        const sel = todos.filter((a) => state.attachSelected[a.id] && a.kind !== "query");
+        if (!sel.length) {
+          alert("Selecciona al menos un archivo. Las queries no se incluyen en el zip.");
+          return;
+        }
+        const peso = sel.reduce((s, a) => s + Number(a.size || 0), 0);
+        if (peso > ZIP_AVISO_BYTES
+            && !window.confirm(`La selección pesa ${pesoLegible(peso)} y se comprime en tu navegador, que puede tardar o quedarse sin memoria. ¿Continuar?`)) {
+          return;
+        }
+        const etiqueta = boton.textContent;
+        boton.disabled = true;
+        try {
+          const JSZipCtor = await cargarJSZip();
+          const zip = new JSZipCtor();
+          let hechos = 0;
+          for (const att of sel) {
+            boton.textContent = `Preparando ${++hechos} de ${sel.length}…`;
+            const url = await apiRequest(`api/projects/${projectId}/attachments/${att.id}/url`);
+            const resp = await fetch(url.data.url);
+            if (!resp.ok) throw new Error(`No se pudo bajar ${att.fileName}.`);
+            // La ruta se respeta DENTRO del zip: al descomprimir queda el mismo
+            // árbol que se ve en pantalla.
+            zip.file(att.path ? `${att.path}/${att.fileName}` : att.fileName, await resp.blob());
+          }
+          boton.textContent = "Comprimiendo…";
+          const blob = await zip.generateAsync({ type: "blob" });
+          const proyecto = findProject(projectId);
+          const nombre = `${(proyecto?.name || "adjuntos").replace(/[^\w\s.-]/g, "").trim().slice(0, 60) || "adjuntos"}.zip`;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = nombre;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+        } catch (error) {
+          alert(error.message);
+        } finally {
+          boton.disabled = false;
+          boton.textContent = etiqueta;
+        }
+      }
+
+      // ── Subida de CARPETA (2026-07-31) ──────────────────────────────────────
+      // El navegador entrega la ruta relativa de cada archivo; esa ruta se
+      // guarda como campo del adjunto y de ahí sale el árbol. Sube de 4 en 4:
+      // en serie 50 archivos se sienten eternos y de golpe se saturan la red y
+      // el límite de conexiones del navegador.
+      const SUBIDA_EN_PARALELO = 4;
+      const MAX_ARCHIVOS_CARPETA = 300;
+
+      // ── Arrastrar una CARPETA (2026-07-31) ──────────────────────────────────
+      // Al soltar una carpeta, `dataTransfer.files` NO trae su contenido: entrega
+      // la carpeta como un "archivo" de 0 bytes, y por eso salía «El archivo está
+      // vacío». Hay que recorrerla con la API de entradas del navegador.
+      function recorrerEntrada(entry, prefijo, out) {
+        return new Promise((resolve) => {
+          if (entry.isFile) {
+            entry.file((f) => { out.push({ file: f, path: prefijo }); resolve(); }, () => resolve());
+            return;
+          }
+          if (!entry.isDirectory) return resolve();
+          const ruta = prefijo ? `${prefijo}/${entry.name}` : entry.name;
+          const reader = entry.createReader();
+          // OJO: readEntries devuelve POR TANDAS (máx. 100 por llamada). Hay que
+          // llamarlo hasta que devuelva vacío o una carpeta grande se trunca.
+          const leerTanda = () => reader.readEntries(async (tanda) => {
+            if (!tanda.length) return resolve();
+            await Promise.all([...tanda].map((hijo) => recorrerEntrada(hijo, ruta, out)));
+            leerTanda();
+          }, () => resolve());
+          leerTanda();
+        });
+      }
+
+      // Devuelve [{file, path}] si lo soltado incluye carpetas; null si son
+      // archivos sueltos (que siguen por el camino de siempre).
+      async function entradasDeArrastre(dataTransfer) {
+        const items = [...(dataTransfer?.items || [])];
+        const entries = items.map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+        if (!entries.some((e) => e.isDirectory)) return null;
+        const out = [];
+        await Promise.all(entries.map((e) => recorrerEntrada(e, "", out)));
+        return out;
+      }
+
+      // `entradas` = [{ file, path }]. El path viene del input (webkitRelativePath)
+      // o del recorrido del árbol al ARRASTRAR una carpeta.
+      async function uploadFolder(projectId, entradas) {
+        const lista = [...entradas];
+        if (!lista.length) return;
+        if (lista.length > MAX_ARCHIVOS_CARPETA) {
+          alert(`La carpeta tiene ${lista.length} archivos y el máximo por carga es ${MAX_ARCHIVOS_CARPETA}. Sube menos carpetas a la vez.`);
+          return;
+        }
+        state.attachProgress = { projectId, hechos: 0, total: lista.length, fallidos: [] };
+        renderWorkspace();
+        let siguiente = 0;
+        const trabajador = async () => {
+          while (siguiente < lista.length) {
+            const { file, path } = lista[siguiente++];
+            try {
+              await subirUno(projectId, file, path);
+            } catch (error) {
+              state.attachProgress.fallidos.push({
+                nombre: path ? `${path}/${file.name}` : file.name, motivo: error.message });
+            }
+            state.attachProgress.hechos += 1;
+            pintarProgresoAdjuntos();
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(SUBIDA_EN_PARALELO, lista.length) }, trabajador));
+        const fallidos = state.attachProgress.fallidos;
+        state.attachProgress = fallidos.length ? { ...state.attachProgress, terminado: true } : null;
+        renderWorkspace();
+      }
+
+      // Progreso en sitio: repintar todo en cada archivo haría parpadear la
+      // pantalla 50 veces y perdería el foco de lo que el usuario esté haciendo.
+      function pintarProgresoAdjuntos() {
+        const p = state.attachProgress;
+        const barra = document.querySelector("[data-attach-progress-bar]");
+        const texto = document.querySelector("[data-attach-progress-text]");
+        if (!p || !barra || !texto) return;
+        const pct = Math.round((p.hechos * 100) / p.total);
+        barra.style.width = `${pct}%`;
+        texto.textContent = p.hechos < p.total
+          ? `Subiendo ${p.hechos} de ${p.total}`
+          : `${p.total - p.fallidos.length} de ${p.total} subidos`;
+      }
+
+      async function subirUno(projectId, file, path) {
+        const presign = await apiRequest(`api/projects/${projectId}/attachments/presign`, {
+          method: "POST",
+          body: JSON.stringify({ fileName: file.name, contentType: file.type || "application/octet-stream", size: file.size }),
+        });
+        const { attachmentId, uploadUrl, contentType } = presign.data;
+        const put = await fetch(uploadUrl, { method: "PUT", headers: { "content-type": contentType }, body: file });
+        if (!put.ok) throw new Error("No se pudo subir al almacenamiento.");
+        const confirmed = await apiRequest(`api/projects/${projectId}/attachments`, {
+          method: "POST",
+          body: JSON.stringify({ kind: "file", attachmentId, fileName: file.name,
+                                 contentType, size: file.size, path: path || "" }),
+        });
+        const project = findProject(projectId);
+        state.projectAttachments[projectId] = [confirmed.data, ...(attachmentsOf(projectId) || [])];
+        if (project) project.attachmentsCount = (project.attachmentsCount || 0) + 1;
+        return confirmed.data;
+      }
+
       async function uploadAttachments(projectId, files, updateId) {
         if (!projectId || !files.length) return;
         state.activeProjectId = projectId;
@@ -3565,7 +4152,8 @@ export function createWorkspaceModule(ctx) {
               body: JSON.stringify({ kind: "file", attachmentId, fileName: file.name, contentType, size: file.size, updateId: updateId || "" })
             });
             const project = findProject(projectId);
-            if (project) project.attachments = [confirmed.data, ...(project.attachments || [])];
+            if (project) state.projectAttachments[projectId] = [confirmed.data, ...(attachmentsOf(projectId) || [])];
+            if (project) project.attachmentsCount = (project.attachmentsCount || 0) + 1;
           }
         } catch (error) {
           state.attachError = { ...(state.attachError || {}), [projectId]: error.message };
@@ -3591,7 +4179,8 @@ export function createWorkspaceModule(ctx) {
             body: JSON.stringify({ kind: "query", text, title })
           });
           const project = findProject(projectId);
-          if (project) project.attachments = [payload.data, ...(project.attachments || [])];
+          if (project) state.projectAttachments[projectId] = [payload.data, ...(attachmentsOf(projectId) || [])];
+          if (project) project.attachmentsCount = (project.attachmentsCount || 0) + 1;
           state.attachQueryFor = null;
           state.activeProjectId = projectId;
           renderWorkspace();
@@ -3610,6 +4199,33 @@ export function createWorkspaceModule(ctx) {
           window.open(payload.data.url, "_blank", "noopener");
         } catch (error) {
           alert(error.message);
+        }
+      }
+
+      // Chip de carpeta de la bitácora → la carpeta desplegada en la franja
+      // Adjuntos. El chip resume 89 archivos en un renglón: si el clic no lleva
+      // hasta ellos es un botón muerto. La clave es la MISMA que usa el árbol
+      // ("projectId::ruta"), por eso basta con marcarla abierta.
+      function irACarpetaAdjuntos(clave) {
+        const [projectId] = (clave || "").split("::");
+        if (!projectId) return;
+        state.attachSearch = "";              // con búsqueda activa el árbol se aplana
+        state.attachTreeOpen[clave] = true;
+        renderWorkspace();
+        const fila = [...document.querySelectorAll("[data-attach-folder]")]
+          .find((n) => n.dataset.attachFolder === clave);
+        const destino = fila?.closest(".attachRow")
+          || document.querySelector(`[data-attach-project="${projectId}"]`);
+        if (!destino) return;
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        destino.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+        // Mismo destello que al abrir el detalle o el form de entregable (docs/06 #2).
+        if (!reduce && destino.animate) {
+          destino.animate([
+            { boxShadow: "0 0 0 0 rgba(15, 118, 110, 0)" },
+            { boxShadow: "0 0 0 3px rgba(15, 118, 110, 0.45)", offset: 0.25 },
+            { boxShadow: "0 0 0 0 rgba(15, 118, 110, 0)" },
+          ], { duration: 900, easing: "ease-out" });
         }
       }
 
@@ -3640,7 +4256,9 @@ export function createWorkspaceModule(ctx) {
         try {
           await apiRequest(`api/projects/${projectId}/attachments/${attachmentId}`, { method: "DELETE" });
           const project = findProject(projectId);
-          if (project) project.attachments = (project.attachments || []).filter((a) => a.id !== attachmentId);
+          if (project) state.projectAttachments[projectId] = (attachmentsOf(projectId) || []).filter((a) => a.id !== attachmentId);
+          if (project) project.attachmentsCount = Math.max(0, (project.attachmentsCount || 1) - 1);
+          delete state.attachSelected[attachmentId];
           renderWorkspace();
         } catch (error) {
           alert(error.message);
@@ -3704,8 +4322,9 @@ export function createWorkspaceModule(ctx) {
       function mergeAttachment(projectId, attachmentId, data) {
         const project = findProject(projectId);
         if (!project) return;
-        const idx = (project.attachments || []).findIndex((a) => a.id === attachmentId);
-        if (idx >= 0) project.attachments[idx] = { ...project.attachments[idx], ...data };
+        const lista = attachmentsOf(project.id) || [];
+        const idx = lista.findIndex((a) => a.id === attachmentId);
+        if (idx >= 0) lista[idx] = { ...lista[idx], ...data };
       }
 
       async function dropOnProject(event) {
@@ -3722,6 +4341,41 @@ export function createWorkspaceModule(ctx) {
         }
       }
 
+      // Registrar a alguien Y sumarlo a la solicitud en un solo gesto. Las dos
+      // llamadas van encadenadas a propósito: si el alta funciona pero la
+      // asignación falla, la persona YA existe — se avisa en vez de fingir que
+      // no pasó nada, y queda en el directorio lista para agregarla a mano.
+      // El backend rechaza nombres duplicados, así que el mensaje que llega es
+      // el suyo ("Ya existe una persona registrada como…").
+      async function createPersonAndAssign(projectId, nombre, box) {
+        const fullName = (nombre || "").trim();
+        if (!projectId) return;
+        if (!fullName) {
+          box?.querySelector("[data-member-create-input]")?.focus({ preventScroll: true });
+          return;
+        }
+        const boton = box?.querySelector("[data-member-create-save]");
+        if (boton) { boton.disabled = true; boton.textContent = "Registrando…"; }
+        let personId = null;
+        try {
+          const payload = await apiRequest("api/people", {
+            method: "POST",
+            body: JSON.stringify({ firstName: fullName }),
+          });
+          personId = payload.data.id;
+          state.memberCreateFor = null;
+          // El feedback es el chip apareciendo en "Personas relacionadas": no se
+          // usa saveNotice porque solo se pinta en el panel de EDICIÓN, que aquí
+          // normalmente está cerrado — sería un aviso que nadie ve.
+          await addProjectMember(projectId, personId);   // refresca y repinta
+        } catch (error) {
+          alert(personId
+            ? `${fullName} quedó registrada, pero no se pudo agregar a la solicitud: ${error.message}`
+            : error.message);
+          if (boton) { boton.disabled = false; boton.textContent = "Registrar y agregar"; }
+        }
+      }
+
       async function addProjectMember(projectId, personId) {
         await apiRequest(`api/projects/${projectId}/members`, {
           method: "POST",
@@ -3729,32 +4383,6 @@ export function createWorkspaceModule(ctx) {
         });
         state.activeProjectId = projectId;
         await refreshWorkspace();
-      }
-
-      async function dropOnPeoplePanel(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        const data = getDragData(event);
-
-        if (data?.type === "projectMember") {
-          try {
-            await removeProjectMember(data.projectId, data.personId);
-          } catch (error) {
-            alert(error.message);
-          }
-          return;
-        }
-
-        const taskId = data?.type === "taskAssignee" ? data.taskId : data?.id;
-        const projectId = data?.projectId || state.activeProjectId;
-        if (!taskId || !projectId || !["task", "taskAssignee"].includes(data?.type)) {
-          return;
-        }
-        try {
-          await updateTask(taskId, { assigneePersonId: "" }, projectId, false);
-        } catch (error) {
-          alert(error.message);
-        }
       }
 
       async function removeProjectMember(projectId, personId) {

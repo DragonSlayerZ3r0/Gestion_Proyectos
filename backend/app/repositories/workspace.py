@@ -214,6 +214,13 @@ class WorkspaceRepository(BaseRepository):
     def list_all_attachments(self) -> list[dict[str, Any]]:
         return self._query_entity_type("ATTACHMENT")
 
+    def list_all_attachments_ids(self) -> list[dict[str, Any]]:
+        """Solo projectId, para CONTAR por solicitud en get_workspace. Proyección
+        mínima: traer el item completo movía ~1.1 KB por adjunto para usar un
+        número (2026-07-31)."""
+        return self._query_entity_type(
+            "ATTACHMENT", ProjectionExpression="projectId")
+
     def list_project_attachments(self, project_id: str) -> list[dict[str, Any]]:
         return self._query_all(
             KeyConditionExpression=Key("PK").eq(f"PROJECT#{project_id}") & Key("SK").begins_with("ATTACH#"))

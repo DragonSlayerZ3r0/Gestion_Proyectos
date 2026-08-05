@@ -68,6 +68,15 @@
         // el usuario la perdía de vista justo cuando iba a llenarle los campos.
         // Se suelta sola al seleccionar otra o cerrar su detalle.
         pinnedProjectId: null,
+        // Adjuntos con CARGA DIFERIDA (2026-07-31): ya no viajan en el workspace
+        // (con carpetas de 50 archivos sumaban más de 1 MB a cada carga). Se
+        // piden al abrir la solicitud y se guardan por id aquí.
+        projectAttachments: {},      // projectId → lista de adjuntos
+        attachmentsLoading: {},      // projectId → true mientras carga
+        attachTreeOpen: {},          // "projectId::ruta" → carpeta desplegada
+        attachSearch: "",            // buscador dentro de los adjuntos
+        attachSelected: {},          // attachmentId → true (selección múltiple)
+        attachProgress: null,        // {projectId, hechos, total, fallidos[]}
         deliverableFilter: "",       // id del entregable enfocado en el tablero
         deliverableFormProject: null, // solicitud con el mini-formulario abierto
         deliverableEditing: null,    // id en edición ("" o null = alta nueva)
@@ -85,10 +94,13 @@
         projectTargetAreaFilter: wsPrefs.projectTargetAreaFilter || "all",
         projectOwnerFilter: wsPrefs.projectOwnerFilter || "all",
         projectInvolvesFilter: wsPrefs.projectInvolvesFilter || "all",
-        workspaceView: "manage",    // vista de Solicitudes: "manage" (Gestión) | "board" (Tablero de avance)
+        // Vista de Solicitudes: "manage" (Gestión) | "board" (Tablero de avance)
+        // | "people" (directorio de personas, 2026-08-04). NO se persiste: cada
+        // sesión arranca en Gestión, que es el trabajo diario.
+        workspaceView: "manage",
         boardExpanded: null,        // solicitud expandida en el tablero (qué falta / cuándo)
         expandedBoardProjectId: null,
-        peopleSectionOpen: false,  // sección "Personas registradas" colapsada por defecto
+        memberCreateFor: null,     // solicitud con "+ Registrar persona nueva…" abierto
         projectSort: null,         // orden de la tabla de solicitudes {key, dir}; null = orden del backend
         projectColOrder: null,     // orden de COLUMNAS preferido por el usuario (localStorage); null = el del código
         updateEditing: null,    // {projectId, updateId} entrada de seguimiento en edición

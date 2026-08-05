@@ -74,6 +74,37 @@ class AttachmentService:
         name = _SAFE_NAME_RE.sub("_", (name or "").strip()) or "archivo"
         return name[-120:]  # acota longitud, conserva la extensión (al final)
 
+    # ── Ruta relativa (carpetas, 2026-07-31) ──────────────────────────────────
+    # La estructura de carpetas se guarda como TEXTO en el adjunto; el árbol se
+    # deriva de esas rutas al dibujar. No hay entidad "carpeta": una carpeta sin
+    # archivos no existe, renombrar es cambiar un prefijo y borrarla es borrar
+    # sus archivos — inventar la entidad traería sincronización y huérfanos para
+    # no ganar nada (es también el motivo por el que S3 no tiene carpetas).
+    # OJO: la ruta NO entra en la llave de S3 (esa sigue siendo por id): así no
+    # hay que lidiar con acentos, espacios ni colisiones en el almacenamiento.
+    _PATH_MAX_CHARS = 400
+    _PATH_MAX_DEPTH = 10
+
+    @classmethod
+    def _validate_path(cls, value: Any) -> str:
+        raw = str(value or "").strip().strip("/")
+        if not raw:
+            return ""
+        # ".." fuera: aunque la ruta no toque S3, se muestra y se usa para armar
+        # el zip — no puede escaparse de su carpeta al descomprimir.
+        partes = [p.strip() for p in raw.replace("\\", "/").split("/")]
+        partes = [p for p in partes if p and p != "."]
+        if any(p == ".." for p in partes):
+            raise ValidationError("La ruta del archivo no es válida.")
+        if len(partes) > cls._PATH_MAX_DEPTH:
+            raise ValidationError(
+                f"La carpeta tiene más de {cls._PATH_MAX_DEPTH} niveles de profundidad.")
+        ruta = "/".join(partes)
+        if len(ruta) > cls._PATH_MAX_CHARS:
+            raise ValidationError(
+                f"La ruta supera los {cls._PATH_MAX_CHARS} caracteres.")
+        return ruta
+
     # ── Subida de archivo: presign → (PUT directo del navegador) → confirm ────
     def presign_upload(self, project_id: str, payload: dict[str, Any],
                        identity: dict[str, str]) -> dict[str, Any]:
@@ -126,6 +157,7 @@ class AttachmentService:
             "contentType": content_type,
             "size": size,
             "updateId": update_id,
+            "path": self._validate_path(payload.get("path")),
             "createdAt": now,
             "updatedAt": now,
             "createdBy": identity["userId"],
@@ -165,7 +197,52 @@ class AttachmentService:
         self._repository.put_item(item)
         return self._normalize(item, resolve_author=True)
 
+    # ── Lista de UNA solicitud (carga diferida, 2026-07-31) ───────────────────
+    # Antes los adjuntos de TODAS las solicitudes viajaban en /api/workspace.
+    # Con carpetas eso no escala: medido, 1.156 bytes de metadata por adjunto —
+    # veinte solicitudes con una carpeta de 50 archivos sumarían más de 1 MB a
+    # CADA carga y a cada refresco automático. Ahora la lista se pide al abrir
+    # la solicitud y el workspace solo lleva el conteo.
+    def list_for_project(self, project_id: str) -> list[dict[str, Any]]:
+        project_id = self._require(project_id, "Proyecto")
+        items = self._repository.list_project_attachments(project_id)
+        data = [self._normalize(i) for i in items]
+        # Autores en UN solo lote (no uno por adjunto): misma caché que usa
+        # get_workspace para los seguimientos.
+        correos = [a["createdBy"] for a in data if a["createdBy"]]
+        if correos:
+            nombres = NameDirectory().resolve(correos)
+            for a in data:
+                a["createdByName"] = nombres.get(a["createdBy"], "")
+        data.sort(key=lambda a: a["createdAt"], reverse=True)
+        return data
+
     # ── Relacionar con una entrada de seguimiento (o General) ─────────────────
+    def relate_folder(self, project_id: str, payload: dict[str, Any],
+                      identity: dict[str, str]) -> dict[str, Any]:
+        """Relaciona de una vez TODOS los archivos de una carpeta con una entrada
+        de seguimiento (2026-07-31). Con 89 archivos subidos de golpe, pedir la
+        relación uno por uno no es una opción: el seguimiento es de la ENTREGA
+        completa, no de cada archivo. Como las carpetas se derivan de las rutas,
+        esto es una escritura por archivo — pero en UNA sola llamada, no 89."""
+        project_id = self._require(project_id, "Proyecto")
+        ruta = self._validate_path(payload.get("path"))
+        update_id = str(payload.get("updateId") or "").strip()
+        if update_id and not self._repository.get_project_update(project_id, update_id):
+            raise ValidationError("La entrada de seguimiento no existe.")
+        now = self._now()
+        tocados = 0
+        for item in self._repository.list_project_attachments(project_id):
+            p = item.get("path", "")
+            # La carpeta y TODO lo que cuelga de ella (subcarpetas incluidas).
+            if not (p == ruta or (ruta and p.startswith(f"{ruta}/"))):
+                continue
+            self._repository.update_attachment(
+                project_id, item["attachmentId"],
+                {"updateId": update_id, "updatedAt": now, "updatedBy": identity["userId"]})
+            tocados += 1
+        return {"path": ruta, "updateId": update_id, "updated": tocados}
+
     def relate(self, project_id: str, attachment_id: str, payload: dict[str, Any],
                identity: dict[str, str]) -> dict[str, Any]:
         """Cambia el contexto del adjunto: lo liga a una entrada de seguimiento
@@ -224,6 +301,7 @@ class AttachmentService:
             "projectId": item["projectId"],
             "kind": kind,
             "updateId": item.get("updateId", ""),
+            "path": item.get("path", ""),
             "createdBy": item.get("createdBy", ""),
             "createdByName": "",
             "createdAt": item.get("createdAt", ""),

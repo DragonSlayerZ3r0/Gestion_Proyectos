@@ -110,6 +110,15 @@ TASK (incluye `progress`: % de avance MANUAL 0-100 o "" = sin definir, 2026-07-2
 PK = PROJECT#<projectId>
 SK = TASK#<taskId>
 
+ATTACHMENT · campo `path` (2026-07-31): ruta relativa de carpetas
+  ("04 - PRUEBAS/MANUALES"; vacío = raíz). El árbol de la vista se DERIVA de
+  estas rutas — no hay entidad "carpeta". La ruta NO va en la llave de S3 (esa
+  sigue siendo por id, sin acentos ni colisiones); se valida contra "..",
+  10 niveles y 400 caracteres. Independiente de `updateId`: un archivo puede
+  estar en una carpeta Y referenciado por una entrada de seguimiento.
+  La LISTA ya no viaja en /api/workspace (solo `attachmentsCount` por
+  solicitud); se pide con GET /api/projects/{id}/attachments al abrirla.
+
 DELIVERABLE (entregable, 2026-07-31: name + dueDate. Nivel OPCIONAL que agrupa
   tareas dentro de UNA solicitud grande; la tarea apunta con `deliverableId`
   (vacío = "sin entregable", el caso de casi todas). Cuelga del PK del proyecto
