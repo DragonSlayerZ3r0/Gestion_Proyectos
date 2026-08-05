@@ -112,6 +112,20 @@ def _task_update(req: Request):
     return success(service.update_task(project_id, task_id, req.body(), req.identity))
 
 
+def _create_deliverable(req: Request):
+    return success(WorkspaceService().create_deliverable(
+        req.params.get("projectId") or "", req.body(), req.identity), 201)
+
+
+def _deliverable_update(req: Request):
+    service = WorkspaceService()
+    project_id = req.params.get("projectId") or ""
+    deliverable_id = req.params.get("deliverableId") or ""
+    if req.method == "DELETE":
+        return success(service.delete_deliverable(project_id, deliverable_id, req.identity))
+    return success(service.update_deliverable(project_id, deliverable_id, req.body(), req.identity))
+
+
 def _create_task_update(req: Request):
     return success(WorkspaceService().create_task_update(
         req.params.get("projectId") or "", req.params.get("taskId") or "",
@@ -206,6 +220,14 @@ def register(router: Router) -> None:
                error_msg="Error inesperado al crear la tarea.")
     router.add(["PATCH", "DELETE"], "/api/projects/{projectId}/tasks/{taskId}", _task_update, modules=T,
                error_msg="Error inesperado al actualizar la tarea.")
+    # Entregables (2026-07-31): agrupan tareas dentro de UNA solicitud, así que
+    # van con el guard de tareas — no son catálogo compartido (esos sí exigen
+    # `projects_catalogos`), sino parte del trabajo diario de la solicitud.
+    router.add(["POST"], "/api/projects/{projectId}/deliverables", _create_deliverable, modules=T,
+               error_msg="Error inesperado al crear el entregable.")
+    router.add(["PATCH", "DELETE"], "/api/projects/{projectId}/deliverables/{deliverableId}",
+               _deliverable_update, modules=T,
+               error_msg="Error inesperado al actualizar el entregable.")
     # Bitácora POR TAREA (2026-07-24): mismo guard que las tareas.
     router.add(["POST"], "/api/projects/{projectId}/tasks/{taskId}/updates", _create_task_update, modules=T,
                error_msg="Error inesperado al registrar el seguimiento de la tarea.")

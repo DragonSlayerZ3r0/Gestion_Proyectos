@@ -60,6 +60,17 @@
         showPersonForm: false,
         showTaskForm: false,
         taskFormProjectId: null,
+        // Entregables (2026-07-31): nivel OPCIONAL que agrupa tareas dentro de
+        // una solicitud grande. Todo esto es efímero (no se persiste): enfocar
+        // un entregable es una lectura del momento, no una preferencia.
+        // Solicitud ANCLADA a la lista (2026-07-31): la recién creada no tiene
+        // estado ni área, así que cualquier filtro o búsqueda la dejaría fuera y
+        // el usuario la perdía de vista justo cuando iba a llenarle los campos.
+        // Se suelta sola al seleccionar otra o cerrar su detalle.
+        pinnedProjectId: null,
+        deliverableFilter: "",       // id del entregable enfocado en el tablero
+        deliverableFormProject: null, // solicitud con el mini-formulario abierto
+        deliverableEditing: null,    // id en edición ("" o null = alta nueva)
         // Multi-selección (2026-07-22): [] = todos; varios ids = OR entre ellos
         // ("none" = sin estado). Antes era un string de valor único.
         // Búsqueda y filtros SOBREVIVEN a la recarga (2026-07-28): los usuarios

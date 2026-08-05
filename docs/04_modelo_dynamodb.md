@@ -110,6 +110,15 @@ TASK (incluye `progress`: % de avance MANUAL 0-100 o "" = sin definir, 2026-07-2
 PK = PROJECT#<projectId>
 SK = TASK#<taskId>
 
+DELIVERABLE (entregable, 2026-07-31: name + dueDate. Nivel OPCIONAL que agrupa
+  tareas dentro de UNA solicitud grande; la tarea apunta con `deliverableId`
+  (vacío = "sin entregable", el caso de casi todas). Cuelga del PK del proyecto
+  → el borrado de la solicitud lo arrastra sin código extra. Borrar el
+  entregable NO borra tareas: se les vacía el deliverableId. Sin GSI propio: el
+  workspace los trae en un viaje por entityType, igual que tareas y miembros)
+PK = PROJECT#<projectId>
+SK = DELIV#<deliverableId>
+
 PROJECT_UPDATE (seguimiento/bitácora de la solicitud: date + text + autor)
 PK = PROJECT#<projectId>
 SK = UPDATE#<updateId>

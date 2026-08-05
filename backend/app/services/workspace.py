@@ -143,6 +143,15 @@ class WorkspaceService:
             if task is None:
                 continue                    # bitácora de una tarea ya borrada
             task["updates"] = sorted(items, key=lambda u: (u["date"], u["createdAt"]), reverse=True)
+        # Entregables (2026-07-31): mismo viaje único por tipo. Ordenados por
+        # fecha (los sin fecha al final) — es el orden en que se leen: qué toca
+        # primero. Casi todas las solicitudes no tienen ninguno y quedan en [].
+        deliverables_by: dict[str, list] = {}
+        for item in self._repository.list_all_deliverables():
+            deliverables_by.setdefault(item.get("projectId", ""), []).append(
+                self._normalize_deliverable(item))
+        for items in deliverables_by.values():
+            items.sort(key=lambda d: (d["dueDate"] == "", d["dueDate"], d["name"]))
         # Adjuntos (archivos S3 + queries) agrupados por solicitud, mismo viaje único.
         attach_service = AttachmentService(self._repository)
         attachments_by: dict[str, list] = {}
@@ -167,6 +176,7 @@ class WorkspaceService:
         for project in projects:
             project["members"] = members_by.get(project["id"], [])
             project["tasks"] = tasks_by.get(project["id"], [])
+            project["deliverables"] = deliverables_by.get(project["id"], [])
             # Seguimiento: lo más reciente primero (fecha del trabajo; a igual fecha,
             # lo anotado más tarde arriba).
             project["updates"] = sorted(
@@ -431,6 +441,7 @@ class WorkspaceService:
         project = self._normalize_project(item)
         project["members"] = []
         project["tasks"] = []
+        project["deliverables"] = []
         _index_solicitud(project)
         return project
 
@@ -507,6 +518,9 @@ class WorkspaceService:
         project = self._normalize_project(self._repository.update_project(project_id, values))
         project["members"] = [self._normalize_member(item) for item in self._repository.list_project_members(project_id)]
         project["tasks"] = [self._normalize_task(item) for item in self._repository.list_project_tasks(project_id)]
+        project["deliverables"] = sorted(
+            (self._normalize_deliverable(i) for i in self._repository.list_project_deliverables(project_id)),
+            key=lambda d: (d["dueDate"] == "", d["dueDate"], d["name"]))
         # Re-indexa solo si cambió nombre o descripción (lo que se vectoriza); el
         # índice es idempotente por hash, así que otras ediciones no re-embeben.
         if "name" in payload or "description" in payload:
@@ -808,6 +822,102 @@ class WorkspaceService:
         _deindex_seguimiento(update_id)
         return {"projectId": project_id, "taskId": task_id, "updateId": update_id, "removed": True}
 
+    # ── Entregables (2026-07-31) ──────────────────────────────────────────────
+    # Nivel OPCIONAL entre la solicitud y sus tareas, para las solicitudes
+    # grandes (hoy 2 de 147 pasan de 10 tareas). Una solicitud sin entregables
+    # se comporta EXACTAMENTE igual que antes: nada nuevo aparece en pantalla.
+    # En términos de gestión de proyectos esto es un "entregable" / paquete de
+    # trabajo — no un hito, que es un punto en el tiempo sin trabajo asociado
+    # (la fecha del entregable SÍ hace de hito en la línea de tiempo).
+    DELIVERABLE_NAME_MAX = 80
+
+    def create_deliverable(self, project_id: str, payload: dict[str, Any],
+                           identity: dict[str, str]) -> dict[str, Any]:
+        self._require_project(project_id)
+        name = self._required_text(payload, "name", "Nombre del entregable")
+        if len(name) > self.DELIVERABLE_NAME_MAX:
+            raise ValidationError(
+                f"El nombre del entregable supera los {self.DELIVERABLE_NAME_MAX} caracteres.")
+        now = self._now()
+        deliverable_id = uuid4().hex
+        item = {
+            "PK": f"PROJECT#{project_id}",
+            "SK": f"DELIV#{deliverable_id}",
+            "entityType": "DELIVERABLE",
+            "projectId": project_id,
+            "deliverableId": deliverable_id,
+            "name": name,
+            "dueDate": self._optional_date(payload.get("dueDate"), "Fecha del entregable"),
+            "createdAt": now,
+            "updatedAt": now,
+            "createdBy": identity["userId"],
+            "updatedBy": identity["userId"],
+        }
+        self._repository.put_item(item)
+        return self._normalize_deliverable(item)
+
+    def update_deliverable(self, project_id: str, deliverable_id: str,
+                           payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
+        self._require_deliverable(project_id, deliverable_id)
+        values: dict[str, Any] = {"updatedAt": self._now(), "updatedBy": identity["userId"]}
+        if "name" in payload:
+            name = self._required_text(payload, "name", "Nombre del entregable")
+            if len(name) > self.DELIVERABLE_NAME_MAX:
+                raise ValidationError(
+                    f"El nombre del entregable supera los {self.DELIVERABLE_NAME_MAX} caracteres.")
+            values["name"] = name
+        if "dueDate" in payload:
+            values["dueDate"] = self._optional_date(payload.get("dueDate"), "Fecha del entregable")
+        updated = self._repository.update_deliverable(project_id, deliverable_id, values)
+        return self._normalize_deliverable(updated)
+
+    def delete_deliverable(self, project_id: str, deliverable_id: str,
+                           identity: dict[str, str]) -> dict[str, Any]:
+        """Borra la AGRUPACIÓN, nunca el trabajo: sus tareas quedan «sin
+        entregable». Bloquear el borrado (como en los catálogos de área/estado)
+        sería equivocado — ahí el ítem lo comparten todas las solicitudes; acá
+        el entregable es de ESTA y reagrupar es parte normal de replanificar."""
+        self._require_deliverable(project_id, deliverable_id)
+        liberadas = 0
+        for task in self._repository.list_project_tasks(project_id):
+            if task.get("deliverableId") == deliverable_id:
+                self._repository.update_task(
+                    project_id, task["taskId"],
+                    {"deliverableId": "", "updatedAt": self._now(), "updatedBy": identity["userId"]})
+                liberadas += 1
+        self._repository.delete_deliverable(project_id, deliverable_id)
+        return {"deleted": True, "tasksReleased": liberadas}
+
+    def _require_project(self, project_id: str) -> dict[str, Any]:
+        project = self._repository.get_project(project_id)
+        if not project:
+            raise ValidationError("La solicitud no existe.")
+        return project
+
+    def _require_deliverable(self, project_id: str, deliverable_id: str) -> dict[str, Any]:
+        deliverable = self._repository.get_deliverable(project_id, deliverable_id)
+        if not deliverable:
+            raise ValidationError("El entregable no existe.")
+        return deliverable
+
+    def _valid_deliverable_id(self, project_id: str, value: Any) -> str:
+        """Un entregable solo puede referenciarse desde SU MISMA solicitud."""
+        deliverable_id = str(value or "").strip()
+        if not deliverable_id:
+            return ""
+        if not self._repository.get_deliverable(project_id, deliverable_id):
+            raise ValidationError("El entregable no existe en esta solicitud.")
+        return deliverable_id
+
+    def _normalize_deliverable(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": item["deliverableId"],
+            "projectId": item["projectId"],
+            "name": item.get("name", ""),
+            "dueDate": item.get("dueDate", ""),
+            "updatedAt": item.get("updatedAt", ""),
+        }
+
     def create_task(self, project_id: str, payload: dict[str, Any], identity: dict[str, str]) -> dict[str, Any]:
         title = self._required_text(payload, "title", "Título de la tarea")
         now = self._now()
@@ -830,6 +940,9 @@ class WorkspaceService:
             # la solicitud; opcionales y validadas como pareja (fin ≥ inicio).
             "startDate": self._optional_date(payload.get("startDate"), "Fecha de inicio"),
             "endDate": self._optional_date(payload.get("endDate"), "Fecha de fin"),
+            # Entregable al que pertenece (2026-07-31). Vacío = "sin entregable",
+            # que es el caso de la inmensa mayoría de las solicitudes.
+            "deliverableId": self._valid_deliverable_id(project_id, payload.get("deliverableId")),
             "createdAt": now,
             "updatedAt": now,
             "createdBy": identity["userId"],
@@ -861,6 +974,9 @@ class WorkspaceService:
             values["startDate"] = self._optional_date(payload.get("startDate"), "Fecha de inicio")
         if "endDate" in payload:
             values["endDate"] = self._optional_date(payload.get("endDate"), "Fecha de fin")
+        if "deliverableId" in payload:
+            values["deliverableId"] = self._valid_deliverable_id(
+                project_id, payload.get("deliverableId"))
         # Se valida el resultado FINAL (lo enviado + lo ya guardado): editar solo
         # una de las dos fechas también debe respetar fin ≥ inicio.
         self._check_task_dates(
@@ -942,6 +1058,7 @@ class WorkspaceService:
             "updatedAt": item.get("updatedAt", ""),
             "members": [],
             "tasks": [],
+            "deliverables": [],
             "updates": [],
             "attachments": []
         }
@@ -978,6 +1095,7 @@ class WorkspaceService:
             "progress": item.get("progress", "") if item.get("progress", "") == "" else int(item.get("progress")),
             "startDate": item.get("startDate", ""),
             "endDate": item.get("endDate", ""),
+            "deliverableId": item.get("deliverableId", ""),
             "updates": [],                  # bitácora de la tarea (se llena en get_workspace)
             "updatedAt": item.get("updatedAt", "")
         }

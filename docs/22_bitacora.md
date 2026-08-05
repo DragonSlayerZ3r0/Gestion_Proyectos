@@ -38,6 +38,84 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 **Deja obsoleta una premisa de la entrada de más abajo (pantalla completa, mismo día):** ahí el punto (2) dice que el panel «se vuelve a dibujar al abrir Compartir». Desde hoy **ya no**. La decisión que se tomó por eso —colgar la clase del shell `#app`— **se mantiene igual de válida**, porque el menú lateral y el encabezado están fuera del panel y solo desde el shell se pueden esconder. Docs: `06` #15 (regla nueva, cara complementaria de la #14), excepción en `AGENTS.md`, funcional en `02`.
 
+## 2026-07-31 · estándar — Un ícono por sección: encontrar sin leer
+
+**Reporte del usuario:** "esas 3 secciones se ven muy parecidas, creo que pueden confundirse y no encontrar rápido lo que quiero… el objetivo es identificar la sección de tareas muy rápido, la de adjuntos rápido, etc.". Cierto: Adjuntos, Personas, Tareas y Seguimiento tenían el MISMO marco, fondo y título en negrita. Para hallar uno había que **leer** las cuatro etiquetas, y leer es lento.
+
+**Arreglo:** un **ícono de trazo por sección** (clip, personas, casilla, documento) en el encabezado. La forma se percibe antes que el texto: el ojo localiza el clip sin leer «Adjuntos». Además el título va un punto más fuerte, para que funcione como marca al recorrer la página.
+
+**Se descartó dar un color a cada bloque**, que es la salida obvia: en esta app el color SIGNIFICA algo (acento = acción principal, tonos = estado), y romper eso deja la interfaz sin gramática; encima no ayuda al ~8% con deficiencia de visión al color. La forma funciona en escala de grises y para todos — mismo criterio con el que se descartó separar «crear» de «buscar» por color (2026-07-29).
+
+**Ritmo vertical, que era la mitad del problema:** las secciones estaban a 16px entre sí y a 10px por dentro — casi lo mismo, así que se leían como una sola masa. Ahora **20px afuera contra 10px adentro** (el doble), y se quitó el `margin-top` propio de Seguimiento, que se sumaba al gap y lo dejaba a 30px mientras las demás iban a 16: separación despareja sin razón. Medido: 20/20 entre secciones, 10 dentro.
+
+De paso los cinco encabezados que repetían el mismo marcado pasaron a **una sola función** (`blockHeaderHtml`). Docs: `06` #4.
+
+## 2026-07-31 · estándar — Los controles de tareas se mudan a la tarjeta Tareas
+
+**Propuesta del usuario:** "considero que los botones de crear tarea, ver y ocultar tablero deberían de ir en la sección de tareas". De acuerdo — y además corregía una **incoherencia que yo mismo había metido** el mismo día: tres controles hablaban de tareas y estaban repartidos en dos sitios («+ Entregable» dentro de la tarjeta Tareas; «Crear tarea» y «Ver tablero» arriba, junto a «Editar solicitud», que no tiene nada que ver con tareas).
+
+**Reparto que queda:** el **encabezado** solo lleva acciones sobre la SOLICITUD completa (Línea de tiempo, Editar solicitud) y la **tarjeta Tareas** lleva las de TAREAS (Crear tarea, Ver tablero, + Entregable). De paso el encabezado baja de 4 botones a 2, que en teléfono se partía en dos filas.
+
+**Se movió también el campo «Nueva tarea» a la tarjeta**, y esa fue la decisión importante: dejar el botón arriba y el formulario abajo habría reproducido el problema del día («+ Entregable»), donde pulsar no muestra nada porque el efecto cae fuera de la pantalla. Mejor cercanía de verdad que un `scrollIntoView` de parche. «Ver tablero» mejora sola: ahora el botón está MÁS cerca del tablero que abre.
+
+**Medido en los tres anchos:** a 1280 y 768 el campo y su botón van en una línea (534px de campo a 768); a 390 el campo compartido se quedaba en **156px** —alcanza pero es incómodo para escribir un título—, así que en ≤560px el formulario se apila y el campo pasa a 286px. Sin desbordes. Se quitó la regla `.entStart`, que quedó muerta al reagrupar. Docs: `02` y `06` #7.
+
+## 2026-07-31 · incidente — La solicitud recién creada se perdía detrás de los filtros
+
+**Reporte del usuario:** "al crear nueva solicitud no me dirige al formulario para empezar a llenar los campos, sino que se pierde, incluso si tengo un filtro o una búsqueda. Tengo que cancelar lo que estaba haciendo e ir en busca del nombre del nuevo proyecto".
+
+**Causa:** el alta rápida solo pide **nombre y tipo**, así que la solicitud nace **sin estado, sin área y sin responsable** — o sea, no casa con casi ningún filtro ni con una búsqueda por texto. El código sí la seleccionaba (`activeProjectId` + `selectedDetail`), pero al repintar, la guarda de `renderWorkspace` («si la activa no está en la lista visible, resetea») la soltaba: `state.selectedDetail = null`. Y como el formulario de detalle se dibuja DENTRO de la fila de su solicitud, al no haber fila no había formulario. Crear y quedarse sin nada.
+
+**Arreglo — ANCLA:** la recién creada se marca como anclada (`pinnedProjectId`) y se antepone a la lista visible **aunque no case con los filtros**, para no obligar al usuario a tirar su búsqueda. Se suelta sola cuando deja de mirarla (selecciona otra o cierra el detalle), así no queda una fila colada para siempre. Además, tras crear se **lleva la vista al formulario** y se enfoca el nombre.
+
+**Detalle que importa: el contador no miente.** Si la anclada no casa con los filtros, NO se suma a «X de Y solicitudes» y aparece la nota «+1 recién creada, fuera de los filtros actuales». Sin eso, el usuario vería una fila que incumple lo filtrado y dudaría del filtro o del conteo — se arreglaría un problema creando otro.
+
+**Verificado** con 7 casos sobre la lógica real extraída del fuente: que sin ancla la nueva no se ve (el bug), que anclada aparece primero y sin duplicarse, que anclar una que ya casaba no la duplica, y que el ancla se suelta sola al mirar otra.
+
+## 2026-07-31 · decisión — La Línea de tiempo pasa a tener nivel de entregables
+
+**Pedido:** ver la línea de tiempo a nivel de entregables y poder desplegar sus tareas, cuando la solicitud tenga entregables.
+
+**Fondo:** el diagrama derivaba sus «hitos» de las TAREAS, que siempre fue una aproximación — una tarea no es un hito. Con entregables ya existe el hito de verdad: tiene fecha propia y agrupa trabajo. Por eso, con entregables el modal **arranca en el nivel Entregables** y ofrece un conmutador **Entregables | Tareas** para bajar al detalle. Sin entregables no aparece el conmutador y todo queda idéntico a antes.
+
+**Decisiones:** (1) las tareas se despliegan con **`<details>` nativo** — sin JS, accesible con teclado, y se puede forzar abierto al imprimir; (2) el **PDF sale con el nivel que se está viendo**, y en papel las tareas van SIEMPRE desplegadas porque un `<details>` cerrado se imprimiría vacío y el lector no puede abrirlo; (3) **las tareas sueltas no se esconden**: van en un grupo final «Sin entregable» — omitirlas haría que el diagrama mostrara menos trabajo del que existe, que es peor que un grupo feo; (4) el resumen cambia «Hitos» por «Entregables» y su conteo.
+
+**Verificado** con 8 casos sobre la lógica real extraída del fuente (orden con y sin fecha, promedio de %, entregable sin tareas que no divide por cero, tareas sueltas que no se pierden, y el invariante de que **ninguna tarea queda fuera del diagrama**), y con la CSS real a 1280 y 390 en horizontal y vertical. El guardrail de tokens me atrapó un `#2563eb` que había inventado para el punto de estado; se reemplazó por los mismos tonos que ya usa el marcador del hito, para que el color signifique lo mismo en los dos niveles. Docs: `08`.
+
+## 2026-07-31 · estándar — Si el botón está aquí y su formulario aparece allá, hay que LLEVAR la vista
+
+**Segundo reporte del usuario sobre lo mismo:** *"no encuentro ese botón"* — con el botón «+ Entregable» perfectamente visible en su propia captura. No era que no lo encontrara: lo pulsaba y no pasaba nada **visible**.
+
+**Causa:** el botón vive en el bloque **Tareas** (arriba del detalle) y el formulario se dibuja con la franja de entregables, **arriba del tablero** — con Seguimiento y «Nueva tarea» en medio, o sea media pantalla más abajo y fuera del viewport. El estado cambiaba, el formulario existía, pero el usuario no lo veía. Ojo con esto: el arreglo anterior (que la franja se dibuje sin entregables) era necesario pero **no suficiente**; el síntoma para el usuario fue idéntico las dos veces.
+
+**Arreglo:** al abrir el formulario se lleva la vista hasta el panel (`scrollIntoView({block:"center"})`), se enfoca el campo con `preventScroll` (para no pelear con el desplazamiento) y el panel **destella** — la misma convención que ya usa el detalle de una solicitud (docs/06 #2), respetando `prefers-reduced-motion`.
+
+**Regla que queda:** cuando un control abre algo que NO está junto a él, mover la vista no es un adorno — es parte de la acción. Si no, el usuario concluye que el botón está roto. Vale para cualquier control cuyo efecto caiga fuera de la pantalla.
+
+## 2026-07-31 · incidente — «+ Entregable» no hacía nada (el único camino para crear el primero)
+
+**Reporte del usuario, minutos después de desplegar:** *"¿en dónde agrego los entregables?"* — con el botón «+ Entregable» a la vista en su pantalla. Pulsarlo no mostraba nada.
+
+**Causa:** el mini-formulario se dibuja DENTRO de `renderDeliverablesStrip`, y esa función empezaba con `if (!items.length) return ""`. Con cero entregables —que es exactamente la situación de quien va a crear el primero— la franja se cortaba antes de llegar al formulario. El botón cambiaba el estado y no se veía nada. **El punto de entrada de toda la funcionalidad estaba muerto**, y el resto (crear, editar, filtrar) era inalcanzable.
+
+**Cómo se me escapó, que es lo que hay que aprender:** verifiqué la franja en cuatro estados —normal, enfocado, alta y edición— pero **los cuatro con entregables ya existentes**. Nunca probé el estado inicial, que es por donde entra el 100% de los usuarios la primera vez. Regla: al agregar una funcionalidad OPCIONAL, el estado que hay que probar PRIMERO es el de cero elementos, porque es el único que todos ven y el que contiene el camino de entrada.
+
+**Arreglo:** la franja también se dibuja cuando no hay entregables pero el formulario está abierto (`if (!items.length && !formOpen) return ""`), y el aviso de "tareas sin entregable" solo aparece si ya hay con qué agrupar. Verificado con los dos estados vacíos explícitos en el harness (con el botón pulsado sale el formulario; sin pulsar no se dibuja nada) y a 390 px sin desbordes.
+
+## 2026-07-31 · decisión — Entregables: un nivel OPCIONAL para las solicitudes grandes
+
+**Pedido del usuario:** en proyectos grandes se hacen "entregables como hitos" con tareas asignadas, varios en paralelo; cómo llevarlo en Solicitudes de forma sencilla y que el tablero se vea bien.
+
+**Vocabulario (primera decisión):** lo que describía NO son hitos. En gestión de proyectos un **hito** es un punto en el tiempo sin trabajo asociado; un **entregable** (paquete de trabajo) es el producto verificable que agrupa tareas. Se llama «Entregable» y su fecha hace de hito — llamarlo «Hito» habría sido incorrecto y habría chocado con el módulo Línea de tiempo.
+
+**La decisión que más importa fue el ALCANCE, y salió de los datos:** de 147 solicitudes solo 41 tienen tareas, y 30 de esas tienen entre 1 y 3. Las grandes son dos: 15 y 12 tareas. Con eso, el nivel nuevo tiene que ser **opcional e invisible**: una solicitud sin entregables se ve y funciona exactamente igual que antes — sin franja, sin chip en las tarjetas y sin selector en el formulario. Si apareciera siempre, le habría agregado complejidad al 95% para servir al 5%.
+
+**Diseño validado con un prototipo ANTES de tocar el módulo** (el usuario pidió verlo primero): HTML autocontenido con la CSS real y las 15 tareas reales de «AA-GRC - Modelo Predictivo». Sobre eso confirmó: franja arriba, chip solo cuando hay entregables, fila tal cual, nombre «Entregable». La franja va arriba porque **además es el resumen de la solicitud** (varios frentes con su barra, visibles a la vez); clic en una fila filtra el tablero de abajo. Se descartaron los **swimlanes permanentes** tipo Jira: 4 entregables × 4 columnas vuelve el tablero altísimo e inmanejable en teléfono.
+
+**Borrar un entregable NO borra trabajo:** sus tareas quedan «sin entregable» y la confirmación dice cuántas. Bloquear el borrado como en los catálogos de área/estado habría sido un calco equivocado: allá el ítem lo comparten TODAS las solicitudes; acá el entregable es de ESTA y reagrupar es parte normal de replanificar.
+
+**Bugs propios encontrados al verificar:** (1) había metido el lápiz DENTRO del botón de la fila — un `<button>` dentro de otro es HTML inválido; se sacó afuera. (2) La cabecera de la franja no envolvía y medía 413px: **empujaba toda la página de lado a 390px** (medido). Se corrigió con `flex-wrap`. **Verificado** con 13 casos sobre la lógica real extraída del fuente —incluido el invariante de que una solicitud sin entregables no se ve afectada por nada—, con la CSS real a 1280 y 390, y contra AWS real: alta de un DELIVERABLE, lectura por el GSI `byEntityType` que usa el workspace, y borrado (la base quedó en 0). Docs: `02`, `04`, `08`.
+
 ## 2026-07-31 · incidente — Reporte ejecutivo: los porcentajes salían sobre el 43% del portafolio
 
 **Cómo salió:** al cerrar el incidente anterior anoté "si algún día quieres más contexto, sube `_MAX_PROMPT_CHARS`". El usuario preguntó **"¿por qué no lo arreglas de una vez?"** — y al ir a medirlo apareció algo peor que una perilla de capacidad.

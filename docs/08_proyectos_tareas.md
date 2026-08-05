@@ -199,3 +199,44 @@ Todo cambio de prioridad debe registrarse en auditoría.
 ## Comentarios
 
 Los comentarios deben quedar asociados a la tarea y registrar autor, fecha y contenido.
+
+## Entregables (agrupar tareas, 2026-07-31)
+
+Nivel **opcional** entre la solicitud y sus tareas, para las solicitudes grandes.
+Un **entregable** (paquete de trabajo) es el producto verificable que agrupa
+tareas; su **fecha hace de hito** — un hito en sí es un punto en el tiempo sin
+trabajo asociado, por eso el campo se llama Entregable y no Hito.
+
+- **Opcional de verdad.** Una solicitud sin entregables no muestra franja, ni
+  chip en las tarjetas, ni selector en el formulario de la tarea. Se empieza con
+  «+ Entregable» en el bloque Tareas del detalle.
+- **Franja arriba del tablero**: una fila por entregable con nombre, fecha, barra
+  de avance, % y hechas/total. Es el resumen de la solicitud y deja ver **varios
+  frentes en paralelo** de un vistazo. Clic en una fila → el tablero muestra solo
+  sus tareas, con «Ver todas las tareas» para volver.
+- **Avance del entregable = promedio del % de sus tareas** (misma regla que el
+  «% por tareas» de la solicitud; el % manual de la tarea manda sobre el
+  derivado del estado).
+- **Borrar un entregable no borra tareas**: quedan «sin entregable» y la
+  confirmación dice cuántas.
+- Campo `deliverableId` en la tarea, validado contra los entregables de SU misma
+  solicitud. Item `DELIVERABLE` en `docs/04`; rutas en `docs/05`.
+
+### Línea de tiempo por entregables (2026-07-31)
+
+Cuando la solicitud tiene entregables, el modal de Línea de tiempo abre un
+conmutador **Entregables | Tareas** y **arranca en Entregables**: ese es el hito
+de verdad (tiene fecha propia y agrupa trabajo), y es el nivel con el que se
+presenta en una junta. Sin entregables no hay conmutador y todo sigue como antes.
+
+- Cada hito = un entregable, con su fecha, barra de avance y un `<details>` que
+  **despliega sus tareas** (punto de color por estado, título, estado, fecha y %).
+  Se usa `<details>` nativo: sin JS, accesible con teclado y forzable a abierto
+  al imprimir.
+- Orden: por fecha, los sin fecha después. **Las tareas sueltas no se esconden**:
+  van en un grupo final «Sin entregable» — si se omitieran, el diagrama mostraría
+  menos trabajo del que existe.
+- El resumen de arriba cambia la etiqueta «Hitos» por «Entregables» y su conteo.
+- **El PDF sale con el nivel que se está viendo**, y en papel las tareas van
+  siempre desplegadas (un `<details>` cerrado se imprimiría vacío y el lector no
+  puede abrirlo).

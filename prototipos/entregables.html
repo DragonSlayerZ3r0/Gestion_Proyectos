@@ -1,4 +1,8 @@
-  :root {
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prototipo · Entregables en Solicitudes</title>
+<style>  :root {
     color-scheme: light;
     --bg: #eef3f4;
     --panel: #ffffff;
@@ -1713,17 +1717,7 @@
   .projectCardMain {
     display: grid;
     min-width: 0;
-    /* 20px entre secciones contra ~10px dentro de cada una: el doble de aire
-       afuera que adentro es lo que hace que se lean como bloques separados y no
-       como una sola masa (2026-07-31). Antes eran 16 vs 10 — casi lo mismo. */
-    gap: 20px;
-  }
-
-  /* El margen propio del bloque se sumaba al gap y dejaba a Seguimiento a 30px
-     mientras las demás iban a 16: separación despareja sin razón. Dentro de la
-     tarjeta manda el gap; fuera (detalle de la tarea) el bloque conserva el suyo. */
-  .projectCardMain > .projectUpdatesBlock {
-    margin-top: 0;
+    gap: 16px;
   }
 
   .projectOverviewCard.active {
@@ -1858,24 +1852,6 @@
     font-size: 0.86rem;
   }
 
-  /* Título de sección como MARCA DE REFERENCIA (2026-07-31): los cuatro bloques
-     del detalle eran indistinguibles y había que leerlos para encontrar el que
-     se buscaba. El ícono da una pista de FORMA (se percibe antes que el texto) y
-     el título un punto más fuerte lo ancla al recorrer la página. Nada de color
-     por sección: aquí el color significa estado o acción principal. */
-  .blockHeader > strong {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 0.95rem;
-    color: var(--text);
-  }
-
-  .blockHeaderIcon {
-    flex: none;
-    color: var(--muted);
-  }
-
   .projectSummaryBlock p {
     color: var(--text-soft);
     font-size: 0.92rem;
@@ -1924,27 +1900,6 @@
 
   .projectTaskForm {
     margin: 0;
-  }
-
-  /* Acciones de TAREAS dentro de su propia tarjeta (2026-07-31): crear, tablero
-     y entregable. Antes vivían en el encabezado de la solicitud, lejos de las
-     tareas y revueltas con «Editar solicitud». */
-  .taskBlockActions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-  /* El alta vive en la misma tarjeta, que es angosta: si el campo y el botón no
-     caben en una línea, el botón baja en vez de aplastar al campo. */
-  .projectSummaryBlock .projectTaskForm {
-    margin-top: 8px;
-    grid-template-columns: minmax(140px, 1fr) auto;
-  }
-  /* En teléfono el campo compartido con el botón se quedaba en 156px (medido):
-     alcanza, pero escribir el título de una tarea ahí es incómodo. Se apila. */
-  @media (max-width: 560px) {
-    .projectSummaryBlock .projectTaskForm { grid-template-columns: 1fr; }
   }
 
   .compactBoard {
@@ -2426,3 +2381,680 @@
   .mdTable th { text-align: left; background: var(--panel-soft); border-bottom: 2px solid var(--line-strong); padding: 7px 10px; font-weight: 700; white-space: nowrap; }
   .mdTable td { border-bottom: 1px solid var(--line); padding: 6px 10px; vertical-align: top; }
   .mdTable tr:last-child td { border-bottom: none; }
+
+  /* ── Proyectos: tabla maestro-detalle + Personas colapsable ─────────────── */
+  /* min-width:0: la tabla de ancho fijo (table-layout: fixed) puede ser más ancha
+     que la pantalla; sin esto, el panel (item de grid) se expandiría al contenido
+     y empujaría la página de lado. Con min-width:0 el panel respeta su columna y la
+     tabla se desplaza DENTRO de .projectTableWrap. */
+  .projectTablePanel { padding: 14px 16px 8px; min-width: 0; }
+  .projectTableHead { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+  /* Barra de filtros por dimensión (dropdowns) + Columnas + contador. */
+  .projectFilterBar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px 12px; }
+  /* Todos los filtros del mismo ancho (uniforme) → se ven consistentes; el contenido
+     largo (nombres) se recorta en el select nativo, la lista completa igual se ve. */
+  .filterSelect { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 600; color: var(--muted); flex: none; }
+  .filterSelect select { font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--text); height: 34px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); box-sizing: border-box; width: 158px; min-width: 0; }
+  /* Botones de la barra (Limpiar, Columnas) a la misma altura que los selects. */
+  .projectFilterBar > .tinyButton, .projectColumnsControl > .tinyButton { height: 34px; }
+  .projectFilterBar .countPill { margin-left: auto; }
+
+  /* ── Vistas de Solicitudes: Gestión | Tablero de avance ─────────────────── */
+  .workspaceHeroTop { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  .wsViewToggle { flex: none; }
+
+  /* Tablero de avance (informe ejecutivo): estatus por estado + barras por área. */
+  .boardCounts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .boardCount { background: var(--panel-soft); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; min-width: 92px; }
+  .boardCountLabel { display: inline-block; font-size: 0.72rem; font-weight: 700; border-radius: 999px; }
+  .boardCountLabel[class*="statusTone-"] { padding: 1px 8px; border: 1px solid transparent; }
+  .boardCountLabel:not([class*="statusTone-"]) { color: var(--muted); }
+  .boardCountN { display: block; font-size: 1.3rem; font-weight: 700; color: var(--text); margin-top: 2px; }
+
+  .boardGroup { margin-bottom: 14px; }
+  .boardGroupTitle { margin: 0 0 6px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); }
+  .boardRow { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; transition: border-color 120ms ease; }
+  .boardRow:hover, .boardRow.open { border-color: var(--line-strong); }
+  .boardRowGrid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) 56px; gap: 14px; align-items: center; }
+  .boardRowInfo { min-width: 0; }
+  .boardRowName { display: block; font-weight: 700; font-size: 0.9rem; color: #23333a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .boardRowMeta { font-size: 0.76rem; color: var(--muted); }
+  .boardDone { color: var(--accent-strong); font-weight: 650; }
+  /* Barra 0-100% con marcas cada 10% (formato familiar de los informes en Excel). */
+  .boardBar { position: relative; height: 18px; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .boardBar.empty { background: repeating-linear-gradient(45deg, var(--surface-muted), var(--surface-muted) 6px, var(--panel) 6px, var(--panel) 12px); }
+  .boardFill { height: 100%; background: #5dcaa5; }
+  .boardFill.done { background: var(--accent); }
+  .boardTick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+  .boardPct { font-size: 0.9rem; font-weight: 700; text-align: right; }
+  .boardPct.done { color: var(--accent-strong); }
+
+  .boardDetail { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .boardDetailHead, .boardDetailRow { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) minmax(0, 0.7fr); gap: 12px; padding: 3px 2px; }
+  .boardDetailHead { font-size: 0.7rem; font-weight: 700; color: var(--muted); }
+  .boardDetailRow { font-size: 0.82rem; color: var(--text-soft); }
+  .boardDetailName { font-weight: 650; }
+  .boardDetailNote { margin: 8px 0 0; font-size: 0.8rem; color: var(--muted); }
+  .boardDetailNote.ok { color: var(--accent-strong); }
+  .boardHint { margin: 4px 2px 6px; font-size: 0.74rem; color: var(--muted); }
+  /* Menú "Columnas": botón + panel flotante con casillas. */
+  .projectColumnsControl { position: relative; }
+  .columnsMenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 200px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(15, 31, 38, 0.14); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .columnsMenuTitle { margin: 2px 6px 4px; font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .columnsMenuItem { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: 0.86rem; cursor: pointer; }
+  .columnsMenuItem:hover { background: var(--surface-muted); }
+  .columnsMenuItem.disabled { color: var(--muted); cursor: default; }
+  .columnsMenu .tinyButton { margin-top: 4px; }
+  /* Fila del menú: casilla + flechas ↑/↓ para reordenar la columna. */
+  .columnsMenuRow { display: flex; align-items: center; gap: 4px; }
+  .columnsMenuRow .columnsMenuItem { flex: 1; min-width: 0; }
+  .colMoveBtns { display: inline-flex; gap: 2px; flex: none; }
+  .colMoveBtn { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 0.72rem; line-height: 1; cursor: pointer; color: var(--text-soft); }
+  .colMoveBtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); }
+  .colMoveBtn:disabled { opacity: 0.35; cursor: default; }
+  /* Popover "Filtros": mismo cascarón que Columnas, con las dimensiones apiladas
+     a ancho completo. El badge muestra cuántas dimensiones están activas. */
+  .projectFilterControl { position: relative; flex: none; }
+  .filterBadge { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-size: 0.68rem; font-weight: 700; line-height: 1; }
+  .filtersMenu { min-width: 220px; gap: 10px; }
+  .filtersMenu .filterSelect { width: 100%; flex: none; }
+  .filtersMenu .filterSelect select { width: 100%; }
+  /* Chips de filtros activos: visibles en la barra, removibles con su ×. */
+  .activeFilterChip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border-radius: 14px; background: var(--surface-muted); border: 1px solid var(--line); font-size: 0.78rem; color: var(--text); }
+  .activeFilterChipText strong { font-weight: 700; color: var(--muted); }
+  .activeFilterChipRemove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: none; border-radius: 50%; background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; cursor: pointer; }
+  .activeFilterChipRemove:hover { background: var(--line); color: var(--text); }
+  /* Listados grandes: altura máxima (~11 filas) con scroll interno y encabezado
+     fijo — la página no crece infinita; búsqueda y filtros reducen el conjunto. */
+  .projectTableWrap { overflow: auto; -webkit-overflow-scrolling: touch; max-height: 480px; }
+  .projectTable thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  .projectTable { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+  .projectTable th { text-align: left; color: var(--muted); font-weight: 600; font-size: 0.78rem; padding: 8px 12px; border-bottom: 2px solid var(--line); white-space: nowrap; }
+  .projectTable td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .projectTable th.num, .projectTable td.num { text-align: right; }
+  /* Columnas de ancho fijo (arrastrables): el <col> del colgroup manda el ancho;
+     el contenido que no cabe se recorta con elipsis (más ancho = más contenido). */
+  .projectTable.resizable { table-layout: fixed; width: max-content; min-width: 100%; }
+  .projectTable.resizable td, .projectTable.resizable th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sortableTh { position: relative; }
+  .thLabel { cursor: pointer; display: inline-block; max-width: calc(100% - 10px); overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .colResize { position: absolute; top: 0; right: 0; width: 9px; height: 100%; cursor: col-resize; }
+  .colResize::after { content: ""; position: absolute; right: 3px; top: 22%; height: 56%; width: 2px; border-radius: 2px; background: var(--line-strong); opacity: 0; transition: opacity 120ms ease; }
+  .sortableTh:hover .colResize::after { opacity: 0.7; }
+  body.colResizing { cursor: col-resize; user-select: none; }
+  .projectRow { cursor: pointer; transition: background 120ms ease; }
+  .projectRow:hover { background: var(--surface-muted); }
+  .projectRow.selected { background: var(--accent-soft, #e6f4f1); }
+  .projectRow.selected .projName { color: var(--accent-strong); }
+  .projName { font-weight: 700; color: #23333a; }
+  /* Affordance de apertura: cada fila termina en "›" (hay más que ver); en la
+     fila seleccionada gira a "▾" apuntando al detalle que se abre abajo. */
+  .projChevronTh { width: 28px; }
+  .projChevron { width: 28px; text-align: center; color: var(--muted); font-size: 0.95rem; font-weight: 700; user-select: none; }
+  .projectRow:hover .projChevron { color: var(--accent-strong); }
+  .projectRow.selected .projChevron { color: var(--accent-strong); }
+  .projActivity { color: #50656d; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* La fecha es METADATO: tenue y sin acento, que domine el texto del seguimiento
+     (jerarquía visual; antes iba en negrita+acento y desplazaba lo importante). */
+  .projActivityDate { font-weight: 600; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  /* Clip de adjuntos: ANCLADO al borde derecho de la celda Solicitud (riel
+     vertical alineado, patrón correo) — al final del texto se perdía con nombres
+     largos que envuelven; antes del título rompería la alineación izquierda del
+     identificador. La celda reserva el carril con padding-right constante. */
+  /* OJO ESPECIFICIDAD (incidente visual 2026-07-28): el carril debe declararse
+     como `.projectTable td.projName` — con solo `.projName` (0,1,0) lo pisaba
+     `.projectTable td` (0,1,1) y el padding volvía a 12px, así que los títulos
+     largos pasaban POR DEBAJO del clip. El ancho del carril debe superar
+     `right` + tamaño del ícono. */
+  .projectTable td.projName { position: relative; padding-right: 34px; }
+  .projClip { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: inline-flex; color: var(--muted); }
+  .projClip svg { width: 13px; height: 13px; }
+  /* Con `table-layout: fixed` la celda recorta con elipsis en el borde de su caja
+     de contenido — es decir, ANTES del carril: el "…" y el clip nunca se tocan.
+     El título completo queda en el `title` nativo (se ve al pasar el mouse). */
+  .projName .projNameText { min-width: 0; }
+  .projectTableEmpty { padding: 14px 4px; }
+
+  /* ── Adjuntos ─────────────────────────────────────────────────────────────
+     Franja índice en el encabezado del detalle: junta todos los adjuntos de la
+     solicitud (archivos S3 + queries) con su etiqueta de origen; zona para
+     arrastrar/pegar y crear queries. Mismo look de bloque que Seguimiento. */
+  .attachBlock { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); padding: 12px; }
+  .attachGrid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .attachItem { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 4px 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 0.8rem; }
+  .attachItem.query { background: var(--surface-muted); }
+  .attachOpen { display: inline-flex; align-items: center; gap: 6px; min-width: 0; border: none; background: transparent; font: inherit; color: var(--text); cursor: pointer; padding: 2px 2px; }
+  .attachOpen:hover { color: var(--accent-strong); }
+  .attachIcon { flex: none; font-size: 0.9rem; line-height: 1; }
+  .attachName { min-width: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Selector "Relacionar con" por adjunto (General / seguimiento / + Nueva nota). */
+  .attachRelate { flex: none; max-width: 200px; font: inherit; font-size: 0.72rem; color: var(--muted); background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; padding: 2px 4px; cursor: pointer; }
+  /* Papelera de adjuntos: NEUTRA por defecto y roja solo al hover (el peligro se
+     revela con la intención — el rojo permanente hacía ruido para una acción
+     rara), y separada del selector "Relacionar con" (control frecuente pegado a
+     uno destructivo = clics falsos, ley de Fitts). */
+  .attachItem .iconTinyButton { flex: none; margin-left: 6px; width: 22px; height: 22px; border-radius: 6px; }
+  .attachItem .iconTinyButton svg { width: 12px; height: 12px; }
+  .attachItem .iconTinyButton--danger { color: var(--muted); }
+  .attachItem .iconTinyButton--danger:hover { color: var(--danger); background: var(--danger-soft); }
+  /* Zona para arrastrar/pegar + acciones de alta. */
+  .attachDropzone { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--panel); }
+  .attachDropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
+  .attachDropHint { font-size: 0.78rem; color: var(--muted); }
+  .attachAddActions { display: flex; gap: 8px; }
+  .attachFileBtn { cursor: pointer; }
+  /* display:flex explícito: .inlineForm es display:grid de 2 columnas, y sin esto
+     el flex-direction:column se ignora → título y textarea quedaban lado a lado. */
+  .attachQueryForm, .attachNoteForm { display: flex; margin-top: 10px; flex-direction: column; align-items: stretch; gap: 8px; }
+  .attachQueryForm textarea { font: inherit; font-size: 0.86rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; resize: vertical; }
+  .attachNoteForm input { font: inherit; font-size: 0.86rem; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; }
+  .attachStatus { margin-top: 8px; font-size: 0.8rem; color: var(--muted); }
+  .attachStatus.error { color: var(--danger); }
+  /* Chips SOLO-vista de adjuntos DENTRO de una entrada de seguimiento (contexto);
+     se agregan/relacionan desde la franja, aquí solo se abren. */
+  .attachInline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+  .attachChip { display: inline-flex; align-items: center; gap: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font: inherit; font-size: 0.74rem; color: var(--text); cursor: pointer; }
+  .attachChip:hover { color: var(--accent-strong); border-color: var(--accent); }
+
+  /* Responsive de la tabla de Solicitudes (va DESPUÉS de las reglas base para
+     poder sobreescribirlas en pantallas chicas). */
+  @media (max-width: 780px) {
+    .projectTablePanel { padding: 12px 12px 6px; }
+    /* Chips de Estado: tira con scroll lateral (como pestañas), no varias líneas. */
+    .projectFilters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+    .projectFilters .filterChip { flex: none; }
+    /* Dropdowns de filtro: comparten ancho (2 por fila en teléfono) y crecen. */
+    .projectFilterBar { align-items: stretch; gap: 8px 10px; }
+    .filterSelect { flex: 1 1 140px; }
+    .filterSelect select { min-width: 0; width: 100%; }
+    .projectColumnsControl { flex: 1 1 auto; }
+    .projectColumnsControl > .tinyButton { width: 100%; }
+    .projectFilterBar .countPill { margin-left: 0; order: 9; align-self: center; }
+    /* El menú de columnas anclado a la derecha para no salirse de la pantalla. */
+    .columnsMenu { left: auto; right: 0; max-width: min(80vw, 260px); }
+    /* La tabla conserva sus anchos (arrastrables) y se desplaza de lado dentro de
+       su contenedor; la página no se rompe. Algo menos alta para ver el detalle. */
+    .projectTableWrap { max-height: 62vh; }
+    /* Tablero de avance en teléfono: nombre arriba, barra a lo ancho, % al lado. */
+    .boardRowGrid { grid-template-columns: minmax(0, 1fr) 48px; }
+    .boardRowInfo { grid-column: 1 / -1; }
+    .boardDetailHead, .boardDetailRow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .boardDetailHead span:not(:first-child) { display: none; }
+  }
+
+  .projectsEmptyCta { text-align: center; padding: 40px 20px; }
+  .projectsEmptyCta h3 { margin: 0 0 6px; }
+  .projectsEmptyCta p { margin: 0 0 16px; color: var(--muted); }
+
+  /* Campos de área (solicitante/destino, catálogo compartido): selector con
+     acciones inline + mini-formulario para crear/corregir sin salir del editor. */
+  .areaField { display: grid; gap: 9px; min-width: 0; }
+  .areaInlineForm { display: flex; flex-direction: column; gap: 8px; margin: -2px 0 8px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-muted); }
+  .areaInlineForm input { width: 100%; box-sizing: border-box; }
+  .areaInlineActions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Encabezado del detalle: estado + acciones de la SOLICITUD arriba a la derecha,
+     lejos de los lápices de cada entrada del seguimiento (evita confundirlos). */
+  .projectHeaderRight { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
+  .projectHeaderRight .projectActions { justify-content: flex-end; }
+
+  .peopleSection { padding: 10px 16px; }
+  .peopleSectionHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .peopleToggle { display: inline-flex; align-items: center; gap: 8px; border: none; background: none; padding: 6px 2px; cursor: pointer; font: inherit; color: #23333a; }
+  .peopleChev { display: inline-block; transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1); color: var(--accent-strong); }
+  .peopleSection.open .peopleChev { transform: rotate(90deg); }
+  .countPill.subtle { background: var(--surface-muted, #f1f5f9); color: var(--muted); }
+  .peopleBody { display: grid; gap: 10px; padding-top: 10px; }
+  .peopleHint { margin: 0; color: var(--muted); font-size: 0.76rem; }
+
+  /* ── Reporte ejecutivo (botón en el hero + modal con IA) ─────────────────── */
+  .wsHeroActions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .wsReportBtn { display: inline-flex; align-items: center; gap: 4px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; font-size: 0.82rem; cursor: pointer; white-space: nowrap; }
+  .wsReportBtn:hover { background: var(--accent); color: #fff; }
+  .wsReportModal { position: fixed; inset: 0; z-index: 60; background: rgba(15, 30, 34, 0.45); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .wsReportDialog { width: min(860px, 100%); max-height: 90vh; display: flex; flex-direction: column; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .wsReportHead { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+  .wsReportHead h3 { margin: 0; font-size: 1.05rem; }
+  .wsReportClose { border: none; background: none; font-size: 1.5rem; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 8px; border-radius: 8px; }
+  .wsReportClose:hover { background: var(--line); color: var(--text); }
+  .wsReportAsk { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel-soft); display: flex; flex-direction: column; gap: 10px; }
+  .wsReportPresets { display: flex; flex-wrap: wrap; gap: 8px; }
+  .wsReportPreset { padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel); font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+  .wsReportPreset:hover { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+  .wsReportFree { display: flex; gap: 10px; }
+  .wsReportInput { flex: 1; border: 1px solid var(--line-strong); border-radius: 10px; padding: 9px 14px; font: inherit; font-size: 0.84rem; }
+  .wsReportInput:focus { outline: none; border-color: var(--accent); }
+  .wsReportBody { padding: 18px 20px; overflow-y: auto; min-height: 180px; }
+  .wsReportHint, .wsReportLoading { color: var(--muted); font-size: 0.86rem; }
+  .wsReportLoading { font-style: italic; }
+  .wsReportError { color: #991b1b; background: var(--danger-soft); border: 1px solid var(--danger-border); border-radius: 8px; padding: 10px 12px; font-size: 0.84rem; }
+  .wsReportActions { display: flex; gap: 10px; margin-bottom: 12px; }
+  .wsReportText { font-size: 0.86rem; line-height: 1.55; color: var(--text); }
+  .wsReportText p { margin: 0 0 8px; }
+  .wsReportText ol, .wsReportText ul { margin: 0 0 8px; padding-left: 20px; }
+  .wsReportText code { background: #eef2f4; border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+  .wsReportText .llmCode { background: var(--surface-muted); color: var(--text); border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 12px; margin: 0 0 8px; font-size: 0.8rem; overflow-x: auto; white-space: pre; font-family: var(--font-mono, ui-monospace, monospace); }
+  .wsReportDiagram { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; overflow-x: auto; background: #fff; }
+  .wsReportDiagram svg { display: block; max-width: 100%; height: auto; }
+  @media (max-width: 900px) {
+    .wsReportBtnLabel { display: none; }
+    .wsReportFree { flex-direction: column; }
+  }
+
+  /* Aviso de cambios remotos (refresco en vivo, 2026-07-28): flotante abajo a la
+     derecha, discreto. Solo aparece cuando el usuario está escribiendo y por eso
+     NO se repinta solo — él decide cuándo actualizar. */
+  .wsPendingBanner {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    font-size: 0.82rem;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 640px) {
+    .wsPendingBanner { left: 12px; right: 12px; bottom: 12px; justify-content: space-between; }
+  }
+
+  /* ── Orden manual de filas (2026-07-29) ───────────────────────────────────
+     Columna extra con asa de arrastre + flechas ↑/↓ (alternativa visible al
+     drag & drop, regla docs/06). Solo existe con el modo encendido. */
+  .projectTable th.projOrderTh {
+    font-size: 0.7rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .projectTable td.projOrderCell {
+    white-space: nowrap;
+    padding-left: 8px;
+    padding-right: 4px;
+  }
+  .projDragHandle {
+    display: inline-block;
+    cursor: grab;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 2px 3px;
+    vertical-align: middle;
+    user-select: none;
+  }
+  .projDragHandle:active { cursor: grabbing; }
+  .projOrderBtns { display: inline-flex; gap: 2px; vertical-align: middle; margin-left: 2px; }
+  .projOrderCell .colMoveBtn { width: 20px; height: 20px; font-size: 0.68rem; }
+  /* Señales del arrastre: la fila que viaja se atenúa; el destino marca su borde. */
+  .projectRow.dragging { opacity: 0.45; }
+  .projectRow.dropTarget td { border-top: 2px solid var(--accent); }
+  /* El botón del modo activo se ve presionado (mismo tono de los chips activos). */
+  .tinyButton.ghost.active {
+    background: var(--accent-soft);
+    border-color: #9bcac4;
+    color: var(--accent-strong);
+    font-weight: 650;
+  }
+
+  /* ── Crear vs Buscar: separación por FORMA, no por color (2026-07-29) ─────
+     Crear es ocasional → un botón primario que abre el formulario. Buscar es
+     constante → campo siempre visible con lupa. Antes ambos eran dos campos de
+     texto idénticos y contiguos (en móvil, apilados), y se confundían. */
+  .wsCreateRow { display: flex; justify-content: flex-end; margin: 4px 0 2px; }
+  @media (max-width: 720px) {
+    .wsCreateRow { justify-content: stretch; }
+    .wsCreateRow .primaryButton, .wsCreateRow .secondaryButton { width: 100%; }
+  }
+  /* El bloque de búsqueda se separa del encabezado con su propio respiro y una
+     línea sutil: son zonas distintas, no una lista de campos. */
+  .wsSearchBlock {
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  /* Lupa dentro del campo: señal universal de "esto busca", legible en gris. */
+  .wsSearchRow { position: relative; }
+  .wsSearchIcon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .wsSearchIcon svg { width: 16px; height: 16px; }
+  .searchInput.hasIcon { padding-left: 34px; }
+
+  /* ── PROPUESTA: franja de Entregables ──────────────────────────────────── */
+  .entPanel { margin: 0 0 14px; }
+  .entHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .entHead h3 { margin: 0; font-size: 0.92rem; }
+  .entList { display: flex; flex-direction: column; gap: 4px; }
+  .entRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 74px 120px 44px 46px;
+    align-items: center; gap: 12px; width: 100%;
+    padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--panel); cursor: pointer; text-align: left; font: inherit;
+  }
+  .entRow[aria-pressed="true"] { border-color: #9bcac4; background: var(--accent-soft); }
+  .entName { font-weight: 650; font-size: 0.85rem; color: var(--text);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entDate { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
+  .entBar { display: block; height: 7px; border-radius: 999px; background: var(--surface-muted); overflow: hidden; }
+  .entBar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .entPct { font-size: 0.78rem; font-weight: 700; color: var(--accent-strong);
+            text-align: right; font-variant-numeric: tabular-nums; }
+  .entCount { font-size: 0.76rem; color: var(--muted); text-align: right;
+              font-variant-numeric: tabular-nums; }
+  .entTag { display: inline-block; margin: 2px 0 6px; padding: 2px 8px; border-radius: 999px;
+            background: var(--surface-muted); color: var(--text-soft);
+            font-size: 0.68rem; font-weight: 650; }
+  .taskCard[hidden] { display: none; }
+  .entClear { margin-left: auto; }
+  /* Franja responsive: en pantallas chicas la fila se parte en dos renglones. */
+  @media (max-width: 640px) {
+    .entRow { grid-template-columns: minmax(0, 1fr) 46px; grid-template-areas:
+              "nombre cuenta" "barra pct" "fecha fecha"; row-gap: 6px; }
+    .entName { grid-area: nombre; } .entCount { grid-area: cuenta; }
+    .entBar { grid-area: barra; } .entPct { grid-area: pct; }
+    .entDate { grid-area: fecha; }
+  }
+  /* Andamiaje del prototipo (no forma parte de la propuesta) */
+  .protoNote { margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid var(--accent);
+               background: var(--panel-soft); font-size: 0.82rem; color: var(--text-soft); }
+  .protoWrap { padding: 20px; max-width: 1180px; margin: 0 auto; }
+  .kanban { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  @media (max-width: 900px) { .kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .kanban { grid-template-columns: 1fr; } }
+  .colCount { font-variant-numeric: tabular-nums; }
+</style></head>
+<body style="background: var(--bg); margin:0;">
+<div class="protoWrap">
+  <p class="protoNote"><strong>Prototipo</strong> — no está conectado a la app. Usa la CSS real
+  del proyecto y los datos reales de esta solicitud. Haz clic en un entregable para ver solo sus tareas.</p>
+
+  <h2 style="margin:0 0 4px; font-size:1.05rem;">AA-GRC - Modelo Predictivo Recuperación de Cartera: Fase Infraestructura</h2>
+  <p style="margin:0 0 18px; color:var(--muted); font-size:0.82rem;">Entrega: 3 sep 2026 · 15 tareas</p>
+
+  <section class="panel entPanel">
+    <div class="entHead">
+      <h3>Entregables</h3>
+      <button type="button" class="tinyButton ghost entClear" id="verTodas" hidden>Ver todas las tareas</button>
+      <button type="button" class="tinyButton">+ Agregar entregable</button>
+    </div>
+    <div class="entList">
+    <button type="button" class="entRow" data-ent="e1" aria-pressed="false">
+      <span class="entName">Modelo predictivo</span>
+      <span class="entDate">15 ago</span>
+      <span class="entBar"><span style="width:72%"></span></span>
+      <span class="entPct">72%</span>
+      <span class="entCount">3/5</span>
+    </button>
+    <button type="button" class="entRow" data-ent="e2" aria-pressed="false">
+      <span class="entName">Pipeline de datos</span>
+      <span class="entDate">22 ago</span>
+      <span class="entBar"><span style="width:88%"></span></span>
+      <span class="entPct">88%</span>
+      <span class="entCount">3/4</span>
+    </button>
+    <button type="button" class="entRow" data-ent="e3" aria-pressed="false">
+      <span class="entName">Infraestructura SageMaker</span>
+      <span class="entDate">29 ago</span>
+      <span class="entBar"><span style="width:0%"></span></span>
+      <span class="entPct">0%</span>
+      <span class="entCount">0/1</span>
+    </button>
+    <button type="button" class="entRow" data-ent="e4" aria-pressed="false">
+      <span class="entName">Documentación y negocio</span>
+      <span class="entDate">3 sep</span>
+      <span class="entBar"><span style="width:58%"></span></span>
+      <span class="entPct">58%</span>
+      <span class="entCount">3/5</span>
+    </button></div>
+  </section>
+
+  <div class="kanban">
+    <section class="kanbanColumn taskStatus-pending" data-col="pending">
+      <header><strong>Pendiente</strong><span class="colCount">3</span></header>
+      <div class="taskDropZone">
+      <article class="taskCard" data-ent="e3">
+        <div class="cardHeader"><strong>Pruebas de SageMaker con Primeros Datos Reales</strong></div>
+        <span class="entTag" data-ent-tag="e3">Infraestructura SageMaker</span>
+        <div class="taskMeta">
+          
+          <span class="assigneeChip">Manuel Rios</span>
+        </div>
+        
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:0%"></span></div>
+          <span class="taskProgressPct">0%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e4">
+        <div class="cardHeader"><strong>Elaboración de minuta de 3 de agosto</strong></div>
+        <span class="entTag" data-ent-tag="e4">Documentación y negocio</span>
+        <div class="taskMeta">
+          
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        <div class="taskDates"><span>▶ 4 ago</span> <span>■ 4 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:0%"></span></div>
+          <span class="taskProgressPct">0%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e4">
+        <div class="cardHeader"><strong>Creación de documento señal reactiva</strong></div>
+        <span class="entTag" data-ent-tag="e4">Documentación y negocio</span>
+        <div class="taskMeta">
+          <span class="priorityBadge priority-high">Alta</span>
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        <div class="taskDates"><span>▶ 3 ago</span> <span>■ 4 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:0%"></span></div>
+          <span class="taskProgressPct">0%</span>
+        </div>
+      </article><p class="emptyText colEmpty">Sin tareas.</p></div>
+    </section>
+    <section class="kanbanColumn taskStatus-in_progress" data-col="in_progress">
+      <header><strong>En progreso</strong><span class="colCount">3</span></header>
+      <div class="taskDropZone">
+      <article class="taskCard" data-ent="e1">
+        <div class="cardHeader"><strong>Evaluación del criterio &quot;otros&quot; en árbol de decisión reactiva</strong></div>
+        <span class="entTag" data-ent-tag="e1">Modelo predictivo</span>
+        <div class="taskMeta">
+          <span class="priorityBadge priority-high">Alta</span>
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        <div class="taskDates"><span>▶ 30 jul</span> <span>■ 3 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:90%"></span></div>
+          <span class="taskProgressPct">90%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e1">
+        <div class="cardHeader"><strong>Optimizar recall y precision del modelo predictivo</strong></div>
+        <span class="entTag" data-ent-tag="e1">Modelo predictivo</span>
+        <div class="taskMeta">
+          
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:0%"></span></div>
+          <span class="taskProgressPct">0%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e2">
+        <div class="cardHeader"><strong>Pipeline de datos de Training y Test</strong></div>
+        <span class="entTag" data-ent-tag="e2">Pipeline de datos</span>
+        <div class="taskMeta">
+          
+          <span class="assigneeChip">Manuel Rios</span>
+        </div>
+        <div class="taskDates"><span>▶ 29 jul</span> <span>■ 7 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:50%"></span></div>
+          <span class="taskProgressPct">50%</span>
+        </div>
+      </article><p class="emptyText colEmpty">Sin tareas.</p></div>
+    </section>
+    <section class="kanbanColumn taskStatus-review" data-col="review">
+      <header><strong>En revisión</strong><span class="colCount">0</span></header>
+      <div class="taskDropZone"><p class="emptyText colEmpty">Sin tareas.</p></div>
+    </section>
+    <section class="kanbanColumn taskStatus-done" data-col="done">
+      <header><strong>Completada</strong><span class="colCount">9</span></header>
+      <div class="taskDropZone">
+      <article class="taskCard" data-ent="e1">
+        <div class="cardHeader"><strong>Agregar variables X para modelo relacionadas con digital channels y debit card</strong></div>
+        <span class="entTag" data-ent-tag="e1">Modelo predictivo</span>
+        <div class="taskMeta">
+          <span class="priorityBadge priority-medium">Media</span>
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:100%"></span></div>
+          <span class="taskProgressPct">100%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e1">
+        <div class="cardHeader"><strong>Construcción de señal reactiva codigo.</strong></div>
+        <span class="entTag" data-ent-tag="e1">Modelo predictivo</span>
+        <div class="taskMeta">
+          <span class="priorityBadge priority-medium">Media</span>
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        <div class="taskDates"><span>▶ 28 jul</span> <span>■ 3 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:70%"></span></div>
+          <span class="taskProgressPct">70%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e4">
+        <div class="cardHeader"><strong>Actualización de presentación a negocio</strong></div>
+        <span class="entTag" data-ent-tag="e4">Documentación y negocio</span>
+        <div class="taskMeta">
+          
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        <div class="taskDates"><span>▶ 30 jul</span> <span>■ 30 jul</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:100%"></span></div>
+          <span class="taskProgressPct">100%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e4">
+        <div class="cardHeader"><strong>Minuta 28 de julio</strong></div>
+        <span class="entTag" data-ent-tag="e4">Documentación y negocio</span>
+        <div class="taskMeta">
+          <span class="priorityBadge priority-low">Baja</span>
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        <div class="taskDates"><span>▶ 30 jul</span> <span>■ 30 jul</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:100%"></span></div>
+          <span class="taskProgressPct">100%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e2">
+        <div class="cardHeader"><strong>Compartir a manu los datasets de train y test</strong></div>
+        <span class="entTag" data-ent-tag="e2">Pipeline de datos</span>
+        <div class="taskMeta">
+          
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        <div class="taskDates"><span>▶ 29 jul</span> <span>■ 31 jul</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:100%"></span></div>
+          <span class="taskProgressPct">100%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e2">
+        <div class="cardHeader"><strong>Ejecución de pipeline del mes de julio 2026</strong></div>
+        <span class="entTag" data-ent-tag="e2">Pipeline de datos</span>
+        <div class="taskMeta">
+          <span class="priorityBadge priority-medium">Media</span>
+          <span class="assigneeChip">Manuel Rios</span>
+        </div>
+        <div class="taskDates"><span>▶ 3 ago</span> <span>■ 5 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:100%"></span></div>
+          <span class="taskProgressPct">100%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e1">
+        <div class="cardHeader"><strong>Revisión de vector de mora</strong></div>
+        <span class="entTag" data-ent-tag="e1">Modelo predictivo</span>
+        <div class="taskMeta">
+          
+          <span class="assigneeChip">Marcela Sun</span>
+        </div>
+        
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:100%"></span></div>
+          <span class="taskProgressPct">100%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e4">
+        <div class="cardHeader"><strong>Preparar presentacion para negocio sobre lo platicado de la senal reactiva</strong></div>
+        <span class="entTag" data-ent-tag="e4">Documentación y negocio</span>
+        <div class="taskMeta">
+          
+          <small>Sin responsable</small>
+        </div>
+        <div class="taskDates"><span>▶ 31 jul</span> <span>■ 3 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:90%"></span></div>
+          <span class="taskProgressPct">90%</span>
+        </div>
+      </article>
+      <article class="taskCard" data-ent="e2">
+        <div class="cardHeader"><strong>Ejecución y actualización de tablas de comportamiento de pago</strong></div>
+        <span class="entTag" data-ent-tag="e2">Pipeline de datos</span>
+        <div class="taskMeta">
+          <span class="priorityBadge priority-medium">Media</span>
+          <span class="assigneeChip">Manuel Rios</span>
+        </div>
+        <div class="taskDates"><span>▶ 4 ago</span> <span>■ 4 ago</span></div>
+        <div class="taskProgress derived">
+          <div class="taskProgressTrack"><span style="width:100%"></span></div>
+          <span class="taskProgressPct">100%</span>
+        </div>
+      </article><p class="emptyText colEmpty">Sin tareas.</p></div>
+    </section></div>
+</div>
+<script>
+  const filas = [...document.querySelectorAll('.entRow')];
+  const tarjetas = [...document.querySelectorAll('.taskCard')];
+  const verTodas = document.getElementById('verTodas');
+  let activo = null;
+  function pintar() {
+    for (const f of filas) f.setAttribute('aria-pressed', String(f.dataset.ent === activo));
+    for (const c of tarjetas) c.hidden = !!activo && c.dataset.ent !== activo;
+    for (const col of document.querySelectorAll('.kanbanColumn')) {
+      const n = [...col.querySelectorAll('.taskCard')].filter((c) => !c.hidden).length;
+      col.querySelector('.colCount').textContent = n;
+      col.querySelector('.colEmpty').hidden = n > 0;
+    }
+    verTodas.hidden = !activo;
+  }
+  for (const f of filas) {
+    f.addEventListener('click', () => {
+      activo = activo === f.dataset.ent ? null : f.dataset.ent;
+      pintar();
+    });
+  }
+  verTodas.addEventListener('click', () => { activo = null; pintar(); });
+  pintar();
+</script>
+</body></html>

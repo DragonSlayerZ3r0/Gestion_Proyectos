@@ -222,6 +222,48 @@
   .tlWho { font-size: 0.72rem; color: var(--muted); }
   .tlProgressPct { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+  /* Vista por ENTREGABLES (2026-07-31): el hito es el entregable y sus tareas
+     se despliegan con un <details> nativo — sin JS, accesible con teclado y
+     forzable a abierto al imprimir. */
+  .tlTasks { margin-top: 6px; }
+  .tlTasks > summary {
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent-strong);
+    list-style: none;
+  }
+  .tlTasks > summary::-webkit-details-marker { display: none; }
+  /* Triángulo propio: el nativo se ve distinto en cada navegador. */
+  .tlTasks > summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 5px;
+    transition: transform 140ms ease;
+  }
+  .tlTasks[open] > summary::before { transform: rotate(90deg); }
+  .tlSubList { margin: 6px 0 0; padding: 0 0 0 4px; list-style: none; display: grid; gap: 5px; }
+  .tlSubItem {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    align-items: start;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: var(--text-soft);
+  }
+  .tlSubDot {
+    width: 7px; height: 7px; margin-top: 5px;
+    border-radius: 50%; background: var(--muted);
+  }
+  /* Mismos tonos que el marcador y el badge del hito, para que el punto de una
+     tarea signifique lo mismo que el color del hito que la contiene. */
+  .tlSubDot.is-done { background: #15803d; }
+  .tlSubDot.is-progress { background: var(--accent); }
+  .tlSubDot.is-review { background: #b45309; }
+  .tlSubTitle { font-weight: 600; color: var(--text); }
+  .tlSubMeta { grid-column: 2; font-size: 0.68rem; color: var(--muted); }
+  .tlNoTasks { display: block; margin-top: 6px; font-size: 0.7rem; color: var(--muted); font-style: italic; }
+
   /* Seguimientos de la tarea como actividades anidadas (píldoras ámbar del
      original, aquí con los tonos de la app). */
   .tlActivityList { display: grid; gap: 5px; margin-top: 4px; padding-left: 8px; border-left: 3px solid #facc15; }

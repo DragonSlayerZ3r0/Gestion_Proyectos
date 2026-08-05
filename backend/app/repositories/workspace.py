@@ -126,6 +126,31 @@ class WorkspaceRepository(BaseRepository):
     def delete_task(self, project_id: str, task_id: str) -> None:
         self._delete({"PK": f"PROJECT#{project_id}", "SK": f"TASK#{task_id}"})
 
+    # ── Entregables (2026-07-31) ──────────────────────────────────────────────
+    # Nivel OPCIONAL entre la solicitud y sus tareas: agrupa el trabajo de las
+    # solicitudes grandes (las de 12-15 tareas). Mismo PK del proyecto → el
+    # borrado de la solicitud los arrastra sin código extra, igual que tareas y
+    # bitácoras. La tarea guarda `deliverableId`; sin él queda "sin entregable".
+    def list_project_deliverables(self, project_id: str) -> list[dict[str, Any]]:
+        return self._query_all(
+            KeyConditionExpression=Key("PK").eq(f"PROJECT#{project_id}")
+            & Key("SK").begins_with("DELIV#"))
+
+    def get_deliverable(self, project_id: str, deliverable_id: str) -> dict[str, Any] | None:
+        response = self._table.get_item(
+            Key={"PK": f"PROJECT#{project_id}", "SK": f"DELIV#{deliverable_id}"})
+        return response.get("Item")
+
+    def update_deliverable(self, project_id: str, deliverable_id: str,
+                           values: dict[str, Any]) -> dict[str, Any]:
+        return self._update({"PK": f"PROJECT#{project_id}", "SK": f"DELIV#{deliverable_id}"}, values)
+
+    def delete_deliverable(self, project_id: str, deliverable_id: str) -> None:
+        self._delete({"PK": f"PROJECT#{project_id}", "SK": f"DELIV#{deliverable_id}"})
+
+    def list_all_deliverables(self) -> list[dict[str, Any]]:
+        return self._query_entity_type("DELIVERABLE")
+
     # ── Seguimiento POR TAREA (bitácora de la tarea, 2026-07-24) ──────────────
     # Mismo PK del proyecto (los hijos viajan juntos y el borrado del proyecto
     # los arrastra); el SK lleva el taskId ANTES del updateId para poder listar

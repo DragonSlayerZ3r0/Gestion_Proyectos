@@ -55,6 +55,46 @@ export function createTimelineModule(ctx) {
     return [...withDate, ...withoutDate];
   }
 
+  // ── Vista por ENTREGABLES (2026-07-31) ──────────────────────────────────────
+  // Cuando la solicitud tiene entregables, el hito de verdad es el ENTREGABLE
+  // (tiene fecha propia y agrupa trabajo); las tareas cuelgan de él. Sin
+  // entregables esto no existe y la línea de tiempo sigue siendo por tareas.
+  function hasDeliverables(project) {
+    return !!(project?.deliverables || []).length;
+  }
+
+  function taskPct(task) {
+    if (task.progress !== "" && task.progress !== undefined && task.progress !== null) {
+      return Number(task.progress);
+    }
+    return task.status === "done" ? 100 : 0;
+  }
+
+  function buildDeliverableMilestones(project) {
+    const tasks = project.tasks || [];
+    const groups = (project.deliverables || []).map((d) => {
+      const own = tasks.filter((t) => t.deliverableId === d.id);
+      return {
+        id: d.id, name: d.name, dueDate: d.dueDate || "", tasks: own,
+        done: own.filter((t) => t.status === "done").length,
+        pct: own.length ? Math.round(own.reduce((s, t) => s + taskPct(t), 0) / own.length) : 0,
+      };
+    });
+    // Sin fecha al final, igual que las tareas: no se inventan fechas.
+    groups.sort((a, b) => (a.dueDate === "") - (b.dueDate === "") || a.dueDate.localeCompare(b.dueDate));
+    // Las tareas sueltas NO se esconden: van en un grupo final. Si se omitieran,
+    // el diagrama mostraría menos trabajo del que existe.
+    const loose = tasks.filter((t) => !t.deliverableId);
+    if (loose.length) {
+      groups.push({
+        id: "", name: "Sin entregable", dueDate: "", tasks: loose,
+        done: loose.filter((t) => t.status === "done").length,
+        pct: Math.round(loose.reduce((s, t) => s + taskPct(t), 0) / loose.length),
+      });
+    }
+    return groups;
+  }
+
   function progressOf(project) {
     if (project.progress !== "" && project.progress !== undefined && project.progress !== null) {
       return { pct: Number(project.progress), source: "manual" };
@@ -109,7 +149,47 @@ export function createTimelineModule(ctx) {
       </article>`;
   }
 
-  function diagramHtml(project, peopleById) {
+  // Hito = ENTREGABLE, con sus tareas desplegables. Se usa <details> nativo: no
+  // necesita JS, es accesible con teclado y al imprimir se puede forzar abierto.
+  function deliverableMilestoneHtml(group, index) {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+    const overdue = group.dueDate && group.dueDate < today && group.pct < 100;
+    const cls = group.pct >= 100 ? "done" : (group.pct > 0 ? "progress" : "pending");
+    const rows = group.tasks.map((t) => {
+      const c = STATUS_CLASS[t.status] || "pending";
+      const fecha = t.endDate || t.startDate || "";
+      return `
+        <li class="tlSubItem">
+          <span class="tlSubDot is-${c}"></span>
+          <span class="tlSubTitle">${escapeHtml(t.title)}</span>
+          <span class="tlSubMeta">${escapeHtml(taskStatusLabel(t.status))}${
+            fecha ? ` · ${escapeHtml(fmtDate(fecha))}` : ""} · ${taskPct(t)}%</span>
+        </li>`;
+    }).join("");
+    return `
+      <article class="tlItem is-${cls}">
+        <div class="tlMarker">${index + 1}</div>
+        <div class="tlContent">
+          <span class="tlDate${overdue ? " isOverdue" : ""}">${
+            group.dueDate ? escapeHtml(fmtDate(group.dueDate)) : "Sin fecha"}${overdue ? " · vencido" : ""}</span>
+          <h3>${escapeHtml(group.name)}</h3>
+          <div class="tlProgress"><span style="width:${Math.max(0, Math.min(100, group.pct))}%"></span></div>
+          <span class="tlProgressPct">${group.pct}%</span>
+          ${group.tasks.length ? `
+            <details class="tlTasks">
+              <summary>${group.done}/${group.tasks.length} ${group.tasks.length === 1 ? "tarea" : "tareas"}</summary>
+              <ul class="tlSubList">${rows}</ul>
+            </details>`
+            : `<span class="tlNoTasks">Sin tareas asignadas</span>`}
+        </div>
+      </article>`;
+  }
+
+  function diagramHtml(project, peopleById, mode) {
+    if (mode === "deliverables") {
+      const groups = buildDeliverableMilestones(project);
+      return `<div class="tlTrack">${groups.map((g, i) => deliverableMilestoneHtml(g, i)).join("")}</div>`;
+    }
     const milestones = buildMilestones(project);
     if (!milestones.length) {
       return `<div class="tlEmpty">
@@ -120,16 +200,17 @@ export function createTimelineModule(ctx) {
     return `<div class="tlTrack">${milestones.map((t, i) => milestoneHtml(t, i, peopleById)).join("")}</div>`;
   }
 
-  function summaryHtml(project) {
+  function summaryHtml(project, mode) {
     const { pct, source } = progressOf(project);
-    const milestones = buildMilestones(project);
+    const porEntregable = mode === "deliverables";
+    const milestones = porEntregable ? buildDeliverableMilestones(project) : buildMilestones(project);
     return `
       <div class="tlSummary">
         <!-- El nombre de la solicitud NO se repite aquí: ya es el título del
              modal (evitar redundancia = menos ruido, docs/06). -->
         <div><span class="tlSummaryLabel">Inicio</span><strong>${project.requestDate ? escapeHtml(fmtDate(project.requestDate)) : "Sin fecha"}</strong></div>
         <div><span class="tlSummaryLabel">Entrega</span><strong>${project.dueDate ? escapeHtml(fmtDate(project.dueDate)) : "Sin fecha"}</strong></div>
-        <div><span class="tlSummaryLabel">Hitos</span><strong>${milestones.length}</strong></div>
+        <div><span class="tlSummaryLabel">${porEntregable ? "Entregables" : "Hitos"}</span><strong>${milestones.length}</strong></div>
         <div class="tlSummaryProgress">
           <span class="tlSummaryLabel">Avance${source === "tareas" ? " (por tareas)" : source === "manual" ? "" : ""}</span>
           <strong>${pct === null ? "—" : `${pct}%`}</strong>
@@ -141,6 +222,12 @@ export function createTimelineModule(ctx) {
   // ── Modal ───────────────────────────────────────────────────────────────────
   function open(project, peopleById) {
     if (!project) return;
+    // Con entregables, el nivel por defecto es el ENTREGABLE: es el hito real
+    // (fecha propia y trabajo agrupado) y es como se presenta en una junta. El
+    // conmutador deja bajar al detalle de tareas. Sin entregables no hay
+    // conmutador y todo sigue exactamente como antes.
+    const conEntregables = hasDeliverables(project);
+    let mode = conEntregables ? "deliverables" : "tasks";
     const modal = document.createElement("div");
     modal.className = "tlModal";
     modal.innerHTML = `
@@ -151,6 +238,11 @@ export function createTimelineModule(ctx) {
             <h3>${escapeHtml(project.name || "Sin nombre")}</h3>
           </div>
           <div class="tlHeadActions">
+            ${conEntregables ? `
+            <div class="tlOrientation" role="group" aria-label="Nivel del diagrama">
+              <button type="button" class="tlOrientBtn active" data-tl-mode="deliverables" aria-pressed="true">Entregables</button>
+              <button type="button" class="tlOrientBtn" data-tl-mode="tasks" aria-pressed="false">Tareas</button>
+            </div>` : ""}
             <div class="tlOrientation" role="group" aria-label="Orientación del diagrama">
               <button type="button" class="tlOrientBtn active" data-tl-orient="horizontal" aria-pressed="true">↔ Horizontal</button>
               <button type="button" class="tlOrientBtn" data-tl-orient="vertical" aria-pressed="false">↕ Vertical</button>
@@ -160,8 +252,8 @@ export function createTimelineModule(ctx) {
             <button type="button" class="tlClose" aria-label="Cerrar">×</button>
           </div>
         </div>
-        ${summaryHtml(project)}
-        <div class="tlStage" data-tl-stage data-orientation="horizontal">${diagramHtml(project, peopleById)}</div>
+        <div data-tl-summary>${summaryHtml(project, mode)}</div>
+        <div class="tlStage" data-tl-stage data-orientation="horizontal">${diagramHtml(project, peopleById, mode)}</div>
       </div>`;
     document.body.appendChild(modal);
 
@@ -185,6 +277,22 @@ export function createTimelineModule(ctx) {
       });
     }
 
+    // Conmutador Entregables | Tareas: repinta el diagrama y el resumen (que
+    // cambia la etiqueta y el conteo), conservando la orientación elegida.
+    for (const btn of modal.querySelectorAll("[data-tl-mode]")) {
+      btn.addEventListener("click", () => {
+        if (mode === btn.dataset.tlMode) return;
+        mode = btn.dataset.tlMode;
+        stage.innerHTML = diagramHtml(project, peopleById, mode);
+        modal.querySelector("[data-tl-summary]").innerHTML = summaryHtml(project, mode);
+        for (const b of modal.querySelectorAll("[data-tl-mode]")) {
+          const on = b === btn;
+          b.classList.toggle("active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+      });
+    }
+
     // Presentar: pantalla completa REAL sobre el diálogo (sin barras del sistema
     // ni de la app). Si el navegador la bloquea, el modal sigue siendo usable.
     modal.querySelector("[data-tl-present]").addEventListener("click", () => {
@@ -193,13 +301,15 @@ export function createTimelineModule(ctx) {
       else dialog.requestFullscreen?.().catch(() => {});
     });
 
-    modal.querySelector("[data-tl-pdf]").addEventListener("click", () => printTimeline(project, peopleById));
+    // El PDF sale con el MISMO nivel que se está viendo: si presentas por
+    // entregables, el impreso también va por entregables (con sus tareas).
+    modal.querySelector("[data-tl-pdf]").addEventListener("click", () => printTimeline(project, peopleById, mode));
   }
 
   // PDF por impresión nativa (mismo criterio que el Reporte ejecutivo: texto
   // seleccionable, sin librerías). El diagrama se imprime SIEMPRE en vertical:
   // en una hoja, el recorrido de arriba a abajo es el que no se corta.
-  function printTimeline(project, peopleById) {
+  function printTimeline(project, peopleById, mode) {
     const now = new Date().toLocaleString("es-GT", {
       year: "numeric", month: "long", day: "numeric",
       hour: "2-digit", minute: "2-digit", timeZone: "America/Guatemala",
@@ -239,8 +349,8 @@ export function createTimelineModule(ctx) {
         <h1>Línea de tiempo — ${escapeHtml(project.name || "Solicitud")}</h1>
         <div class="meta">Gerencia Administrativa de Datos · ${escapeHtml(now)} (hora de Guatemala)</div>
       </header>
-      ${printSummary(project)}
-      ${printItems(project, peopleById)}
+      ${printSummary(project, mode)}
+      ${mode === "deliverables" ? printDeliverables(project) : printItems(project, peopleById)}
       <footer>Generado desde la plataforma con las tareas y seguimientos vigentes de la solicitud.</footer>
     </body></html>`);
     doc.close();
@@ -252,16 +362,38 @@ export function createTimelineModule(ctx) {
     else frame.onload = () => requestAnimationFrame(go);
   }
 
-  function printSummary(project) {
+  function printSummary(project, mode) {
     const { pct } = progressOf(project);
+    const porEntregable = mode === "deliverables";
     const cells = [
       ["Inicio", project.requestDate ? fmtDate(project.requestDate) : "Sin fecha"],
       ["Entrega", project.dueDate ? fmtDate(project.dueDate) : "Sin fecha"],
-      ["Hitos", String(buildMilestones(project).length)],
+      [porEntregable ? "Entregables" : "Hitos",
+       String((porEntregable ? buildDeliverableMilestones(project) : buildMilestones(project)).length)],
       ["Avance", pct === null ? "—" : `${pct}%`],
     ];
     return `<div class="sum">${cells.map(([k, v]) =>
       `<div><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`).join("")}</div>`;
+  }
+
+  // En papel las tareas van SIEMPRE desplegadas: un <details> cerrado se
+  // imprimiría vacío y el lector no puede abrirlo.
+  function printDeliverables(project) {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+    return buildDeliverableMilestones(project).map((g) => {
+      const overdue = g.dueDate && g.dueDate < today && g.pct < 100;
+      const rows = g.tasks.map((t) => {
+        const fecha = t.endDate || t.startDate || "";
+        return `<div>${escapeHtml(t.title)} — ${escapeHtml(taskStatusLabel(t.status))}${
+          fecha ? ` · ${escapeHtml(fmtDate(fecha))}` : ""} · ${taskPct(t)}%</div>`;
+      }).join("");
+      return `<div class="it">
+        <span class="d${overdue ? " ov" : ""}">${g.dueDate ? escapeHtml(fmtDate(g.dueDate)) : "Sin fecha"}${overdue ? " · vencido" : ""}</span>
+        <h3>${escapeHtml(g.name)}</h3>
+        <div class="m">${g.pct}% · ${g.done}/${g.tasks.length} ${g.tasks.length === 1 ? "tarea" : "tareas"}</div>
+        ${rows ? `<div class="act">${rows}</div>` : ""}
+      </div>`;
+    }).join("");
   }
 
   function printItems(project, peopleById) {

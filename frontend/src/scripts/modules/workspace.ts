@@ -153,7 +153,13 @@ export function createWorkspaceModule(ctx) {
         }
 
         const activeProject = visibleProjects.find((project) => project.id === state.activeProjectId) || fallbackProject;
-        const projectCountText = `${visibleProjects.length} de ${workspace.projects.length} solicitudes`;
+        // El contador NO miente: si la anclada (recién creada) no casa con los
+        // filtros, se muestra igual pero no se suma al conteo, y se dice por qué
+        // aparece una fila que no cumple lo filtrado.
+        const pinnedOutOfFilter = !!state.pinnedProjectId
+          && !getFilteredProjects(
+            workspace.projects.filter((p) => p.id === state.pinnedProjectId), peopleById).length;
+        const projectCountText = `${visibleProjects.length - (pinnedOutOfFilter ? 1 : 0)} de ${workspace.projects.length} solicitudes`;
         const personCreatedNotice = state.saveNotice?.target === "person-create" ? state.saveNotice.message : "";
         const visiblePeople = getVisiblePeople(workspace.people);
         const personDirectory = renderPeopleDirectory(visiblePeople);
@@ -246,6 +252,7 @@ export function createWorkspaceModule(ctx) {
                   ${renderActiveFilterChips()}
                   ${anyProjectFilterActive() ? `<button class="tinyButton ghost" type="button" id="clearProjectFilters">Limpiar</button>` : ""}
                   <span class="countPill">${projectCountText}</span>
+                  ${pinnedOutOfFilter ? `<span class="pinnedNote">+1 recién creada, fuera de los filtros actuales</span>` : ""}
                 </div>
               </div>
               <div class="projectBoardWrap">${renderProgressBoard(visibleProjects, peopleById)}</div>
@@ -273,6 +280,7 @@ export function createWorkspaceModule(ctx) {
                     ${state.projectColumnsMenuOpen ? renderColumnsMenu() : ""}
                   </div>
                   <span class="countPill">${projectCountText}</span>
+                  ${pinnedOutOfFilter ? `<span class="pinnedNote">+1 recién creada, fuera de los filtros actuales</span>` : ""}
                 </div>
               </div>
               <div class="projectTableWrap">
@@ -336,6 +344,30 @@ export function createWorkspaceModule(ctx) {
       }
 
       function getVisibleProjects(projects, peopleById) {
+        // ANCLA de la recién creada (2026-07-31): una solicitud nueva no tiene
+        // estado, ni área, ni responsable, así que CUALQUIER filtro o búsqueda
+        // activa la deja fuera de la lista — y con ella desaparece su
+        // formulario, que se dibuja dentro de su fila. El usuario la creaba y
+        // "se perdía": tenía que cancelar su búsqueda e ir a buscarla por
+        // nombre. Se mantiene visible mientras siga anclada; se suelta al
+        // cerrar su detalle o al seleccionar otra cosa.
+        // El ancla se suelta sola cuando el usuario deja de mirar esa solicitud
+        // (selecciona otra o cierra el detalle): así no queda una fila colada en
+        // la lista para siempre.
+        if (state.pinnedProjectId
+            && state.selectedDetail?.id !== state.pinnedProjectId
+            && state.activeProjectId !== state.pinnedProjectId) {
+          state.pinnedProjectId = null;
+        }
+        const pinned = state.pinnedProjectId
+          ? projects.filter((p) => p.id === state.pinnedProjectId)
+          : [];
+        const rest = getFilteredProjects(projects, peopleById)
+          .filter((p) => p.id !== state.pinnedProjectId);
+        return [...pinned, ...rest];
+      }
+
+      function getFilteredProjects(projects, peopleById) {
         const query = normalizeSearch(state.projectSearch);
         const typeF = state.projectTypeFilter || "all";
         const areaF = state.projectAreaFilter || "all";
@@ -717,6 +749,36 @@ export function createWorkspaceModule(ctx) {
       // Área solicitante: catálogo vivo (quién pide la solicitud). Las solicitudes
       // guardan el id; el nombre se resuelve aquí, así corregir un área mal escrita
       // corrige todas las solicitudes que la usan.
+      // ── Encabezados de sección (2026-07-31) ─────────────────────────────────
+      // Los cuatro bloques del detalle (Adjuntos, Personas, Tareas, Seguimiento)
+      // tenían el MISMO marco, fondo y título: para encontrar uno había que
+      // LEER las cuatro etiquetas, y leer es lento. Un ícono por sección da una
+      // marca de FORMA, que el ojo localiza antes de leer.
+      // Se descartó darle un color a cada bloque: en esta app el color significa
+      // algo (acento = acción principal, tonos = estados) y además no ayuda a
+      // quien tiene deficiencia de visión al color. La forma funciona en escala
+      // de grises y para todos — mismo criterio que «crear vs. buscar».
+      const SECTION_ICONS = {
+        adjuntos: `<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>`,
+        personas: `<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>`,
+        tareas: `<path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>`,
+        seguimiento: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h5"></path>`,
+      };
+
+      function blockHeaderHtml(iconKey, title, count) {
+        const icon = SECTION_ICONS[iconKey] || "";
+        return `
+          <div class="blockHeader">
+            <strong>
+              <svg class="blockHeaderIcon" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                aria-hidden="true">${icon}</svg>
+              ${escapeHtml(title)}
+            </strong>
+            <span>${count}</span>
+          </div>`;
+      }
+
       // ¿Puede MANTENER los catálogos (crear/corregir/eliminar áreas y estados)?
       // Sub-permiso `projects_catalogos` o el módulo Administración — el mismo OR
       // que evalúa el guard del backend en workspace_routes. Sin esto el usuario
@@ -1239,9 +1301,10 @@ export function createWorkspaceModule(ctx) {
                 </div>
                 <div class="projectHeaderRight">
                   ${project.status ? `<span class="statusBadge ${projectStatusClass(project.status)}">${projectStatusLabel(project.status)}</span>` : ""}
+                  <!-- Encabezado = acciones sobre la SOLICITUD completa. Las de
+                       TAREAS (crear, tablero, entregable) viven en la tarjeta
+                       Tareas, pegadas a lo que afectan (2026-07-31). -->
                   <div class="projectActions">
-                    <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cancelar" : "Crear tarea"}</button>
-                    <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
                     <button class="tinyButton ghost" type="button" data-timeline-project="${project.id}" title="Ver la línea de tiempo de esta solicitud">Línea de tiempo</button>
                     <button class="tinyButton ghost" type="button" data-detail-project="${project.id}">Editar solicitud</button>
                   </div>
@@ -1252,10 +1315,7 @@ export function createWorkspaceModule(ctx) {
 
               <div class="projectOverviewGrid">
                 <section class="projectPeopleBlock">
-                  <div class="blockHeader">
-                    <strong>Personas relacionadas</strong>
-                    <span>${project.members.length}</span>
-                  </div>
+                  ${blockHeaderHtml("personas", "Personas relacionadas", project.members.length)}
                   <div class="memberChipList spacious">
                     ${memberChips || `<span class="emptyText">Agrega personas a la solicitud.</span>`}
                   </div>
@@ -1268,22 +1328,31 @@ export function createWorkspaceModule(ctx) {
                 </section>
 
                 <section class="projectSummaryBlock">
-                  <div class="blockHeader">
-                    <strong>Tareas</strong>
-                    <span>${project.tasks.length}</span>
-                  </div>
+                  ${blockHeaderHtml("tareas", "Tareas", project.tasks.length)}
                   <p>${summary}</p>
+                  <!-- TODO lo de tareas junto: conteo, acciones y el alta. Antes
+                       «Crear tarea» y «Ver tablero» estaban en el encabezado, a
+                       media pantalla de aquí y mezclados con «Editar solicitud»,
+                       que no tiene que ver con tareas. -->
+                  <div class="taskBlockActions">
+                    <button class="tinyButton" type="button" data-toggle-task-form="${project.id}">${taskFormOpen ? "Cancelar" : "Crear tarea"}</button>
+                    <button class="tinyButton ghost" type="button" data-toggle-board="${project.id}">${boardOpen ? "Ocultar tablero" : "Ver tablero"}</button>
+                    ${deliverablesOf(project).length ? "" : `
+                      <button type="button" class="tinyButton ghost" data-deliverable-new="${project.id}"
+                        title="Agrupar las tareas en entregables (útil en solicitudes grandes)">+ Entregable</button>`}
+                  </div>
+                  <form class="inlineForm projectTaskForm" data-task-quick-project="${project.id}" ${taskFormOpen ? "" : "hidden"}>
+                    <input name="title" type="text" placeholder="Nueva tarea" required />
+                    <button class="primaryButton" type="submit">Crear tarea</button>
+                  </form>
                 </section>
               </div>
 
               ${renderProjectUpdates(project)}
 
-              <form class="inlineForm projectTaskForm" data-task-quick-project="${project.id}" ${taskFormOpen ? "" : "hidden"}>
-                <input name="title" type="text" placeholder="Nueva tarea" required />
-                <button class="primaryButton" type="submit">Crear tarea</button>
-              </form>
-
               ${cardNotice ? `<p class="saveFeedback compactFeedback" role="status">${escapeHtml(cardNotice)}</p>` : ""}
+
+              ${renderDeliverablesStrip(project)}
 
               ${boardOpen ? `<div class="kanbanBoard compactBoard">${columns}</div>` : ""}
             </div>
@@ -1396,10 +1465,7 @@ export function createWorkspaceModule(ctx) {
           </div>`).join("");
         return `
           <section class="projectUpdatesBlock">
-            <div class="blockHeader">
-              <strong>Seguimiento</strong>
-              <span>${updates.length}</span>
-            </div>
+            ${blockHeaderHtml("seguimiento", "Seguimiento", updates.length)}
             <form class="inlineForm projectUpdateForm" data-update-quick-project="${project.id}">
               <input name="text" type="text" placeholder="¿Qué se trabajó hoy? Se registra con la fecha de hoy" required maxlength="2000" />
               <button class="primaryButton" type="submit">Registrar</button>
@@ -1430,10 +1496,7 @@ export function createWorkspaceModule(ctx) {
         const error = state.attachError ? state.attachError[project.id] : "";
         return `
           <section class="attachBlock">
-            <div class="blockHeader">
-              <strong>Adjuntos</strong>
-              <span>${atts.length}</span>
-            </div>
+            ${blockHeaderHtml("adjuntos", "Adjuntos", atts.length)}
             <div class="attachGrid">
               ${atts.map((a) => renderAttachmentItem(project, a)).join("")
                 || `<span class="emptyText">Sin adjuntos. Agrega pantallazos, archivos o queries de la solicitud.</span>`}
@@ -1522,8 +1585,134 @@ export function createWorkspaceModule(ctx) {
           .join(" · ");
       }
 
+      // ── Entregables (2026-07-31) ────────────────────────────────────────────
+      // Nivel OPCIONAL para las solicitudes grandes: agrupa tareas y muestra el
+      // avance de cada frente. Si la solicitud NO tiene entregables, nada de
+      // esto se dibuja — con 1 a 3 tareas (30 de las 41 solicitudes con tareas)
+      // sería complejidad regalada.
+      function deliverablesOf(project) {
+        return project?.deliverables || [];
+      }
+
+      function deliverableName(project, deliverableId) {
+        return deliverablesOf(project).find((d) => d.id === deliverableId)?.name || "";
+      }
+
+      // Tareas visibles del tablero: todas, o solo las del entregable enfocado.
+      function boardTasks(project) {
+        const focus = state.deliverableFilter;
+        if (!focus || !deliverablesOf(project).length) return project.tasks;
+        return project.tasks.filter((task) => (task.deliverableId || "") === focus);
+      }
+
+      // Avance del entregable = PROMEDIO del % de sus tareas, la misma regla que
+      // ya usa el "% por tareas" de la solicitud (nada nuevo que explicar).
+      function deliverableStats(project, deliverableId) {
+        const tasks = project.tasks.filter((t) => (t.deliverableId || "") === deliverableId);
+        const done = tasks.filter((t) => t.status === "done").length;
+        const pct = tasks.length
+          ? Math.round(tasks.reduce((sum, t) => sum + taskProgress(t).pct, 0) / tasks.length)
+          : 0;
+        return { total: tasks.length, done, pct };
+      }
+
+      function renderDeliverablesStrip(project) {
+        const items = deliverablesOf(project);
+        // El formulario vive DENTRO de esta franja, así que también hay que
+        // dibujarla cuando todavía no hay ningún entregable pero el usuario
+        // acaba de pulsar «+ Entregable»: si no, ese botón —el ÚNICO camino
+        // para crear el primero— no hace nada visible (bug 2026-07-31).
+        const formOpen = state.deliverableFormProject === project.id;
+        if (!items.length && !formOpen) return "";
+        const focus = state.deliverableFilter;
+        // Solo tiene sentido señalar "tareas sueltas" si ya hay con qué agrupar.
+        const sinEntregable = items.length
+          ? project.tasks.filter((t) => !t.deliverableId).length
+          : 0;
+        const rows = items.map((d) => {
+          const { total, done, pct } = deliverableStats(project, d.id);
+          const active = focus === d.id;
+          // El lápiz va FUERA del botón de la fila: un <button> dentro de otro
+          // es HTML inválido y el navegador puede reordenar el DOM.
+          return `
+            <div class="entRow ${active ? "active" : ""}">
+              <button type="button" class="entRowMain" data-deliverable="${d.id}" data-deliverable-project="${project.id}"
+                aria-pressed="${active ? "true" : "false"}"
+                title="${escapeAttribute(active ? "Ver todas las tareas" : `Ver solo las tareas de ${d.name}`)}">
+                <span class="entName">${escapeHtml(d.name)}</span>
+                <span class="entDate">${d.dueDate ? escapeHtml(updateDateLabel(d.dueDate)) : "—"}</span>
+                <span class="entBar"><span style="width:${pct}%"></span></span>
+                <span class="entPct">${pct}%</span>
+                <span class="entCount">${done}/${total}</span>
+              </button>
+              ${renderEditIconButton("Corregir o eliminar el entregable", `data-deliverable-edit="${d.id}" data-deliverable-edit-project="${project.id}"`)}
+            </div>`;
+        }).join("");
+        return `
+          <section class="entPanel" data-deliverables-project="${project.id}">
+            <div class="entHead">
+              <strong>Entregables</strong>
+              ${focus ? `<button type="button" class="tinyButton ghost" data-deliverable-clear="${project.id}">Ver todas las tareas</button>` : ""}
+              <button type="button" class="tinyButton ghost" data-deliverable-new="${project.id}">+ Agregar entregable</button>
+            </div>
+            <div class="entList">${rows}</div>
+            ${sinEntregable ? `<p class="entLoose">${sinEntregable} ${sinEntregable === 1 ? "tarea sin entregable" : "tareas sin entregable"}</p>` : ""}
+            ${renderDeliverableForm(project)}
+          </section>`;
+      }
+
+      // Alta y edición del entregable en el MISMO mini-formulario (nombre +
+      // fecha), con "Eliminar" adentro — el patrón que ya usan área y estado.
+      function renderDeliverableForm(project) {
+        if (state.deliverableFormProject !== project.id) return "";
+        const editing = state.deliverableEditing
+          ? deliverablesOf(project).find((d) => d.id === state.deliverableEditing)
+          : null;
+        const { total } = editing ? deliverableStats(project, editing.id) : { total: 0 };
+        return `
+          <div class="entForm" data-deliverable-form="${project.id}">
+            <input type="text" data-deliverable-name maxlength="80"
+              placeholder="Nombre del entregable (p. ej. Pipeline de datos)"
+              aria-label="Nombre del entregable" value="${escapeAttribute(editing?.name || "")}" />
+            <label class="entFormDate">Fecha
+              <input type="date" data-deliverable-date value="${escapeAttribute(editing?.dueDate || "")}" />
+            </label>
+            <div class="entFormActions">
+              <button type="button" class="tinyButton" data-deliverable-save="${project.id}">${editing ? "Guardar" : "Crear entregable"}</button>
+              <button type="button" class="tinyButton ghost" data-deliverable-cancel>Cancelar</button>
+              ${editing ? `<button type="button" class="tinyButton danger" data-deliverable-delete="${editing.id}" data-deliverable-delete-project="${project.id}" data-deliverable-tasks="${total}">Eliminar entregable</button>` : ""}
+            </div>
+            ${editing && total ? `<p class="helperText">Al eliminarlo, sus ${total} ${total === 1 ? "tarea queda" : "tareas quedan"} sin entregable. No se borra ninguna tarea.</p>` : ""}
+          </div>`;
+      }
+
+      // Chip del entregable en la tarjeta. SOLO si la solicitud tiene
+      // entregables (decisión del usuario 2026-07-31): en una solicitud de 3
+      // tareas sin agrupar sería una línea de ruido en cada tarjeta.
+      function renderTaskDeliverableTag(task) {
+        const project = (state.workspace?.projects || []).find((p) => p.id === task.projectId);
+        if (!deliverablesOf(project).length) return "";
+        const name = deliverableName(project, task.deliverableId);
+        return `<span class="entTag ${name ? "" : "entTag--none"}">${escapeHtml(name || "Sin entregable")}</span>`;
+      }
+
+      // Selector de entregable en el formulario de la tarea. Como el chip: solo
+      // aparece si la solicitud tiene entregables — si no, no hay nada que elegir.
+      function renderTaskDeliverableField(task) {
+        const project = (state.workspace?.projects || []).find((p) => p.id === task.projectId);
+        const items = deliverablesOf(project);
+        if (!items.length) return "";
+        return `
+          <label>Entregable
+            <select name="deliverableId">
+              <option value="">Sin entregable</option>
+              ${items.map((d) => `<option value="${d.id}" ${d.id === task.deliverableId ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+            </select>
+          </label>`;
+      }
+
       function renderTaskColumn(status, project, peopleById) {
-        const tasks = project.tasks.filter((task) => task.status === status.key);
+        const tasks = boardTasks(project).filter((task) => task.status === status.key);
         const cards = tasks.map((task) => renderTaskCard(task, peopleById)).join("");
         return `
           <section class="kanbanColumn ${taskStatusClass(status.key)}" data-task-status="${status.key}" data-task-project="${project.id}">
@@ -1546,6 +1735,7 @@ export function createWorkspaceModule(ctx) {
               <strong>${escapeHtml(task.title)}</strong>
               ${renderEditIconButton("Editar tarea", `data-detail-task="${task.id}" data-detail-task-project="${task.projectId}"`)}
             </div>
+            ${renderTaskDeliverableTag(task)}
             <div class="taskMeta">
               ${task.priority ? `<span class="priorityBadge ${priorityClass(task.priority)}">${priorityLabel(task.priority)}</span>` : ""}
               ${assignee ? `
@@ -1830,10 +2020,7 @@ export function createWorkspaceModule(ctx) {
           </div>`).join("");
         return `
           <section class="projectUpdatesBlock taskUpdatesBlock">
-            <div class="blockHeader">
-              <strong>Seguimiento de la tarea</strong>
-              <span>${updates.length}</span>
-            </div>
+            ${blockHeaderHtml("seguimiento", "Seguimiento de la tarea", updates.length)}
             <form class="inlineForm taskUpdateForm" data-task-update-quick="${task.id}" data-task-update-project="${task.projectId}">
               <textarea name="text" class="taskUpdateInput" rows="2" title="Enter registra · Shift+Enter salta de línea" placeholder="¿Qué se avanzó en esta tarea? Se registra con la fecha de hoy" required maxlength="2000"></textarea>
               <div class="taskUpdateFormActions">
@@ -1878,6 +2065,7 @@ export function createWorkspaceModule(ctx) {
                   ${state.workspace.people.map((person) => `<option value="${person.id}" ${person.id === task.assigneePersonId ? "selected" : ""}>${escapeHtml(person.fullName)}</option>`).join("")}
                 </select>
               </label>
+              ${renderTaskDeliverableField(task)}
               <div class="taskDatesRow">
                 <label>Fecha de inicio<input name="startDate" type="date" value="${escapeAttribute(task.startDate || "")}" /></label>
                 <label>Fecha de fin<input name="endDate" type="date" value="${escapeAttribute(task.endDate || "")}" /></label>
@@ -2311,6 +2499,115 @@ export function createWorkspaceModule(ctx) {
             state.expandedBoardProjectId = state.expandedBoardProjectId === projectId ? null : projectId;
             state.activeProjectId = projectId;
             renderWorkspace();
+          });
+        }
+
+        // ── Entregables ──────────────────────────────────────────────────────
+        // Enfocar uno filtra el tablero de ESA solicitud; volver a pulsarlo (o
+        // «Ver todas las tareas») quita el enfoque. Al abrir el tablero se
+        // asegura que se vea el efecto del filtro.
+        for (const button of document.querySelectorAll("[data-deliverable]")) {
+          button.addEventListener("click", () => {
+            const id = button.dataset.deliverable;
+            state.deliverableFilter = state.deliverableFilter === id ? "" : id;
+            state.expandedBoardProjectId = button.dataset.deliverableProject;
+            state.activeProjectId = button.dataset.deliverableProject;
+            renderWorkspace();
+          });
+        }
+        for (const button of document.querySelectorAll("[data-deliverable-clear]")) {
+          button.addEventListener("click", () => {
+            state.deliverableFilter = "";
+            renderWorkspace();
+          });
+        }
+        // «+ Entregable» vive en el bloque Tareas, pero el formulario se dibuja
+        // con la franja, ARRIBA DEL TABLERO — a media pantalla de distancia. Sin
+        // llevar la vista hasta ahí, pulsarlo parece no hacer nada (fue justo lo
+        // que reportó el usuario el 2026-07-31: "no encuentro ese botón").
+        function abrirFormEntregable(projectId, deliverableId) {
+          state.deliverableFormProject = projectId;
+          state.deliverableEditing = deliverableId || null;
+          renderWorkspace();
+          const panel = document.querySelector(`[data-deliverables-project="${projectId}"]`);
+          if (!panel) return;
+          const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          panel.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+          panel.querySelector("[data-deliverable-name]")?.focus({ preventScroll: true });
+          // Destello del panel para dirigir la mirada: misma convención que al
+          // abrir el detalle de una solicitud (docs/06 #2).
+          if (!reduce && panel.animate) {
+            panel.animate([
+              { boxShadow: "0 0 0 0 rgba(15, 118, 110, 0)" },
+              { boxShadow: "0 0 0 3px rgba(15, 118, 110, 0.45)", offset: 0.25 },
+              { boxShadow: "0 0 0 0 rgba(15, 118, 110, 0)" },
+            ], { duration: 900, easing: "ease-out" });
+          }
+        }
+        for (const button of document.querySelectorAll("[data-deliverable-new]")) {
+          button.addEventListener("click", () => abrirFormEntregable(button.dataset.deliverableNew, null));
+        }
+        for (const button of document.querySelectorAll("[data-deliverable-edit]")) {
+          button.addEventListener("click", () =>
+            abrirFormEntregable(button.dataset.deliverableEditProject, button.dataset.deliverableEdit));
+        }
+        for (const button of document.querySelectorAll("[data-deliverable-cancel]")) {
+          button.addEventListener("click", () => {
+            state.deliverableFormProject = null;
+            state.deliverableEditing = null;
+            renderWorkspace();
+          });
+        }
+        for (const button of document.querySelectorAll("[data-deliverable-save]")) {
+          button.addEventListener("click", async () => {
+            const projectId = button.dataset.deliverableSave;
+            const name = (document.querySelector("[data-deliverable-name]")?.value || "").trim();
+            const dueDate = document.querySelector("[data-deliverable-date]")?.value || "";
+            if (!name) {
+              document.querySelector("[data-deliverable-name]")?.focus();
+              return;
+            }
+            const editing = state.deliverableEditing;
+            button.disabled = true;
+            button.textContent = "Guardando…";
+            try {
+              const path = editing
+                ? `api/projects/${projectId}/deliverables/${editing}`
+                : `api/projects/${projectId}/deliverables`;
+              await apiRequest(path, {
+                method: editing ? "PATCH" : "POST",
+                body: JSON.stringify({ name, dueDate }),
+              });
+              // El estado se cierra ANTES de refrescar: refreshWorkspace ya
+              // repinta al final, así se pinta una sola vez y sin el formulario.
+              state.deliverableFormProject = null;
+              state.deliverableEditing = null;
+              await refreshWorkspace();
+            } catch (error) {
+              button.disabled = false;
+              button.textContent = editing ? "Guardar" : "Crear entregable";
+              alert(error.message);
+            }
+          });
+        }
+        for (const button of document.querySelectorAll("[data-deliverable-delete]")) {
+          button.addEventListener("click", async () => {
+            const projectId = button.dataset.deliverableDeleteProject;
+            const id = button.dataset.deliverableDelete;
+            const n = Number(button.dataset.deliverableTasks || 0);
+            const aviso = n
+              ? `¿Eliminar el entregable? Sus ${n} ${n === 1 ? "tarea quedará" : "tareas quedarán"} sin entregable (no se borra ninguna tarea).`
+              : "¿Eliminar el entregable?";
+            if (!window.confirm(aviso)) return;
+            try {
+              await apiRequest(`api/projects/${projectId}/deliverables/${id}`, { method: "DELETE" });
+              if (state.deliverableFilter === id) state.deliverableFilter = "";
+              state.deliverableFormProject = null;
+              state.deliverableEditing = null;
+              await refreshWorkspace();
+            } catch (error) {
+              alert(error.message);
+            }
           });
         }
 
@@ -2981,10 +3278,20 @@ export function createWorkspaceModule(ctx) {
           });
           state.activeProjectId = payload.data.id;
           state.selectedDetail = { type: "project", id: payload.data.id };
+          // Se ANCLA para que ningún filtro ni búsqueda activa la esconda: al
+          // crearla no tiene estado, área ni responsable, así que casi cualquier
+          // filtro la dejaba fuera y con ella desaparecía su formulario.
+          state.pinnedProjectId = payload.data.id;
           state.saveNotice = { target: `project-create:${payload.data.id}`, message: "Solicitud creada." };
           state.showProjectForm = false;      // vuelve al botón: crear es ocasional
           target.reset();
           await refreshWorkspace();
+          // Y se LLEVA la vista al formulario recién abierto: crear sirve para
+          // seguir llenando los campos, no para volver al listado a buscarla.
+          revealProjectDetail(true);
+          requestAnimationFrame(() => {
+            document.querySelector("#projectDetailForm input[name='name']")?.focus({ preventScroll: true });
+          });
         } catch (error) {
           alert(error.message);
         } finally {
@@ -3570,6 +3877,7 @@ export function createWorkspaceModule(ctx) {
         if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;   // tecleando
         if (state.updateEditing || state.taskUpdateEditing) return true;       // editando una entrada
         if (state.showTaskForm || state.showPersonForm) return true;           // alta abierta
+        if (state.deliverableFormProject) return true;                         // entregable en curso
         if (state.attachQueryFor || state.attachNoteFor) return true;          // adjunto/nota en curso
         if (document.querySelector(".tlModal, .wsReportModal")) return true;   // modal abierto
         return false;
