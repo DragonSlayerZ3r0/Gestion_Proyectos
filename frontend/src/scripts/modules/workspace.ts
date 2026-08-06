@@ -4495,6 +4495,10 @@ export function createWorkspaceModule(ctx) {
       const VERSION_POLL_MS = 20000;
       let versionTimer = null;
       let knownVersion = null;
+      // Refrescos locales en curso (contador, no booleano: pueden solaparse dos
+      // guardados). Mientras sea > 0 el sondeo no interpreta la versión: el salto
+      // lo causó el propio usuario.
+      let refrescoLocal = 0;
 
       // "Ocupado" = ESCRIBIENDO, no simplemente mirando. Tener una solicitud
       // seleccionada NO cuenta: seleccionar una fila es la forma normal de
@@ -4539,6 +4543,7 @@ export function createWorkspaceModule(ctx) {
         if (versionTimer) return;
         versionTimer = window.setInterval(async () => {
           if (state.activeModule !== "projects" || document.hidden) return;
+          if (refrescoLocal) return;                    // guardado propio en curso
           // Si quedó un cambio pendiente y el usuario YA dejó de escribir, se
           // aplica solo: sin esto el aviso se quedaba pegado, porque la versión
           // ya coincidía y el ciclo salía antes de llegar a aplicarlo.
@@ -4561,6 +4566,13 @@ export function createWorkspaceModule(ctx) {
             // de escribir — sin pisarle nada.
             const fresh = await fetchWorkspaceData();
             if (!fresh) return;
+            // El guardado propio pudo terminar mientras se bajaba esto: si ya se
+            // aplicó localmente, avisar sería avisar de lo que el usuario acaba
+            // de hacer. Se revisa DESPUÉS de los await, no solo al entrar.
+            if (refrescoLocal) return;
+            // Y si lo que llegó es idéntico a lo que ya está en pantalla, no hay
+            // nada que anunciar: es justo el caso del cambio propio ya aplicado.
+            if (JSON.stringify(fresh) === JSON.stringify(state.workspace)) return;
             state.pendingWorkspace = fresh;
             state.workspacePending = true;
             state.pendingTouchesOpen = affectsOpenProject(fresh);
@@ -4595,10 +4607,22 @@ export function createWorkspaceModule(ctx) {
       }
 
       async function refreshWorkspace() {
+        // Marca que hay un refresco LOCAL en curso: mientras dure, el sondeo no
+        // interpreta la versión del servidor. Sin esto el sondeo veía el salto
+        // de versión que causó el propio guardado del usuario y levantaba el
+        // aviso por su propio cambio (2026-08-05).
+        refrescoLocal += 1;
+        try {
         // Mantiene lo ya pintado mientras llega lo nuevo — sin pasar por la
         // pantalla "Cargando" (ese parpadeo hacía sentir lento cada guardado).
         await loadWorkspace();
         state.workspacePending = false;
+        // Se TIRA la foto pendiente, que es anterior a este guardado. Si se
+        // deja, el siguiente `applyRemoteChanges` la prefiere sobre pedir datos
+        // frescos y revierte lo que el usuario acaba de escribir: el seguimiento
+        // desaparecía de la pantalla hasta recargar la página (2026-08-05).
+        state.pendingWorkspace = null;
+        state.pendingTouchesOpen = false;
         renderPendingBanner();
         // El guardado propio ya subió la versión: se toma la nueva como conocida
         // para no avisar al usuario de su propio cambio.
@@ -4607,6 +4631,9 @@ export function createWorkspaceModule(ctx) {
           knownVersion = payload.data?.version ?? knownVersion;
         } catch { /* si falla, el próximo sondeo lo corrige */ }
         renderWorkspace();
+        } finally {
+          refrescoLocal -= 1;
+        }
       }
 
       // Máquina de estados del botón Guardar: al clic pasa a "Guardando…"

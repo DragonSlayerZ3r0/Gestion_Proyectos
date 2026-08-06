@@ -10,6 +10,76 @@ Registro **append-only** de decisiones no obvias, incidentes y cambios de rumbo 
 
 ---
 
+## 2026-08-05 · incidente — El seguimiento recién guardado desaparecía, y el aviso salía por tu propio cambio
+
+**Dos reportes del usuario que resultaron ser dos carreras distintas** contra el sondeo de versión (cada 20 s): *"a veces agrego un seguimiento y no se ve hasta que refresco"* y *"estoy haciendo un cambio y me aparece «hay cambios en otras solicitudes»"*.
+
+**Defecto 1 — se revierte lo recién escrito.** `refreshWorkspace()` ponía `workspacePending = false` pero **nunca limpiaba `state.pendingWorkspace`**, la foto del espacio de trabajo que el sondeo había bajado ANTES del guardado. Esa foto quedaba viva, y el siguiente `applyRemoteChanges()` la prefiere sobre pedir datos frescos (`if (state.pendingWorkspace) state.workspace = state.pendingWorkspace`). Resultado: al llegar cualquier cambio remoto posterior, la interfaz retrocedía a un estado anterior al seguimiento del usuario. El dato nunca se perdió en el servidor — por eso reaparecía al recargar.
+
+**Defecto 2 — el aviso por el cambio propio.** El sondeo podía arrancar antes de que el guardado del usuario terminara y aterrizar después: veía un salto de versión que no conocía, detectaba al usuario "ocupado" (cursor en un campo, formulario abierto) y levantaba el aviso… por el cambio que el propio usuario acababa de hacer. Y con el texto equivocado, porque decía «otras solicitudes».
+
+**Arreglo:** (1) `refreshWorkspace` tira la foto pendiente; (2) un contador `refrescoLocal` suspende la interpretación del sondeo mientras hay un refresco local en curso, revisado **también después de los `await`** y no solo al entrar; (3) si lo que baja el sondeo es idéntico a lo que ya está en pantalla, no hay nada que anunciar.
+
+**Reproducido antes de arreglar**, con las funciones reales extraídas del fuente y el orden de los eventos controlado a mano — incluida la variante con el sondeo lento, que es la que produce la carrera de verdad. Sin arreglo: el seguimiento desaparece y el aviso propio aparece. Con arreglo: ambos correctos, y el aviso por un cambio remoto legítimo sigue funcionando (guardia de regresión).
+
+**La lección:** un sondeo que compara versiones no distingue *mi* cambio del *tuyo*. Si el cliente muta y sondea a la vez, hace falta una marca explícita de "esto lo hice yo" — y revisarla después de cada `await`, porque el estado pudo cambiar mientras la red iba y venía.
+
+## 2026-08-05 · decisión — Los responsables se muestran por NOMBRE, reusando el directorio que ya existía
+
+**Pedido del usuario:** *"en lugar del correo, trae los nombres de los usuarios"*. Una lista de `usr042882@…` no dice quién es nadie.
+
+**No se construyó nada:** ya existía `services/name_directory.py` (`NameDirectory`), que resuelve correos institucionales contra Identity Center con caché en DynamoDB, y que ya usan el autor de un seguimiento, la Wiki, la Pizarra, los adjuntos y el monitoreo de Athena. Se reusó tal cual — es el caso de manual de la regla de fuente única. Se muestra el nombre y el correo queda en el `title`; si no resuelve (roles, usuarios IAM sin correo), cae al identificador original. Verificado contra Identity Center real: `usr042882@` → «GAD Urizar, Carlos», `usr044123@` → «GAD Lopez, Diego».
+
+**Se aplicó la regla escrita horas antes:** el cambio altera lo que la caché de responsables ya tenía guardado (actores sin `actorName`), así que se **invalidaron las 5 entradas `#resp#` existentes**. Desplegar código no las toca — es exactamente el error que había causado el «sigue sin mostrar responsables» de esta misma tarde.
+
+## 2026-08-05 · incidente — La caché guardó un "no encontré nada" y lo siguió sirviendo tras el arreglo
+
+**Reportado por el usuario:** después de desplegar la búsqueda hacia atrás, el panel seguía diciendo que no había responsables. El código nuevo estaba bien —verificado contra CloudTrail devolvía 6 actores— pero **nunca llegaba a ejecutarse**: la caché corta ANTES de consultar, y ahí estaba guardada la respuesta vacía del clic anterior al arreglo (`{"actors": []}`, 16:47:18, TTL de 8 h para el mes en curso). Habría seguido dando esa respuesta hasta la medianoche.
+
+**Arreglo, en dos partes:** (1) **una respuesta vacía ya no se cachea** — no ahorra nada, porque no hay dato que reusar, y en cambio congela un "no encontré nada" que puede deberse a que el código todavía no sabía dónde buscar; sin actores se vuelve a preguntar, que cuesta 2 s y pasa poco. (2) Se borró a mano la entrada envenenada que ya existía, porque el cambio de código no la invalida.
+
+**La lección, que va más allá de este caso:** cachear un resultado VACÍO es cachear una limitación del código, no un dato. Cuando la lógica mejora, la caché sigue respondiendo con la versión que no sabía — y el síntoma es el peor posible: parece que el arreglo no funcionó. Regla para las cachés de este proyecto: **guardar hallazgos, no ausencias**.
+
+## 2026-08-05 · incidente — «Sin acciones ese día» en el gasto más caro: la atribución solo miraba el día
+
+**Reportado por el usuario** justo después de ampliar la atribución: abrió EC2 – Other del 4-ago y le salió *«Sin acciones de management ese día»*. Correcto y a la vez inútil — **el 4 de agosto nadie hizo nada**. El volumen io1 de 50.000 IOPS nació el 24 de julio y desde entonces solo cobra. La atribución consultaba CloudTrail con la ventana del **día** (`start`, `start+1`), lo cual sirve para un pico (un job que alguien lanzó ESE día) pero no para un recurso encendido, que se crea una vez y factura todos los días. Justo el renglón más caro caía en ese hueco.
+
+**Arreglo:** si el día sale vacío, se busca **hacia atrás** hasta donde CloudTrail retiene (90 días) y se marca `lookback` para que la pantalla lo diga — si no, el usuario creería que alguien tocó algo ese día. La búsqueda hacia atrás usa **3 páginas** en vez de 10: `LookupEvents` devuelve lo más reciente primero, y para saber quién creó algo no hace falta barrer 90 días completos. Medido: 2,1 s para 7 eventos × 3 páginas (timeout de la Lambda: 600 s). Verificado con el caso real: el día devuelve 0 actores, hacia atrás aparece `usr042882@banrural.com.gt` con su `UpdateComputeEnvironment`.
+
+**La lección:** una ventana de consulta que sirve para un caso (picos) puede dejar el otro caso (gasto continuo) sin respuesta, y el mensaje de "no hay nada" no distingue entre *no pasó nada* y *no lo estoy buscando donde está*.
+
+## 2026-08-05 · decisión — Atribución por CloudTrail: de 1 servicio a 8, y separar persona de automatismo
+
+**Lo notó el usuario** al preguntar por qué un volumen io1 de 50.000 IOPS ($3.250/mes) no aparecía en «Ver responsables»: `SERVICE_EVENTS` **solo tenía SageMaker**, y aun así el botón se pintaba para cualquier servicio — solo al pulsarlo avisaba que no aplicaba. Otro clic muerto, de la misma familia que el chip de carpeta.
+
+**El matiz que casi arruina el arreglo:** en EC2, mapear `RunInstances` a secas responde **«AutoScaling»** — cierto e inútil. Hay que incluir los eventos que ORIGINAN la cadena. Caso real medido: el `UpdateComputeEnvironment` de una persona a las 12:09:07 y el `RunInstances` de AutoScaling a las 12:09:36 — 29 segundos después. Segundo detalle: un disco creado al arrancar la instancia **no genera `CreateVolume`**, viaja dentro del `blockDeviceMapping` de `RunInstances`; buscarlo por `CreateVolume` no encuentra nada.
+
+**Lo que se hizo:** 8 servicios mapeados (EC2 ×2, Glue, Athena, DataSync, MWAA, ECS, SageMaker); los actores se separan en **Personas** y **Automático**, con la hora del último evento para poder leer la cadena; la lista de servicios con atribución la **publica el backend** (`attributable`, fuera del blob cacheado para que mapear uno nuevo no exija invalidar cachés) y el frontend ya no ofrece el botón donde no hay nada que buscar — explica por qué y qué servicios sí lo tienen.
+
+**Regla de la organización usada como criterio, no heurística suelta:** persona = **correo**, porque aquí los humanos entran por SSO federado y las aplicaciones por rol (no hay usuarios IAM). Sin eso, un rol de Lambda (`neptune-export-c7a8c4e0`) se clasificaba como persona — lo destapó la verificación contra CloudTrail real, no el razonamiento.
+
+**Alcance honesto, medido sobre 5 días reales del hub ($873):** el **67%** del gasto nace de una acción puntual y es atribuible; el **33%** es infraestructura encendida (VPC/NAT, S3, Neptune, OpenSearch, Support, CloudWatch) que nadie «lanza» cada día y para la que CloudTrail no tiene respuesta — su evento de creación suele caer fuera de los 90 días. Eso no se arregla con más mapeos: pide inventario y dueños por tag, que es otra función.
+
+## 2026-08-05 · decisión — Facturación: dos modos en el día expandido, en vez de mezclar listas o crear una vista
+
+**Pregunta del usuario tras entender que la lista eran solo subidas:** *"si quisiera ver el total por día además de los picos, ¿agrego los servicios de fondo o creo una vista diaria nueva?"*. Ninguna de las dos.
+
+**Por qué NO mezclar:** esa lista ordena por **aumento**, y de ahí sale su valor — el culpable va primero. Metiendo el gasto de fondo ordenado por costo, el culpable se hunde: medido en el hub, el pico del 4-ago (Glue) es el **3.º de 24** por costo y el del 2-ago (Macie) el **11.º de 18**, detrás de EC2-Other, que cuesta ~$104 todos los días y nunca es la noticia. Ordenado por aumento en cambio, los de fondo caen al final con `+$0.00`: ruido. **Por qué NO una vista nueva:** el total del día ya está en la tabla y los datos también — el backend manda los 34 servicios de cada día y el frontend solo los filtraba (`row.services` se usaba únicamente para el primer día del periodo). Duplicar la tabla para reordenar lo mismo es superficie sin dato nuevo.
+
+**Lo que se hizo:** un segmentado dentro del día expandido, **«Lo que subió» / «Todo el día»**, con UN criterio de orden por modo. «Todo el día» ordena por gasto y su lista **sí llega al total**; conserva la marca `+$X` de los que subieron para no perder el rastro al cambiar de modo. Sin endpoint nuevo ni consulta extra a CE: solo estado de UI y una rama de render.
+
+**Lo encontró la verificación:** al comprobar que «visible + oculto = total del día» en los 5 días reales, el **1-ago no cerraba** por $1.20 — esa rama (primer día del periodo, sin comparación) decía «se muestran los 12 mayores de 23» pero no **cuánto** sumaban los ocultos. Corregido; ahora cierran los cinco días. Docs: `docs/02`.
+
+## 2026-08-05 · decisión — Facturación: la lista de un día se explica y se reconcilia (sumarla nunca daba el total)
+
+**Duda del usuario:** *"el valor 221.06 ¿es la suma de todo?"*, seguido de *"haciendo la suma de lo del día no me da los 221.06"*. No era un error de cálculo: el total del día sí es el de TODOS los servicios, pero la lista que se despliega debajo son **solo los que subieron** respecto al día anterior — y eso no se decía en ningún lado. Con datos reales del hub (4-ago): total $221.06, los 12 servicios visibles suman $35.40 de gasto, y sus aumentos suman $20.18 mientras el día solo creció $0.18, porque otros 5 bajaron $20.00. Imposible de cuadrar mirando la pantalla.
+
+**Lo que se agregó:** un encabezado que dice cuántos servicios subieron y advierte que **abajo aparecen solo esos**; el aviso de cuántos recorta el tope de 12 y **cuánto suman** (un tope callado se lee como «esto es todo» — el 4-ago había 14, así que sí estaba recortando); y un pie que cierra la cuenta: `Subieron +$20.18 · Bajaron −$20.00 (5 servicios) · Variación neta +$0.18 · Total del día $221.06`. Los días sin subidas ya no muestran solo «ningún servicio aumentó»: ahora reportan la bajada, que el 5-ago era de −$209.55.
+
+**Detalle no obvio:** las bajadas se **derivan** (`subidas − variación`) en vez de sumarse una por una. El backend redondea a 2 decimales CADA servicio y por separado el total del día, así que la suma observada fallaba por un centavo en algunos días (medido: 2-ago daba $90.58 contra $90.59 real). Una cifra cuyo propósito es que el usuario pueda hacer la resta tiene que cuadrar SIEMPRE; derivada cuadra por construcción y absorbe el residuo del redondeo, que es donde pertenece. Verificado con los 5 días reales de agosto del hub: la resta cierra exacta en todos.
+
+**Corrección propia:** al analizar dije que el tope de 12 «probablemente» estaba recortando ese día. Con los datos crudos eran 12 exactos — pero la UI trabaja con los montos ya redondeados por el backend, y ahí son 14. El dato bueno es el de la UI. Docs: `docs/02`.
+
 ## 2026-08-05 · incidente — El directorio de personas cortaba tarjetas a la mitad: un techo en px que dejó de cuadrar
 
 **Reportado por el usuario** con captura: filas partidas arriba y abajo en la vista Personas. `.peopleStrip` tenía `max-height: 96px` con el comentario *«2 filas completas de chips (42px c/u + gap) — nunca se corta un chip a la mitad»*. La promesa dejó de cumplirse cuando la tarjeta creció a **46px** (manda el lápiz de 32 + 12 de padding + 2 de borde, no el avatar de 28): 96px son **1.8 filas**, así que siempre se partía una. Medido: 6 tarjetas cortadas con las 26 personas reales.

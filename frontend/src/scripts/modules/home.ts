@@ -590,6 +590,15 @@ export function createHomeModule(ctx) {
         return d.toLocaleDateString("es-GT", { day: "2-digit", month: "short", timeZone: "UTC" });
       }
 
+      // Como dayLabel pero CON año: la búsqueda hacia atrás llega a 90 días, así
+      // que su fecha inicial suele caer en otro mes y puede caer en otro año.
+      function fechaLargaLabel(iso) {
+        if (!iso) return "—";
+        const d = new Date(`${iso}T00:00:00Z`);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleDateString("es-GT", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
+      }
+
       function dayPlusOne(iso) {
         const d = new Date(`${iso}T00:00:00Z`);
         d.setUTCDate(d.getUTCDate() + 1);
@@ -607,8 +616,13 @@ export function createHomeModule(ctx) {
           const total = parseFloat(day.total) || 0;
           const prevTotal = prev ? (parseFloat(prev.total) || 0) : 0;
           const delta = prev ? total - prevTotal : 0;
-          // Servicios que subieron vs el día anterior.
+          // Servicios que subieron vs el día anterior. Se suman TAMBIÉN las
+          // bajadas: sin ellas la variación del día no cuadra a la vista y el
+          // usuario cree que faltan datos — el 4-ago subieron $20.17 y el día
+          // solo creció $0.18 porque otros bajaron $19.99 (2026-08-05).
           let risers = [];
+          let subidas = 0;
+          let nBajaron = 0;
           if (prev) {
             const prevMap = {};
             for (const s of prev.services || []) prevMap[s.service] = parseFloat(s.amount) || 0;
@@ -617,11 +631,24 @@ export function createHomeModule(ctx) {
             const names = new Set([...Object.keys(prevMap), ...Object.keys(curMap)]);
             for (const name of names) {
               const d = (curMap[name] || 0) - (prevMap[name] || 0);
-              if (d > 0.005) risers.push({ service: name, delta: d, amount: curMap[name] || 0 });
+              if (d > 0.005) {
+                risers.push({ service: name, delta: d, amount: curMap[name] || 0 });
+                subidas += d;
+              } else if (d < -0.005) {
+                nBajaron += 1;
+              }
             }
             risers.sort((a, b) => b.delta - a.delta);
           }
-          const row = { date: day.date, total, delta, hasPrev: !!prev, risers, services: day.services || [] };
+          // Las bajadas se DERIVAN (subidas − variación) en vez de sumarse una a
+          // una: el backend redondea a 2 decimales CADA servicio y también el
+          // total del día, así que sumar las bajadas observadas fallaba por un
+          // centavo algunos días. Como esta cifra existe para que el usuario
+          // pueda hacer la resta, tiene que cuadrar siempre; derivada cuadra por
+          // construcción y además absorbe ese residuo, que es donde pertenece.
+          const bajadas = prev ? Math.max(0, subidas - delta) : 0;
+          const row = { date: day.date, total, delta, hasPrev: !!prev, risers, subidas, bajadas,
+                        nBajaron, prevDate: prev ? prev.date : null, services: day.services || [] };
           rows.push(row);
           if (prev && (!topSpike || delta > topSpike.delta)) topSpike = row;
         }
@@ -717,15 +744,89 @@ export function createHomeModule(ctx) {
           </div>`;
       }
 
+      // Cuántos servicios se listan al expandir un día. El resto se DICE, no se
+      // esconde: un tope callado se lee como "esto es todo" (2026-08-05).
+      const TOPE_SERVICIOS_DIA = 12;
+
       // Detalle al expandir un día. Con día previo: servicios que subieron (Δ).
       // Día base (sin previo, p. ej. el 1): gasto por servicio del día.
+      //
+      // El encabezado y el pie existen porque esta lista NO es el desglose del
+      // día —son solo los que subieron— y sin decirlo la cuenta no cierra: el
+      // usuario suma lo que ve, no le da el total del día y cree que faltan
+      // datos. El pie reconcilia: subidas − bajadas = variación.
       function dayRisersBody(row) {
+        const totalDia = `<span class="homeDayReconcTotal">Total del día $${fmtUsd(row.total)}</span>`;
         if (!row.hasPrev) {
           if (!row.services || !row.services.length) return `<p class="catalogEmpty">Sin gasto registrado ese día.</p>`;
-          return row.services.slice(0, 12).map((s) => serviceDrillRow(row.date, s.service, null, s.amount)).join("");
+          const ocultos = Math.max(0, row.services.length - TOPE_SERVICIOS_DIA);
+          // El monto oculto se DICE también aquí: decir solo "12 de 23" deja al
+          // usuario con una diferencia sin explicar contra el total del día
+          // ($253.73 visibles contra $254.93 el 1-ago, medido).
+          const montoOculto = row.services.slice(TOPE_SERVICIOS_DIA)
+            .reduce((a, s) => a + (parseFloat(s.amount) || 0), 0);
+          return `
+            <p class="homeDayNote">Gasto por servicio de este día — es el primero del periodo, no hay con qué compararlo.${
+              ocultos ? ` Se muestran los ${TOPE_SERVICIOS_DIA} mayores de ${row.services.length}; los otros ${ocultos} suman $${fmtUsd(montoOculto)}.` : ""}</p>
+            ${row.services.slice(0, TOPE_SERVICIOS_DIA)
+              .map((s) => serviceDrillRow(row.date, s.service, null, s.amount)).join("")}
+            <p class="homeDayReconc">${totalDia}</p>`;
         }
-        if (!row.risers.length) return `<p class="catalogEmpty">Ningún servicio aumentó respecto al día anterior.</p>`;
-        return row.risers.slice(0, 12).map((s) => serviceDrillRow(row.date, s.service, s.delta, s.amount)).join("");
+        const desde = row.prevDate ? ` que el ${dayLabel(row.prevDate)}` : " que el día anterior";
+        // Pie de reconciliación: la resta que hace cuadrar la variación.
+        const pie = `
+          <p class="homeDayReconc">
+            <span>Subieron <b class="homeSpikeUp">+$${fmtUsd(row.subidas)}</b></span>
+            <span>Bajaron <b class="homeSpikeDown">-$${fmtUsd(row.bajadas)}</b>${
+              row.nBajaron ? ` <span class="homeTopMeta">(${row.nBajaron} ${row.nBajaron === 1 ? "servicio" : "servicios"})</span>` : ""}</span>
+            <span>Variación neta <b>${row.delta >= 0 ? "+" : "-"}$${fmtUsd(Math.abs(row.delta))}</b></span>
+            ${totalDia}
+          </p>`;
+
+        // DOS preguntas distintas, cada una con SU criterio de orden. Mezclarlas
+        // en una lista no funciona: "lo que subió" ordena por aumento y ahí el
+        // culpable va primero; "todo el día" ordena por gasto, donde ese mismo
+        // culpable cae al 3.º o al 11.º detrás del gasto de fondo, que cuesta lo
+        // mismo todos los días y nunca es la noticia (2026-08-05).
+        const modo = state.homeDailyMode === "all" ? "all" : "risers";
+        const seg = `
+          <div class="searchScope segmented homeDayModes" role="group" aria-label="Qué mostrar de este día">
+            <button type="button" class="scopeSeg ${modo === "risers" ? "active" : ""}" data-daily-mode="risers">Lo que subió</button>
+            <button type="button" class="scopeSeg ${modo === "all" ? "active" : ""}" data-daily-mode="all">Todo el día</button>
+          </div>`;
+
+        if (modo === "all") {
+          const servicios = row.services || [];
+          if (!servicios.length) return `${seg}<p class="catalogEmpty">Sin gasto registrado ese día.</p>${pie}`;
+          // La marca del aumento se conserva aquí para no perder el rastro del
+          // pico al cambiar de modo.
+          const subioPor = {};
+          for (const s of row.risers) subioPor[s.service] = s.delta;
+          const ocultos = Math.max(0, servicios.length - TOPE_SERVICIOS_DIA);
+          const montoOculto = servicios.slice(TOPE_SERVICIOS_DIA)
+            .reduce((a, s) => a + (parseFloat(s.amount) || 0), 0);
+          return `
+            ${seg}
+            <p class="homeDayNote">${servicios.length} ${servicios.length === 1 ? "servicio consumió" : "servicios consumieron"} este día, ordenados por gasto — <b>estos sí suman el total</b>.${
+              ocultos ? ` Se muestran los ${TOPE_SERVICIOS_DIA} mayores; los otros ${ocultos} suman $${fmtUsd(montoOculto)}.` : ""}</p>
+            ${servicios.slice(0, TOPE_SERVICIOS_DIA)
+              .map((s) => serviceDrillRow(row.date, s.service, subioPor[s.service] ?? null, s.amount)).join("")}
+            ${pie}`;
+        }
+
+        if (!row.risers.length) {
+          return `${seg}<p class="homeDayNote">Ningún servicio gastó más${desde}.</p>${pie}`;
+        }
+        const ocultos = Math.max(0, row.risers.length - TOPE_SERVICIOS_DIA);
+        const montoOculto = row.risers.slice(TOPE_SERVICIOS_DIA).reduce((a, s) => a + s.delta, 0);
+        return `
+          ${seg}
+          <p class="homeDayNote">${row.risers.length} ${row.risers.length === 1 ? "servicio gastó" : "servicios gastaron"} más${desde}, ordenados por aumento.
+            <b>${row.risers.length === 1 ? "Abajo aparece solo ese" : "Abajo aparecen solo esos"}</b>, no el desglose completo del día.${
+              ocultos ? ` Se muestran los ${TOPE_SERVICIOS_DIA} mayores; los otros ${ocultos} suman $${fmtUsd(montoOculto)}.` : ""}</p>
+          ${row.risers.slice(0, TOPE_SERVICIOS_DIA)
+            .map((s) => serviceDrillRow(row.date, s.service, s.delta, s.amount)).join("")}
+          ${pie}`;
       }
 
       function dailyDetailBody() {
@@ -739,6 +840,16 @@ export function createHomeModule(ctx) {
       function responsiblesSection() {
         const key = state.homeDailyDetailKey;
         if (!key) return "";
+        // El botón NO se ofrece si el servicio no tiene atribución: antes se
+        // pintaba siempre y solo al pulsarlo avisaba que no aplicaba — un clic
+        // muerto (2026-08-05). La lista de servicios con atribución la publica
+        // el backend (fuente única: `attributable`), no se duplica aquí.
+        const [fechaDia, servicio] = [key.split("|")[0] || "", key.split("|")[1] || ""];
+        const soportados = state.homeDaily?.attributable || [];
+        if (soportados.length && !soportados.includes(servicio)) {
+          return `<div class="homeRespBox"><p class="homeCostHint">Este gasto no nace de una acción puntual (es infraestructura encendida o consumo no auditado en CloudTrail), así que no hay a quién atribuirlo. La atribución aplica a: ${
+            soportados.map(escapeHtml).join(" · ")}.</p></div>`;
+        }
         if (state.homeRespLoading && state.homeRespKey === key) {
           return `<div class="homeRespBox"><p class="catalogEmpty">Buscando responsables en CloudTrail…</p></div>`;
         }
@@ -750,17 +861,48 @@ export function createHomeModule(ctx) {
         }
         const d = state.homeResp;
         if (!d.supported) {
-          return `<div class="homeRespBox"><p class="homeCostHint">Atribución por CloudTrail disponible para SageMaker; otros servicios próximamente.</p></div>`;
+          return `<div class="homeRespBox"><p class="homeCostHint">Este servicio todavía no tiene atribución por CloudTrail.</p></div>`;
         }
         if (!d.actors || !d.actors.length) {
-          return `<div class="homeRespBox"><h4>Responsables (CloudTrail)</h4><p class="catalogEmpty">Sin acciones de management ese día (puede ser uso automático/pipeline o data-plane no auditado).</p></div>`;
+          return `<div class="homeRespBox"><h4>Responsables (CloudTrail)</h4><p class="catalogEmpty">Nadie ejecutó acciones de <b>${escapeHtml(servicio)}</b> el ${escapeHtml(dayLabel(fechaDia))}, ni en los 90 días previos que retiene CloudTrail. Si el recurso es más viejo que eso, su creación ya no está registrada.</p></div>`;
         }
-        const rows = d.actors.map((a) => `
-          <div class="homeRespRow">
-            <span class="homeRespActor">${escapeHtml(a.actor)}</span>
-            <span class="homeTopMeta">${a.actions.map((x) => `${escapeHtml(x.action)}×${x.count}`).join(", ")}${a.instances && a.instances.length ? ` · ${a.instances.map(escapeHtml).join(", ")}` : ""}</span>
-          </div>`).join("");
-        return `<div class="homeRespBox"><h4>Responsables (CloudTrail)</h4>${rows}<p class="homeCostHint">Atribución por <b>acción</b>, no por dólar. Eventos de management (no incluye data-plane como FeatureStore).</p></div>`;
+        // El gasto de un recurso ENCENDIDO se cobra a diario pero nace una sola
+        // vez: preguntar solo por el día respondía "sin acciones" justo en el
+        // renglón más caro. Cuando la respuesta viene de atrás hay que decirlo,
+        // o el usuario cree que alguien tocó algo ese día (2026-08-05).
+        // El aviso NOMBRA el día y el servicio: cuando se lee, el encabezado que
+        // daba ese contexto ya quedó arriba y "ese día / este servicio" no se
+        // sabe a qué apuntan (lo preguntó el usuario, 2026-08-05).
+        const aviso = d.lookback
+          ? `<p class="homeRespLookback">El <b>${escapeHtml(dayLabel(fechaDia))}</b> nadie ejecutó acciones de <b>${escapeHtml(servicio)}</b>: ese gasto viene de algo creado antes. Abajo va lo registrado <b>desde el ${escapeHtml(fechaLargaLabel(d.lookbackFrom))}</b> — los 90 días que retiene CloudTrail.</p>`
+          : "";
+        // PERSONAS arriba y automatismos abajo, separados con su etiqueta: en EC2
+        // quien ejecuta la acción casi siempre es un rol de servicio, y mezclarlo
+        // todo sepulta al humano que disparó la cadena. La hora ayuda a leerla:
+        // el `RunInstances` automático cae segundos después de la acción humana.
+        // Se muestra el NOMBRE y el correo queda como aclaración (title): una
+        // lista de usr0421xx no dice quién es nadie. Lo resuelve el directorio
+        // compartido contra Identity Center; si no resuelve, cae al correo.
+        const fila = (a) => `
+          <div class="homeRespRow ${a.automatic ? "isAuto" : ""}">
+            <span class="homeRespActor"${a.actorName ? ` title="${escapeAttribute(a.actor)}"` : ""}>${
+              escapeHtml(a.actorName || a.actor)}${
+              a.automatic ? `<span class="homeRespAuto" title="${escapeAttribute(
+                a.invokedBy ? `Lo ejecutó el servicio ${a.invokedBy}` : "Rol vinculado a un servicio de AWS")}">automático</span>` : ""}</span>
+            <span class="homeTopMeta">${a.actions.map((x) => `${escapeHtml(x.action)}×${x.count}`).join(", ")}${
+              a.instances && a.instances.length ? ` · ${a.instances.map(escapeHtml).join(", ")}` : ""}${
+              a.last ? ` · ${escapeHtml(homeDateTimeLabel(a.last))}` : ""}
+          </div>`;
+        const personas = d.actors.filter((a) => !a.automatic);
+        const autos = d.actors.filter((a) => a.automatic);
+        const bloques = [
+          personas.length ? `<p class="homeRespGroup">Personas</p>${personas.map(fila).join("")}` : "",
+          autos.length ? `<p class="homeRespGroup">Automático (servicios de AWS)</p>${autos.map(fila).join("")}` : "",
+        ].filter(Boolean).join("");
+        const pista = personas.length
+          ? `Atribución por <b>acción</b>, no por dólar. Si el gasto lo levantó un automatismo, la persona de arriba es quien lo disparó.`
+          : `Solo aparecen automatismos: el gasto lo levantó un servicio de AWS y la acción humana que lo originó cae fuera del día o de los 90 días de CloudTrail.`;
+        return `<div class="homeRespBox"><h4>Responsables (CloudTrail)</h4>${aviso}${bloques}<p class="homeCostHint">${pista}</p></div>`;
       }
 
       async function loadResponsibles() {
@@ -820,6 +962,19 @@ export function createHomeModule(ctx) {
       function toggleDailyDay(date) {
         // Cambiar de día cierra cualquier drill de tipo de uso abierto.
         state.homeDailyOpenDate = state.homeDailyOpenDate === date ? null : date;
+        state.homeDailyDetailKey = null;
+        state.homeDailyDetail = null;
+        state.homeDailyDetailError = "";
+        clearResponsibles();
+        repaintCostPanel();
+      }
+
+      // Cambiar entre "Lo que subió" y "Todo el día". Cierra el drill de tipo de
+      // uso abierto: puede pertenecer a un servicio que el otro modo ni lista.
+      function setDailyMode(modo) {
+        if (modo !== "risers" && modo !== "all") return;
+        if (state.homeDailyMode === modo) return;
+        state.homeDailyMode = modo;
         state.homeDailyDetailKey = null;
         state.homeDailyDetail = null;
         state.homeDailyDetailError = "";
@@ -1504,6 +1659,9 @@ export function createHomeModule(ctx) {
         }
         for (const btn of elements.contentPanel.querySelectorAll("[data-daily-detail]")) {
           btn.addEventListener("click", (e) => { e.stopPropagation(); loadDailyServiceDetail(btn.dataset.dailyDetail); });
+        }
+        for (const btn of elements.contentPanel.querySelectorAll("[data-daily-mode]")) {
+          btn.addEventListener("click", (e) => { e.stopPropagation(); setDailyMode(btn.dataset.dailyMode); });
         }
         const respBtn = elements.contentPanel.querySelector("[data-load-responsibles]");
         if (respBtn) respBtn.addEventListener("click", (e) => { e.stopPropagation(); loadResponsibles(); });

@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import boto3
@@ -11,6 +11,7 @@ from core.errors import ValidationError
 from repositories.catalog import CatalogRepository
 from repositories.home import HomeRepository
 from repositories.workspace import WorkspaceRepository
+from services.name_directory import NameDirectory
 
 
 def _load_cost_accounts() -> dict[str, dict[str, Any]]:
@@ -51,7 +52,35 @@ SERVICE_EVENTS = {
         "CreateHyperParameterTuningJob", "StartPipelineExecution",
         "CreateEndpoint", "CreateNotebookInstance",
     ],
+    # EC2 (2026-08-05): incluye los eventos que ORIGINAN el gasto, no solo el
+    # último eslabón. En EC2 quien ejecuta `RunInstances` casi siempre es un rol
+    # de servicio (AutoScaling, Batch): responder "AutoScaling" es cierto e
+    # inútil. Caso real: un volumen io1 de 50.000 IOPS ($3.250/mes) nació de un
+    # `UpdateComputeEnvironment` que una persona hizo 29 s antes del
+    # `RunInstances`. Ojo: un disco creado en el arranque NO genera
+    # `CreateVolume` — viaja dentro del blockDeviceMapping de `RunInstances`.
+    "EC2 - Other": [
+        "RunInstances", "CreateVolume", "ModifyVolume", "CreateAutoScalingGroup",
+        "UpdateComputeEnvironment", "CreateComputeEnvironment", "SubmitJob",
+    ],
+    "Amazon Elastic Compute Cloud - Compute": [
+        "RunInstances", "CreateAutoScalingGroup", "UpdateComputeEnvironment",
+        "CreateComputeEnvironment", "SubmitJob",
+    ],
+    "AWS Glue": ["StartJobRun", "CreateJob", "StartCrawler", "CreateCrawler", "StartWorkflowRun"],
+    "Amazon Athena": ["StartQueryExecution"],
+    "AWS DataSync": ["StartTaskExecution", "CreateTask"],
+    "Amazon Managed Workflows for Apache Airflow": ["CreateEnvironment", "UpdateEnvironment"],
+    "Amazon Elastic Container Service": ["RunTask", "CreateService", "UpdateService"],
 }
+
+# Servicios cuyo costo SÍ nace de una acción puntual que CloudTrail registra.
+# El frontend lo usa para no ofrecer el botón donde no hay nada que buscar
+# (fuente única: se publica desde aquí, no se duplica en el front).
+ATTRIBUTABLE_SERVICES = sorted(SERVICE_EVENTS)
+
+# Retención de CloudTrail: más atrás no hay nada que buscar.
+_LOOKBACK_DAYS = 90
 
 
 class HomeService:
@@ -550,16 +579,40 @@ class HomeService:
 
         client = self._client(account, "cloudtrail")
         data = self._fetch_responsibles(client, events, start, end)
+        # Si ESE día nadie hizo nada, se busca HACIA ATRÁS. Un recurso encendido
+        # se crea una vez y cobra todos los días: el volumen io1 de 50.000 IOPS
+        # nació el 24-jul y el 4-ago no tiene un solo evento, así que preguntar
+        # solo por el día respondía "sin acciones" en el gasto MÁS grande del día
+        # (2026-08-05). Se mira el máximo que retiene CloudTrail (90 días) y se
+        # marca `lookback` para que la pantalla diga que la acción es anterior.
+        if not data.get("actors"):
+            desde_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc) - timedelta(days=_LOOKBACK_DAYS)
+            desde = desde_dt.strftime("%Y-%m-%d")
+            # Menos páginas: LookupEvents devuelve lo más reciente primero, y para
+            # saber QUIÉN creó algo no hace falta barrer 90 días completos.
+            previo = self._fetch_responsibles(client, events, desde, end, max_pages=3)
+            if previo.get("actors"):
+                previo["lookback"] = True
+                previo["lookbackFrom"] = desde
+                data = previo
         data["supported"] = True
         data["service"] = service
         data["account"] = account
         now = self._now()
-        self._costs.put_cost_cache(key, self._encode(data), now)
+        # Una respuesta VACÍA no se cachea (2026-08-05). Cachearla no ahorra nada
+        # —no hay dato que reusar— y en cambio congela un "no encontré nada" que
+        # puede deberse a que el código aún no sabía dónde buscar: al agregar la
+        # búsqueda hacia atrás, los usuarios seguían viendo el vacío guardado
+        # horas antes, porque la caché corta ANTES de consultar. Sin actores se
+        # vuelve a preguntar, que es barato (2 s) y raro.
+        if data.get("actors"):
+            self._costs.put_cost_cache(key, self._encode(data), now)
         data["cached"] = False
         data["fetchedAt"] = now
         return data
 
-    def _fetch_responsibles(self, client, events: list[str], start: str, end: str) -> dict[str, Any]:
+    def _fetch_responsibles(self, client, events: list[str], start: str, end: str,
+                            max_pages: int = 10) -> dict[str, Any]:
         start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         actors: dict[str, dict[str, Any]] = {}
@@ -578,24 +631,46 @@ class HomeService:
                 except Exception:
                     break
                 for ev in resp.get("Events", []):
-                    actor, instance = self._parse_event(ev)
-                    entry = actors.setdefault(actor, {"actor": actor, "count": 0, "actions": {}, "instances": {}})
+                    actor, instance, automatic, invoked_by = self._parse_event(ev)
+                    entry = actors.setdefault(actor, {"actor": actor, "count": 0, "actions": {},
+                                                      "instances": {}, "automatic": automatic,
+                                                      "invokedBy": invoked_by, "last": ""})
                     entry["count"] += 1
                     entry["actions"][name] = entry["actions"].get(name, 0) + 1
                     if instance:
                         entry["instances"][instance] = entry["instances"].get(instance, 0) + 1
+                    # La hora del evento más reciente permite encadenar: el
+                    # `RunInstances` automático cae segundos después de la acción
+                    # humana que lo disparó, y verlo juntos cuenta la historia.
+                    ts = ev.get("EventTime")
+                    iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
+                    if iso > entry["last"]:
+                        entry["last"] = iso
                 token = resp.get("NextToken")
                 pages += 1
-                if not token or pages >= 10:
+                if not token or pages >= max_pages:
                     break
-        result = sorted(actors.values(), key=lambda a: a["count"], reverse=True)
+        # Las PERSONAS primero: son la respuesta a "quién", y si van mezcladas
+        # por conteo los roles de servicio (que disparan mucho más) las tapan.
+        result = sorted(actors.values(), key=lambda a: (a["automatic"], -a["count"]))
+        # Nombre para mostrar en vez del correo (2026-08-05). Se reusa el
+        # directorio compartido —el mismo que ya nombra al autor de un
+        # seguimiento y a quien lanzó una consulta de Athena—, que resuelve
+        # contra Identity Center y cachea: tras el primer resolve casi no llama.
+        correos = [a["actor"] for a in result if "@" in a["actor"]]
+        if correos:
+            nombres = NameDirectory().resolve(correos)
+            for a in result:
+                a["actorName"] = nombres.get(a["actor"], "")
         # Convierte los dicts de actions/instances a listas legibles.
         for a in result:
             a["actions"] = [{"action": k, "count": v} for k, v in sorted(a["actions"].items(), key=lambda x: -x[1])]
             a["instances"] = [k for k, _ in sorted(a["instances"].items(), key=lambda x: -x[1])]
-        return {"actors": result}
+        return {"actors": result,
+                "humanos": sum(1 for a in result if not a["automatic"]),
+                "automaticos": sum(1 for a in result if a["automatic"])}
 
-    def _parse_event(self, ev: dict[str, Any]) -> tuple[str, str]:
+    def _parse_event(self, ev: dict[str, Any]) -> tuple[str, str, bool, str]:
         import json as _json
         try:
             raw = _json.loads(ev.get("CloudTrailEvent", "{}"))
@@ -612,14 +687,25 @@ class HomeService:
             or ident.get("type")
             or "desconocido"
         )
+        # ¿Lo hizo una PERSONA o un automatismo? Sin separarlos, la respuesta más
+        # frecuente es un rol de servicio ("AutoScaling") y el humano que disparó
+        # la cadena queda sepultado entre ruido (2026-08-05).
+        # La marca de persona es el CORREO, y eso no es una heurística suelta:
+        # es la regla de la organización — los humanos entran por SSO federado y
+        # las aplicaciones por rol, no hay usuarios IAM. Sin ella, un rol de
+        # Lambda como `neptune-export-c7a8c4e0` pasaba por persona (medido).
+        invoked_by = ident.get("invokedBy") or ""
+        arn = ident.get("arn", "") or ""
+        es_persona = "@" in actor or ident.get("type") == "IAMUser"
+        automatic = not es_persona or bool(invoked_by) or "AWSServiceRoleFor" in arn
         # Tipo de instancia si aparece en el request (apps/jobs).
         instance = (
             (rp.get("resourceSpec") or {}).get("instanceType")
             or ((rp.get("processingResources") or {}).get("clusterConfig") or {}).get("instanceType")
             or (rp.get("resourceConfig") or {}).get("instanceType")
-            or ""
+            or (rp.get("instanceType") or "")
         )
-        return actor, instance
+        return actor, instance, automatic, invoked_by
 
     def get_daily_by_service(self, account: str, start: str, end: str,
                              force: bool = False, cached_only: bool = False) -> dict[str, Any]:
@@ -645,6 +731,9 @@ class HomeService:
                     data = self._decode(cached.get("data") or {})
                     data["cached"] = True
                     data["fetchedAt"] = fetched_at
+                    # FUERA del blob cacheado a propósito: si mañana se mapea un
+                    # servicio más, las cachés viejas lo reflejan igual.
+                    data["attributable"] = ATTRIBUTABLE_SERVICES
                     return data
 
         # Modo solo-caché: no hay dato fresco y no se debe gastar una consulta.
@@ -660,6 +749,7 @@ class HomeService:
         self._costs.put_cost_cache(key, self._encode(data), now)
         data["cached"] = False
         data["fetchedAt"] = now
+        data["attributable"] = ATTRIBUTABLE_SERVICES
         return data
 
     def _fetch_daily_by_service(self, client, start: str, end: str) -> dict[str, Any]:

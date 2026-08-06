@@ -181,6 +181,11 @@
         homeDetailCollapsed: false,
         homeCostServiceSearch: "",  // filtro de "Detalle por servicio" (busca en la lista completa)
         homeDailyCollapsed: false,
+        // Detalle de un día: "risers" (lo que subió, ordenado por aumento — para
+        // cazar picos) o "all" (todo el día, ordenado por gasto — para ver en qué
+        // se va el dinero). Un solo criterio de orden por modo: mezclarlos hunde
+        // al servicio culpable detrás del gasto de fondo (2026-08-05).
+        homeDailyMode: "risers",
         homeCreditsCollapsed: false,
         // Consumo de modelos LLM (Bedrock/Mantle) de la cuenta seleccionada.
         homeLlm: null,

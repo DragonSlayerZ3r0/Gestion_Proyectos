@@ -143,6 +143,24 @@
   .homeTopRow { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0 7px 26px; border-bottom: 1px solid var(--line); font-size: 0.84rem; }
   .homeTopMeta { color: var(--muted); }
   .homeCredit { color: #1e7a3c; font-weight: 600; }
+  /* Encabezado y pie del detalle de un día. El encabezado avisa que la lista son
+     SOLO los servicios que subieron (no el desglose del día) y el pie reconcilia
+     subidas − bajadas = variación: sin eso la cuenta no cierra a la vista y el
+     usuario cree que faltan datos (2026-08-05). */
+  .homeDayModes { margin: 4px 0 8px 16px; font-size: 0.76rem; }
+  .homeDayNote { margin: 2px 0 8px; padding-left: 16px; color: var(--muted); font-size: 0.78rem; line-height: 1.45; }
+  .homeDayNote b { color: var(--text); font-weight: 600; }
+  .homeDayReconc {
+    display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: baseline;
+    margin: 8px 0 2px; padding: 8px 10px 8px 16px;
+    border-top: 1px solid var(--line); background: var(--surface-muted);
+    border-radius: 0 0 6px 6px; font-size: 0.78rem; color: var(--muted);
+  }
+  .homeDayReconc b { font-variant-numeric: tabular-nums; }
+  .homeDayReconcTotal { margin-left: auto; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  @media (max-width: 780px) {
+    .homeDayReconcTotal { margin-left: 0; width: 100%; }
+  }
   /* Detalle por servicio (desglose por tipo de uso) */
   .homeSvcRow { border-bottom: 1px solid var(--line); padding: 7px 0 7px 16px; }
   .homeSvcMain { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; }
@@ -179,6 +197,14 @@
   .homeRespRow { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 0.82rem; }
   .homeRespRow:last-child { border-bottom: none; }
   .homeRespActor { font-weight: 600; overflow-wrap: anywhere; }
+  /* Persona vs. automatismo: en EC2 el actor directo casi siempre es un rol de
+     servicio, y sin separarlos el humano que disparó la cadena se pierde. */
+  .homeRespLookback { margin: 0 0 8px; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 6px 6px 0; font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+  .homeRespLookback b { color: var(--text); }
+  .homeRespGroup { margin: 8px 0 2px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); }
+  .homeRespGroup:first-child { margin-top: 0; }
+  .homeRespRow.isAuto .homeRespActor { font-weight: 500; color: var(--muted); }
+  .homeRespAuto { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--panel); color: var(--muted); font-size: 0.68rem; font-weight: 500; white-space: nowrap; }
   /* Variación diaria (detección de picos) */
   .homeDailyHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .homeDailyFreshness { font-size: 0.78rem; color: var(--muted); margin: 2px 0 8px; }
